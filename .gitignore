@@ -1,3 +1,7 @@
+/.agents/skills
+/.claude/skills
+/.cursor/skills
+/.junie/skills
 /.phpunit.cache
 /bootstrap/ssr
 /node_modules
@@ -18,6 +22,8 @@
 .env.production
 .phpactor.json
 .phpunit.result.cache
+Agents.md
+Claude.md
 Homestead.json
 Homestead.yaml
 npm-debug.log

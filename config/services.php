@@ -50,4 +50,11 @@ return [
         'transaction_days' => (int) env('ENABLE_BANKING_TRANSACTION_DAYS', 30),
     ],
 
+    'statement_embeddings' => [
+        'provider' => env('STATEMENT_EMBEDDINGS_PROVIDER'),
+        'model' => env('STATEMENT_EMBEDDINGS_MODEL'),
+        'dimensions' => (int) env('STATEMENT_EMBEDDINGS_DIMENSIONS', 1536),
+        'batch_size' => (int) env('STATEMENT_EMBEDDINGS_BATCH_SIZE', 50),
+    ],
+
 ];
