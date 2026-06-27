@@ -25,6 +25,8 @@ test('security page is displayed', function () {
             ->component('settings/security')
             ->where('canManagePasskeys', true)
             ->where('passkeys', [])
+            ->where('personalAccessTokens', [])
+            ->where('plainTextPersonalAccessToken', null)
             ->where('canManageTwoFactor', true)
             ->where('twoFactorEnabled', false),
         );
@@ -61,6 +63,8 @@ test('security page renders without two factor when feature is disabled', functi
             ->component('settings/security')
             ->where('canManagePasskeys', false)
             ->where('passkeys', [])
+            ->where('personalAccessTokens', [])
+            ->where('plainTextPersonalAccessToken', null)
             ->where('canManageTwoFactor', false)
             ->missing('twoFactorEnabled')
             ->missing('requiresConfirmation'),

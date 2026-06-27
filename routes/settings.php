@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Settings\PersonalAccessTokenController;
 use App\Http\Controllers\Settings\ProfileController;
 use App\Http\Controllers\Settings\SecurityController;
 use Illuminate\Auth\Middleware\RequirePassword;
@@ -22,6 +23,14 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::put('settings/password', [SecurityController::class, 'update'])
         ->middleware('throttle:6,1')
         ->name('user-password.update');
+
+    Route::post('settings/personal-access-tokens', [PersonalAccessTokenController::class, 'store'])
+        ->middleware('throttle:6,1')
+        ->name('personal-access-tokens.store');
+
+    Route::delete('settings/personal-access-tokens/{token}', [PersonalAccessTokenController::class, 'destroy'])
+        ->whereNumber('token')
+        ->name('personal-access-tokens.destroy');
 
     Route::inertia('settings/appearance', 'settings/appearance')->name('appearance.edit');
 });

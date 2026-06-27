@@ -5,6 +5,8 @@ import Heading from '@/components/heading';
 import InputError from '@/components/input-error';
 import type { Props as ManagePasskeysProps } from '@/components/manage-passkeys';
 import ManagePasskeys from '@/components/manage-passkeys';
+import ManagePersonalAccessTokens from '@/components/manage-personal-access-tokens';
+import type { Props as ManagePersonalAccessTokensProps } from '@/components/manage-personal-access-tokens';
 import type { Props as ManageTwoFactorProps } from '@/components/manage-two-factor';
 import ManageTwoFactor from '@/components/manage-two-factor';
 import PasswordInput from '@/components/password-input';
@@ -15,6 +17,7 @@ import { edit } from '@/routes/security';
 type Props = {
     passwordRules: string;
 } & ManagePasskeysProps &
+    ManagePersonalAccessTokensProps &
     ManageTwoFactorProps;
 
 export default function Security(props: Props) {
@@ -132,6 +135,13 @@ export default function Security(props: Props) {
             <ManagePasskeys
                 canManagePasskeys={props.canManagePasskeys}
                 passkeys={props.passkeys}
+            />
+
+            <ManagePersonalAccessTokens
+                personalAccessTokens={props.personalAccessTokens}
+                plainTextPersonalAccessToken={
+                    props.plainTextPersonalAccessToken
+                }
             />
         </>
     );

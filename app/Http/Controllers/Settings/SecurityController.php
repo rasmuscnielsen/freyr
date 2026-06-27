@@ -37,6 +37,20 @@ class SecurityController extends Controller
                     ->values()
                     ->all()
                 : [],
+            'personalAccessTokens' => $request->user()
+                ->tokens()
+                ->select(['id', 'name', 'created_at', 'last_used_at'])
+                ->latest()
+                ->get()
+                ->map(fn ($token) => [
+                    'id' => $token->id,
+                    'name' => $token->name,
+                    'created_at_diff' => $token->created_at->diffForHumans(),
+                    'last_used_at_diff' => $token->last_used_at?->diffForHumans(),
+                ])
+                ->values()
+                ->all(),
+            'plainTextPersonalAccessToken' => $request->session()->get('plainTextPersonalAccessToken'),
             'passwordRules' => Password::defaults()->toPasswordRulesString(),
         ];
 

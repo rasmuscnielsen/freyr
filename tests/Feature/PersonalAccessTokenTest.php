@@ -1,0 +1,67 @@
+<?php
+
+use App\Models\User;
+use Inertia\Testing\AssertableInertia as Assert;
+
+test('personal access tokens are listed on the security page', function () {
+    $user = User::factory()->create();
+    $user->createToken('Local reports', ['read']);
+
+    $this->actingAs($user)
+        ->withSession(['auth.password_confirmed_at' => time()])
+        ->get(route('security.edit'))
+        ->assertInertia(fn (Assert $page) => $page
+            ->component('settings/security')
+            ->has('personalAccessTokens', 1)
+            ->where('personalAccessTokens.0.name', 'Local reports')
+            ->where('personalAccessTokens.0.last_used_at_diff', null),
+        );
+});
+
+test('personal access tokens can be created', function () {
+    $user = User::factory()->create();
+
+    $response = $this
+        ->actingAs($user)
+        ->from(route('security.edit'))
+        ->post(route('personal-access-tokens.store'), [
+            'name' => 'Local scripts',
+        ]);
+
+    $response
+        ->assertSessionHasNoErrors()
+        ->assertSessionHas('plainTextPersonalAccessToken')
+        ->assertRedirect(route('security.edit'));
+
+    $token = $user->tokens()->sole();
+
+    expect($token->name)->toBe('Local scripts')
+        ->and($token->can('read'))->toBeTrue();
+});
+
+test('personal access tokens can be revoked', function () {
+    $user = User::factory()->create();
+    $token = $user->createToken('Old token', ['read'])->accessToken;
+
+    $this
+        ->actingAs($user)
+        ->from(route('security.edit'))
+        ->delete(route('personal-access-tokens.destroy', $token))
+        ->assertSessionHasNoErrors()
+        ->assertRedirect(route('security.edit'));
+
+    expect($user->tokens()->count())->toBe(0);
+});
+
+test('users cannot revoke another users personal access token', function () {
+    $user = User::factory()->create();
+    $otherUser = User::factory()->create();
+    $token = $otherUser->createToken('Other token', ['read'])->accessToken;
+
+    $this
+        ->actingAs($user)
+        ->delete(route('personal-access-tokens.destroy', $token))
+        ->assertNotFound();
+
+    expect($otherUser->tokens()->count())->toBe(1);
+});
