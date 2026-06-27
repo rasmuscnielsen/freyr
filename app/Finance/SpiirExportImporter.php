@@ -84,18 +84,12 @@ class SpiirExportImporter
     {
         $this->importCategories($path);
 
-        dump('imported categories');
-
         return DB::transaction(function () use ($path): array {
             $user = $this->resolveUser($path);
 
-            dump('imported user');
             $accounts = $this->importAccounts($path, $user);
-            dump('imported accounts');
             $postings = $this->importPostings($path, $user, $accounts);
-            dump('imported postings');
             $counterEntries = $this->resolveCounterEntryPostings();
-            dump('imported counter entries');
 
             return [
                 'user_id' => $user->id,
