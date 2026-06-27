@@ -1,5 +1,11 @@
 import { Head, router } from '@inertiajs/react';
-import { Link2, RefreshCw, ShieldAlert, Unplug, WalletCards } from 'lucide-react';
+import {
+    Link2,
+    RefreshCw,
+    ShieldAlert,
+    Unplug,
+    WalletCards,
+} from 'lucide-react';
 import { useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -72,7 +78,9 @@ type Props = {
     };
 };
 
-function statusVariant(status: string): 'default' | 'secondary' | 'destructive' | 'outline' {
+function statusVariant(
+    status: string,
+): 'default' | 'secondary' | 'destructive' | 'outline' {
     if (['failed', 'renewal_required'].includes(status)) {
         return 'destructive';
     }
@@ -88,10 +96,16 @@ function statusVariant(status: string): 'default' | 'secondary' | 'destructive' 
     return 'default';
 }
 
-export default function BankConnections({ connections, bankAccounts, defaults }: Props) {
+export default function BankConnections({
+    connections,
+    bankAccounts,
+    defaults,
+}: Props) {
     const [aspspName, setAspspName] = useState(defaults.aspsp_name);
     const [aspspCountry, setAspspCountry] = useState(defaults.aspsp_country);
-    const [selectedAccounts, setSelectedAccounts] = useState<Record<number, string>>({});
+    const [selectedAccounts, setSelectedAccounts] = useState<
+        Record<number, string>
+    >({});
     const [createNames, setCreateNames] = useState<Record<number, string>>({});
 
     const connect = () => {
@@ -116,7 +130,9 @@ export default function BankConnections({ connections, bankAccounts, defaults }:
     };
 
     const ignore = (account: RemoteAccount) => {
-        router.patch(updateConnectionAccount.url(account.id), { mode: 'ignore' });
+        router.patch(updateConnectionAccount.url(account.id), {
+            mode: 'ignore',
+        });
     };
 
     const sync = (account: RemoteAccount) => {
@@ -137,7 +153,8 @@ export default function BankConnections({ connections, bankAccounts, defaults }:
                             Bank connections
                         </h1>
                         <p className="text-sm text-muted-foreground">
-                            Connect banks through Enable Banking and link remote accounts to local accounts.
+                            Connect banks through Enable Banking and link remote
+                            accounts to local accounts.
                         </p>
                     </div>
                 </div>
@@ -152,7 +169,9 @@ export default function BankConnections({ connections, bankAccounts, defaults }:
                             <Input
                                 id="aspsp_name"
                                 value={aspspName}
-                                onChange={(event) => setAspspName(event.target.value)}
+                                onChange={(event) =>
+                                    setAspspName(event.target.value)
+                                }
                             />
                         </div>
                         <div className="grid gap-2">
@@ -161,7 +180,11 @@ export default function BankConnections({ connections, bankAccounts, defaults }:
                                 id="aspsp_country"
                                 value={aspspCountry}
                                 maxLength={2}
-                                onChange={(event) => setAspspCountry(event.target.value.toUpperCase())}
+                                onChange={(event) =>
+                                    setAspspCountry(
+                                        event.target.value.toUpperCase(),
+                                    )
+                                }
                             />
                         </div>
                         <Button onClick={connect}>
@@ -177,14 +200,22 @@ export default function BankConnections({ connections, bankAccounts, defaults }:
                             <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                                 <CardTitle className="flex items-center gap-2">
                                     <WalletCards className="size-5" />
-                                    {connection.aspsp_name} ({connection.aspsp_country})
+                                    {connection.aspsp_name} (
+                                    {connection.aspsp_country})
                                 </CardTitle>
                                 <div className="flex flex-wrap items-center gap-2">
-                                    <Badge variant={statusVariant(connection.status)}>
+                                    <Badge
+                                        variant={statusVariant(
+                                            connection.status,
+                                        )}
+                                    >
                                         {connection.status.replace('_', ' ')}
                                     </Badge>
                                     {connection.needs_renewal && (
-                                        <Button variant="outline" onClick={() => renew(connection)}>
+                                        <Button
+                                            variant="outline"
+                                            onClick={() => renew(connection)}
+                                        >
                                             <RefreshCw className="size-4" />
                                             Renew
                                         </Button>
@@ -193,12 +224,14 @@ export default function BankConnections({ connections, bankAccounts, defaults }:
                             </div>
                         </CardHeader>
                         <CardContent className="space-y-5">
-                            {(connection.failure_code || connection.failure_message) && (
+                            {(connection.failure_code ||
+                                connection.failure_message) && (
                                 <div className="flex gap-2 rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
                                     <ShieldAlert className="mt-0.5 size-4 shrink-0" />
                                     <div>
                                         <div className="font-medium">
-                                            {connection.failure_code ?? 'Connection failed'}
+                                            {connection.failure_code ??
+                                                'Connection failed'}
                                         </div>
                                         <div>{connection.failure_message}</div>
                                     </div>
@@ -214,52 +247,85 @@ export default function BankConnections({ connections, bankAccounts, defaults }:
                                         <div>
                                             <div className="flex flex-wrap items-center gap-2">
                                                 <h3 className="font-medium">
-                                                    {account.details ?? account.name}
+                                                    {account.details ??
+                                                        account.name}
                                                 </h3>
-                                                <Badge variant={statusVariant(account.status)}>
-                                                    {account.status.replace('_', ' ')}
+                                                <Badge
+                                                    variant={statusVariant(
+                                                        account.status,
+                                                    )}
+                                                >
+                                                    {account.status.replace(
+                                                        '_',
+                                                        ' ',
+                                                    )}
                                                 </Badge>
                                             </div>
                                             <p className="text-sm text-muted-foreground">
-                                                {account.product ?? 'Account'} · {account.currency}
+                                                {account.product ?? 'Account'} ·{' '}
+                                                {account.currency}
                                                 {account.account_number_last_four
                                                     ? ` · *${account.account_number_last_four}`
                                                     : ''}
                                             </p>
                                             <p className="text-sm text-muted-foreground">
                                                 Linked to:{' '}
-                                                {account.bank_account?.name ?? 'Not linked'} · Last transaction:{' '}
-                                                {account.last_transaction_date ?? 'Never'}
+                                                {account.bank_account?.name ??
+                                                    'Not linked'}{' '}
+                                                · Last transaction:{' '}
+                                                {account.last_transaction_date ??
+                                                    'Never'}
                                             </p>
                                         </div>
 
                                         <div className="grid gap-2">
                                             <select
                                                 className="h-9 rounded-md border bg-background px-3 text-sm"
-                                                value={selectedAccounts[account.id] ?? ''}
+                                                value={
+                                                    selectedAccounts[
+                                                        account.id
+                                                    ] ?? ''
+                                                }
                                                 onChange={(event) =>
                                                     setSelectedAccounts({
                                                         ...selectedAccounts,
-                                                        [account.id]: event.target.value,
+                                                        [account.id]:
+                                                            event.target.value,
                                                     })
                                                 }
                                             >
-                                                <option value="">Choose local account</option>
-                                                {bankAccounts.map((bankAccount) => (
-                                                    <option key={bankAccount.id} value={bankAccount.id}>
-                                                        {bankAccount.bank_name
-                                                            ? `${bankAccount.bank_name} · ${bankAccount.name}`
-                                                            : bankAccount.name}
-                                                    </option>
-                                                ))}
+                                                <option value="">
+                                                    Choose local account
+                                                </option>
+                                                {bankAccounts.map(
+                                                    (bankAccount) => (
+                                                        <option
+                                                            key={bankAccount.id}
+                                                            value={
+                                                                bankAccount.id
+                                                            }
+                                                        >
+                                                            {bankAccount.bank_name
+                                                                ? `${bankAccount.bank_name} · ${bankAccount.name}`
+                                                                : bankAccount.name}
+                                                        </option>
+                                                    ),
+                                                )}
                                             </select>
                                             <Input
-                                                placeholder={account.details ?? account.name}
-                                                value={createNames[account.id] ?? ''}
+                                                placeholder={
+                                                    account.details ??
+                                                    account.name
+                                                }
+                                                value={
+                                                    createNames[account.id] ??
+                                                    ''
+                                                }
                                                 onChange={(event) =>
                                                     setCreateNames({
                                                         ...createNames,
-                                                        [account.id]: event.target.value,
+                                                        [account.id]:
+                                                            event.target.value,
                                                     })
                                                 }
                                             />
@@ -268,22 +334,39 @@ export default function BankConnections({ connections, bankAccounts, defaults }:
                                         <div className="flex flex-wrap gap-2 lg:justify-end">
                                             <Button
                                                 variant="outline"
-                                                onClick={() => linkExisting(account)}
-                                                disabled={!selectedAccounts[account.id]}
+                                                onClick={() =>
+                                                    linkExisting(account)
+                                                }
+                                                disabled={
+                                                    !selectedAccounts[
+                                                        account.id
+                                                    ]
+                                                }
                                             >
                                                 Link
                                             </Button>
-                                            <Button variant="outline" onClick={() => createAndLink(account)}>
+                                            <Button
+                                                variant="outline"
+                                                onClick={() =>
+                                                    createAndLink(account)
+                                                }
+                                            >
                                                 Create
                                             </Button>
                                             <Button
                                                 onClick={() => sync(account)}
-                                                disabled={account.bank_account === null}
+                                                disabled={
+                                                    account.bank_account ===
+                                                    null
+                                                }
                                             >
                                                 <RefreshCw className="size-4" />
                                                 Sync
                                             </Button>
-                                            <Button variant="ghost" onClick={() => ignore(account)}>
+                                            <Button
+                                                variant="ghost"
+                                                onClick={() => ignore(account)}
+                                            >
                                                 <Unplug className="size-4" />
                                                 Ignore
                                             </Button>
@@ -294,7 +377,9 @@ export default function BankConnections({ connections, bankAccounts, defaults }:
 
                             {connection.sync_runs.length > 0 && (
                                 <div className="space-y-2">
-                                    <h3 className="text-sm font-medium">Recent syncs</h3>
+                                    <h3 className="text-sm font-medium">
+                                        Recent syncs
+                                    </h3>
                                     <div className="grid gap-2">
                                         {connection.sync_runs.map((run) => (
                                             <div
@@ -302,15 +387,26 @@ export default function BankConnections({ connections, bankAccounts, defaults }:
                                                 className="flex flex-wrap items-center justify-between gap-2 rounded-md bg-muted px-3 py-2 text-sm"
                                             >
                                                 <div className="flex items-center gap-2">
-                                                    <Badge variant={statusVariant(run.status)}>
+                                                    <Badge
+                                                        variant={statusVariant(
+                                                            run.status,
+                                                        )}
+                                                    >
                                                         {run.status}
                                                     </Badge>
                                                     <span>
-                                                        {run.date_from ?? '?'} to {run.date_to ?? '?'}
+                                                        {run.date_from ?? '?'}{' '}
+                                                        to {run.date_to ?? '?'}
                                                     </span>
                                                 </div>
                                                 <span className="text-muted-foreground">
-                                                    +{run.new_postings_count} / updated {run.updated_postings_count} / duplicate {run.duplicate_postings_count}
+                                                    +{run.new_postings_count} /
+                                                    updated{' '}
+                                                    {run.updated_postings_count}{' '}
+                                                    / duplicate{' '}
+                                                    {
+                                                        run.duplicate_postings_count
+                                                    }
                                                 </span>
                                             </div>
                                         ))}

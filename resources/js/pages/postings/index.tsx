@@ -5,7 +5,10 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
-import { index as postingsIndex, update as updatePosting } from '@/routes/postings';
+import {
+    index as postingsIndex,
+    update as updatePosting,
+} from '@/routes/postings';
 
 type Account = {
     id: number;
@@ -401,15 +404,11 @@ export default function Postings({
                                         tabIndex={0}
                                         data-posting-row={rowIndex}
                                         onKeyDown={(event) =>
-                                            rowKeyDown(
-                                                event,
-                                                posting,
-                                                rowIndex,
-                                            )
+                                            rowKeyDown(event, posting, rowIndex)
                                         }
                                         className="border-t outline-none odd:bg-muted/25 focus:bg-accent"
                                     >
-                                        <td className="whitespace-nowrap px-3 py-2 text-muted-foreground">
+                                        <td className="px-3 py-2 whitespace-nowrap text-muted-foreground">
                                             {posting.date}
                                         </td>
                                         <td className="px-3 py-2">
@@ -481,7 +480,7 @@ export default function Postings({
                                         </td>
                                         <td
                                             className={cn(
-                                                'whitespace-nowrap px-3 py-2 text-right font-medium',
+                                                'px-3 py-2 text-right font-medium whitespace-nowrap',
                                                 posting.amount < 0
                                                     ? 'text-orange-600 dark:text-orange-400'
                                                     : 'text-emerald-600 dark:text-emerald-400',

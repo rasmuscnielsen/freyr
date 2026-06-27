@@ -53,7 +53,9 @@ export default function ManagePersonalAccessTokens(props: Props) {
                     <AlertTitle>Token created</AlertTitle>
                     <AlertDescription>
                         <div className="flex w-full flex-col gap-3">
-                            <p>Copy this token now. It will not be shown again.</p>
+                            <p>
+                                Copy this token now. It will not be shown again.
+                            </p>
                             <div className="flex gap-2">
                                 <Input
                                     readOnly
@@ -66,7 +68,8 @@ export default function ManagePersonalAccessTokens(props: Props) {
                                     size="icon"
                                     onClick={() =>
                                         copy(
-                                            props.plainTextPersonalAccessToken ?? '',
+                                            props.plainTextPersonalAccessToken ??
+                                                '',
                                         )
                                     }
                                     aria-label="Copy token"

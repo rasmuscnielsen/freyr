@@ -167,10 +167,7 @@ export default function Dashboard({
                         </SelectTrigger>
                         <SelectContent>
                             {period.options.map((option) => (
-                                <SelectItem
-                                    key={option}
-                                    value={String(option)}
-                                >
+                                <SelectItem key={option} value={String(option)}>
                                     {option} months
                                 </SelectItem>
                             ))}
@@ -215,7 +212,10 @@ export default function Dashboard({
                                             )
                                         }
                                     />
-                                    <ReferenceLine y={0} stroke="var(--border)" />
+                                    <ReferenceLine
+                                        y={0}
+                                        stroke="var(--border)"
+                                    />
                                     <Tooltip content={chartTooltip} />
                                     <Bar
                                         dataKey="income"

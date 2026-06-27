@@ -335,7 +335,7 @@ function AccountCard({
             tabIndex={0}
             onClick={openPostings}
             onKeyDown={handleKeyDown}
-            className="group cursor-pointer gap-0 rounded-lg py-0 transition-colors hover:border-primary/40 hover:bg-accent/30 focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] focus-visible:outline-none"
+            className="group cursor-pointer gap-0 rounded-lg py-0 transition-colors hover:border-primary/40 hover:bg-accent/30 focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
         >
             <CardContent className="flex h-full flex-col gap-5 p-5">
                 <div className="flex items-start justify-between gap-3">
@@ -615,10 +615,7 @@ function AccountDialog({
                                 </SelectTrigger>
                                 <SelectContent>
                                     {typeOptions.map((option) => (
-                                        <SelectItem
-                                            key={option}
-                                            value={option}
-                                        >
+                                        <SelectItem key={option} value={option}>
                                             {option}
                                         </SelectItem>
                                     ))}
@@ -795,9 +792,7 @@ function ConnectBankDialog({
                                                     {connectionAccount.product ??
                                                         'Account'}{' '}
                                                     ·{' '}
-                                                    {
-                                                        connectionAccount.currency
-                                                    }
+                                                    {connectionAccount.currency}
                                                     {connectionAccount.account_number_last_four
                                                         ? ` · *${connectionAccount.account_number_last_four}`
                                                         : ''}
