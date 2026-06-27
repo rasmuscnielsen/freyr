@@ -36,7 +36,7 @@ return new class extends Migration
             $table->boolean('is_account_group_duplicate')->default(false);
             $table->boolean('prevent_marking_as_counter_entry')->default(false);
             $table->boolean('description_changed')->default(false);
-            $table->json('extra_data')->nullable();
+            $table->jsonb('extra_data')->nullable();
             $table->unsignedSmallInteger('category_type_code')->nullable();
             $table->unsignedSmallInteger('posting_type')->nullable();
             $table->unsignedSmallInteger('posting_sub_type')->nullable();
@@ -52,7 +52,9 @@ return new class extends Migration
 
             $table->index(['user_id', 'date', 'id']);
             $table->index(['bank_account_id', 'date']);
+            $table->index('subcategory_id');
             $table->index(['categorized_subcategory_id', 'date']);
+            $table->index('counter_entry_posting_id');
             $table->index(['user_id', 'is_extraordinary']);
             $table->index('amount');
         });

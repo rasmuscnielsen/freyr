@@ -7,7 +7,7 @@ use App\Models\Subcategory;
 use Illuminate\Support\Facades\Schema;
 
 test('it imports the bundled finance export idempotently', function () {
-    $this->artisan('spiir:import')
+    $this->artisan('app:spiir:import')
         ->assertSuccessful();
 
     expect(Category::query()->count())->toBe(11)
@@ -29,7 +29,7 @@ test('it imports the bundled finance export idempotently', function () {
         ->and($posting->date->toDateString())->toBe('2011-12-12')
         ->and($posting->bankAccount)->toBeInstanceOf(BankAccount::class);
 
-    $this->artisan('spiir:import')
+    $this->artisan('app:spiir:import')
         ->assertSuccessful();
 
     expect(Category::query()->count())->toBe(11)

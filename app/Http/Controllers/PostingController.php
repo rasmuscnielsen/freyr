@@ -48,9 +48,9 @@ class PostingController extends Controller
 
                     $query->where(function (Builder $query) use ($needle): void {
                         $query
-                            ->where('description', 'like', "%{$needle}%")
-                            ->orWhere('original_description', 'like', "%{$needle}%")
-                            ->orWhere('comment', 'like', "%{$needle}%");
+                            ->whereLike('description', "%{$needle}%")
+                            ->orWhereLike('original_description', "%{$needle}%")
+                            ->orWhereLike('comment', "%{$needle}%");
                     });
                 }),
                 AllowedFilter::callback('posted_between', function (Builder $query, mixed $value): void {
@@ -59,11 +59,11 @@ class PostingController extends Controller
                     $to = $values[1] ?? null;
 
                     if (filled($from)) {
-                        $query->whereDate('date', '>=', $from);
+                        $query->where('date', '>=', $from);
                     }
 
                     if (filled($to)) {
-                        $query->whereDate('date', '<=', $to);
+                        $query->where('date', '<=', $to);
                     }
                 }),
             )

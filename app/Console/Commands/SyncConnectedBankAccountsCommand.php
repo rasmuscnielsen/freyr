@@ -8,7 +8,7 @@ use Illuminate\Console\Attributes\Description;
 use Illuminate\Console\Attributes\Signature;
 use Illuminate\Console\Command;
 
-#[Signature('bank-connections:sync')]
+#[Signature('app:bank-connections:sync')]
 #[Description('Dispatch transaction sync jobs for connected bank accounts')]
 class SyncConnectedBankAccountsCommand extends Command
 {

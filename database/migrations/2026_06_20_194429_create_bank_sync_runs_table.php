@@ -33,6 +33,7 @@ return new class extends Migration
             $table->index(['bank_connection_id', 'status']);
             $table->index(['user_id', 'status']);
             $table->index(['bank_connection_account_id', 'started_at']);
+            $table->index('bank_account_id');
         });
     }
 

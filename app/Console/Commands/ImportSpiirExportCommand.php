@@ -7,7 +7,7 @@ use Illuminate\Console\Attributes\Description;
 use Illuminate\Console\Attributes\Signature;
 use Illuminate\Console\Command;
 
-#[Signature('spiir:import {path=project/data : Path to a Spiir export directory}')]
+#[Signature('app:spiir:import {path=project/data : Path to a Spiir export directory}')]
 #[Description('Import the finance data from a Spiir export directory')]
 class ImportSpiirExportCommand extends Command
 {
@@ -16,7 +16,7 @@ class ImportSpiirExportCommand extends Command
      */
     public function handle(SpiirExportImporter $importer): int
     {
-        $summary = $importer->importExport((string) $this->argument('path'));
+        $summary = $importer->importExport((string) base_path($this->argument('path')));
 
         $this->components->info(sprintf(
             'Imported %d accounts and %d postings for user #%d. Resolved %d counter entries.',

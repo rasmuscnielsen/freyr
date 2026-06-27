@@ -37,6 +37,8 @@ class Posting extends Model
         'date',
         'custom_date',
         'description',
+        'description_embedding',
+        'description_embedded_at',
         'original_description',
         'comment',
         'amount',
@@ -104,6 +106,18 @@ class Posting extends Model
         return $this->belongsTo(Posting::class, 'counter_entry_posting_id');
     }
 
+    protected static function booted(): void
+    {
+        static::updating(function (Posting $posting): void {
+            if (! $posting->isDirty('description')) {
+                return;
+            }
+
+            $posting->description_embedding = null;
+            $posting->description_embedded_at = null;
+        });
+    }
+
     /**
      * @param  Builder<Posting>  $query
      * @return Builder<Posting>
@@ -146,6 +160,8 @@ class Posting extends Model
         return [
             'date' => 'date',
             'custom_date' => 'date',
+            'description_embedding' => 'array',
+            'description_embedded_at' => 'datetime',
             'amount' => 'decimal:2',
             'original_amount' => 'decimal:2',
             'balance' => 'decimal:2',

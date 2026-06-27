@@ -218,7 +218,7 @@ test('sync command dispatches jobs for linked connection accounts', function () 
 
     Queue::fake();
 
-    $this->artisan('bank-connections:sync')
+    $this->artisan('app:bank-connections:sync')
         ->assertSuccessful();
 
     Queue::assertPushedTimes(SyncBankConnectionAccountJob::class, 1);
