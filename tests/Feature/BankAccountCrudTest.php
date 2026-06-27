@@ -76,7 +76,10 @@ test('bank accounts page exposes connection state and linkable remote accounts',
     BankConnectionAccount::factory()
         ->for($connection)
         ->linkedTo($account)
-        ->create(['details' => 'Main account']);
+        ->create([
+            'details' => 'Main account',
+            'last_synced_at' => '2026-06-20 10:30:00',
+        ]);
     BankConnectionAccount::factory()
         ->for($connection)
         ->create(['user_id' => $user->id, 'details' => 'Savings']);
@@ -88,6 +91,7 @@ test('bank accounts page exposes connection state and linkable remote accounts',
             ->component('bank-accounts/index')
             ->where('accounts.0.name', 'Everyday')
             ->where('accounts.0.connection_accounts.0.name', 'Main account')
+            ->where('accounts.0.connection_accounts.0.last_synced_at', '2026-06-20 10:30:00')
             ->where('linkableConnectionAccounts.0.name', 'Savings'));
 });
 

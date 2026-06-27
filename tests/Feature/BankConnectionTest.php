@@ -263,6 +263,8 @@ test('remote accounts can be linked to an existing or newly created bank account
         ->create(['user_id' => $user->id]);
     $localAccount = BankAccount::factory()->for($user)->create(['name' => 'Everyday']);
 
+    Queue::fake();
+
     $this->actingAs($user)
         ->patch(route('bank-connection-accounts.update', $remoteAccount), [
             'mode' => 'existing',
@@ -272,6 +274,11 @@ test('remote accounts can be linked to an existing or newly created bank account
 
     expect($remoteAccount->refresh()->status)->toBe(BankConnectionAccount::STATUS_LINKED)
         ->and($remoteAccount->bank_account_id)->toBe($localAccount->id);
+
+    Queue::assertPushed(
+        SyncBankConnectionAccountJob::class,
+        fn (SyncBankConnectionAccountJob $job): bool => $job->bankConnectionAccount->is($remoteAccount),
+    );
 
     $newRemoteAccount = BankConnectionAccount::factory()
         ->for($connection)
@@ -287,6 +294,11 @@ test('remote accounts can be linked to an existing or newly created bank account
     expect($newRemoteAccount->refresh()->status)->toBe(BankConnectionAccount::STATUS_LINKED)
         ->and($newRemoteAccount->bankAccount->user_id)->toBe($user->id)
         ->and($newRemoteAccount->bankAccount->name)->toBe('Nykredit Nemkonto');
+
+    Queue::assertPushed(
+        SyncBankConnectionAccountJob::class,
+        fn (SyncBankConnectionAccountJob $job): bool => $job->bankConnectionAccount->is($newRemoteAccount),
+    );
 });
 
 test('sync imports past transactions idempotently and skips future scheduled transactions', function () {
@@ -371,6 +383,8 @@ test('renewed callbacks preserve existing account links', function () {
         session: enableBankingSessionPayload(),
     ));
 
+    Queue::fake();
+
     $this->actingAs($user)
         ->get(route('bank-connections.callback', [
             'state' => 'renewal-state',
@@ -381,6 +395,11 @@ test('renewed callbacks preserve existing account links', function () {
     expect($connection->refresh()->status)->toBe(BankConnection::STATUS_ACTIVE)
         ->and($remoteAccount->refresh()->bank_account_id)->toBe($localAccount->id)
         ->and($remoteAccount->status)->toBe(BankConnectionAccount::STATUS_LINKED);
+
+    Queue::assertPushed(
+        SyncBankConnectionAccountJob::class,
+        fn (SyncBankConnectionAccountJob $job): bool => $job->bankConnectionAccount->is($remoteAccount),
+    );
 });
 
 class FakeEnableBankingClient extends EnableBankingClient

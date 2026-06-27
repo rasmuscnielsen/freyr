@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import type { KeyboardEvent, MouseEvent } from 'react';
+import { toast } from 'sonner';
 import InputError from '@/components/input-error';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
@@ -50,7 +51,10 @@ import {
     store as storeAccount,
     update as updateAccount,
 } from '@/routes/bank-accounts';
-import { update as updateConnectionAccount } from '@/routes/bank-connection-accounts';
+import {
+    sync as syncConnectionAccount,
+    update as updateConnectionAccount,
+} from '@/routes/bank-connection-accounts';
 import {
     renew as renewConnection,
     store as storeConnection,
@@ -187,6 +191,27 @@ function formatMoney(amount: number | null, currency: string): string {
     }).format(amount);
 }
 
+function formatDateTime(value: string | null): string {
+    if (value === null) {
+        return 'Not synced';
+    }
+
+    return new Intl.DateTimeFormat('da-DK', {
+        dateStyle: 'medium',
+        timeStyle: 'short',
+    }).format(new Date(value.replace(' ', 'T')));
+}
+
+function latestSyncedAt(account: Account): string | null {
+    return (
+        account.connection_accounts
+            .map((connectionAccount) => connectionAccount.last_synced_at)
+            .filter((value): value is string => value !== null)
+            .sort()
+            .at(-1) ?? null
+    );
+}
+
 function postingsHref(account: Account) {
     return postingsIndex({
         query: {
@@ -304,6 +329,7 @@ function AccountCard({
     const isConnected = account.connection_accounts.length > 0;
     const lastPostingDate =
         account.postings_max_date ?? account.last_known_posting_date;
+    const lastSyncedAt = latestSyncedAt(account);
 
     const openPostings = () => router.visit(postingsHref(account));
     const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
@@ -327,6 +353,22 @@ function AccountCard({
         }
 
         router.post(renewConnection.url(linkedConnection.connection.id));
+    };
+
+    const syncNow = () => {
+        if (linkedConnection === null) {
+            return;
+        }
+
+        toast('Syncing bank account...');
+
+        router.post(
+            syncConnectionAccount.url(linkedConnection.id),
+            {},
+            {
+                preserveScroll: true,
+            },
+        );
     };
 
     return (
@@ -387,6 +429,12 @@ function AccountCard({
                                 <Pencil className="size-4" />
                                 Edit
                             </DropdownMenuItem>
+                            {isConnected && (
+                                <DropdownMenuItem onSelect={syncNow}>
+                                    <RefreshCw className="size-4" />
+                                    Sync now
+                                </DropdownMenuItem>
+                            )}
                             <DropdownMenuSeparator />
                             <DropdownMenuItem onSelect={toggleActive}>
                                 {account.is_active ? (
@@ -419,6 +467,14 @@ function AccountCard({
                         <CalendarClock className="size-4" />
                         <span>Last posting {lastPostingDate ?? 'never'}</span>
                     </div>
+                    {isConnected && (
+                        <div className="flex items-center gap-2 text-muted-foreground">
+                            <RefreshCw className="size-4" />
+                            <span>
+                                Last sync {formatDateTime(lastSyncedAt)}
+                            </span>
+                        </div>
+                    )}
                     {linkedConnection && (
                         <div className="flex items-center gap-2 text-muted-foreground">
                             <Landmark className="size-4" />

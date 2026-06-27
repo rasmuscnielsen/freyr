@@ -48,6 +48,8 @@ class BankConnectionAccountController extends Controller
             'bank_account_id' => $bankAccountId,
         ]);
 
+        SyncBankConnectionAccountJob::dispatch($bankConnectionAccount);
+
         return back();
     }
 

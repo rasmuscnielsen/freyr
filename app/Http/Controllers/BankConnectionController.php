@@ -4,7 +4,9 @@ namespace App\Http\Controllers;
 
 use App\Finance\EnableBanking\EnableBankingConnectionManager;
 use App\Http\Requests\StartBankConnectionRequest;
+use App\Jobs\SyncBankConnectionAccountJob;
 use App\Models\BankConnection;
+use App\Models\BankConnectionAccount;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -35,11 +37,17 @@ class BankConnectionController extends Controller
                 ->with('error', $request->query('error_description', $request->query('error')));
         }
 
-        $manager->completeAuthorization(
+        $connection = $manager->completeAuthorization(
             $request->user(),
             (string) $request->query('state'),
             (string) $request->query('code'),
         );
+
+        $connection->accounts()
+            ->where('status', BankConnectionAccount::STATUS_LINKED)
+            ->whereNotNull('bank_account_id')
+            ->get()
+            ->each(fn (BankConnectionAccount $account) => SyncBankConnectionAccountJob::dispatch($account));
 
         return redirect()->route('bank-accounts.index');
     }
