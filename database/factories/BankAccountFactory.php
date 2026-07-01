@@ -54,4 +54,19 @@ class BankAccountFactory extends Factory
             'inactivated_by' => 'User',
         ]);
     }
+
+    public function favorite(): static
+    {
+        return $this->state(fn (array $attributes): array => [
+            'is_favorite' => true,
+        ]);
+    }
+
+    public function withBalance(float $balance): static
+    {
+        return $this->state(fn (array $attributes): array => [
+            'last_booked_balance' => $balance,
+            'last_available_balance' => $balance,
+        ]);
+    }
 }

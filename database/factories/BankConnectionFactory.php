@@ -47,4 +47,16 @@ class BankConnectionFactory extends Factory
             'failure_message' => 'The bank connection needs renewal.',
         ]);
     }
+
+    public function forBank(string $name, string $country = 'DK'): static
+    {
+        return $this->state(fn (array $attributes): array => [
+            'aspsp_name' => $name,
+            'aspsp_country' => $country,
+            'raw_session_payload' => [
+                'session_id' => $attributes['session_id'] ?? null,
+                'aspsp' => ['name' => $name, 'country' => $country],
+            ],
+        ]);
+    }
 }

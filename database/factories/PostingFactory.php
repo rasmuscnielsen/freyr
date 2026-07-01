@@ -79,7 +79,30 @@ class PostingFactory extends Factory
     {
         return $this->state(fn (array $attributes) => [
             'amount' => fake()->randomFloat(2, 1000, 50000),
-            'category_type_code' => 1,
+            'category_type_code' => Posting::CATEGORY_TYPE_INCOME,
+        ]);
+    }
+
+    public function expense(): static
+    {
+        return $this->state(fn (array $attributes): array => [
+            'amount' => fake()->randomFloat(2, -1000, -10),
+            'category_type_code' => Posting::CATEGORY_TYPE_EXPENSE,
+        ]);
+    }
+
+    public function saving(): static
+    {
+        return $this->state(fn (array $attributes): array => [
+            'amount' => fake()->randomFloat(2, -10000, -500),
+            'category_type_code' => Posting::CATEGORY_TYPE_SAVING,
+        ]);
+    }
+
+    public function transfer(): static
+    {
+        return $this->state(fn (array $attributes): array => [
+            'category_type_code' => Posting::CATEGORY_TYPE_TRANSFER,
         ]);
     }
 
