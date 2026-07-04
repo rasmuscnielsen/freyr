@@ -40,7 +40,7 @@ return new class extends Migration
             $table->unsignedSmallInteger('category_type_code')->nullable();
             $table->unsignedSmallInteger('posting_type')->nullable();
             $table->unsignedSmallInteger('posting_sub_type')->nullable();
-            $table->char('currency', 3)->default('DKK');
+            $table->char('currency', 3);
             $table->char('original_currency', 3)->nullable();
             $table->string('merchant_legacy_id')->nullable();
             $table->char('country_code', 2)->nullable();

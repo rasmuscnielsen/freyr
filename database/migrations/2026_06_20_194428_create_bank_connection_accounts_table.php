@@ -23,7 +23,7 @@ return new class extends Migration
             $table->mediumText('identification_hashes')->nullable();
             $table->string('name');
             $table->string('details')->nullable();
-            $table->char('currency', 3)->default('DKK');
+            $table->char('currency', 3);
             $table->text('iban')->nullable();
             $table->text('account_number')->nullable();
             $table->string('account_number_last_four', 4)->nullable();

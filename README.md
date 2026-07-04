@@ -53,12 +53,19 @@ cp .env.example .env
 # 3. Generate the application key
 php artisan key:generate
 
-# 4. Configure your database in .env (see .env.example), then run migrations.
-#    Add --seed in local/dev to load demo data (see "Demo data" below).
-php artisan migrate --seed
+# 4. Configure your database in .env (see .env.example), then install:
+#    runs migrations and seeds the default category tree.
+php artisan app:install
 
 # 5. Build the frontend assets...
 pnpm run build
+```
+
+In a local environment you can add `--demo` to reset the database and load a
+demo user with sample data (see "Demo data" below):
+
+```bash
+php artisan app:install --demo
 ```
 
 For local development you can run the full stack (PHP server, queue worker, log
@@ -73,6 +80,10 @@ composer run dev
 Freyr uses [Enable Banking](https://enablebanking.com) to connect to banks. You
 need an Enable Banking account and an application registered in their control
 panel.
+
+Enable Banking is **completely free for personal use**: you can register a
+production application and whitelist your own bank accounts for personal use,
+so a self-hosted Freyr costs you nothing in API fees.
 
 1. Sign up at [enablebanking.com](https://enablebanking.com) and create an
    application in their control panel.
@@ -105,7 +116,10 @@ Run the queue worker with Horizon:
 php artisan horizon
 ```
 
-The Horizon dashboard is available at `/horizon`.
+The Horizon dashboard is available at `/horizon`. Access is restricted to the
+user emails listed in the `ADMIN_EMAILS` environment variable
+(comma-separated). If `ADMIN_EMAILS` is empty, nobody can open the dashboard —
+set it to your own account's email.
 
 Run the scheduler:
 
@@ -126,33 +140,80 @@ In production, make sure both a Horizon process and the scheduler are running
 (e.g. a `cron` entry running `php artisan schedule:run` every minute, plus a
 supervised `php artisan horizon` process).
 
-## Demo data
-
-In a local environment, seeding creates a demo user (`john@example.com`) along
-with sample accounts, a bank connection, a full category tree, roughly a year of
-postings, and sync-run history:
+After each deploy, run:
 
 ```bash
-php artisan migrate --seed
-# or, on an existing database:
-php artisan db:seed
+php artisan app:deployed
 ```
 
-The seeder only runs in the `local` environment.
+This runs pending migrations and, in production, rebuilds the framework caches
+(`optimize`) and gracefully restarts the Horizon workers so they pick up the
+new code.
+
+## Registration
+
+Anyone who can reach your instance can create an account by default. If your
+Freyr should be private (e.g. single-user), create your own account first and
+then set `REGISTRATION_ENABLED=false` — the sign-up page returns 404 from then
+on.
+
+## Categories
+
+Installing (`php artisan app:install`) seeds a sensible default tree of
+categories and subcategories (income, housing, food, transport, savings, and
+so on). It is safe to run in any environment and idempotent — re-running never
+duplicates. A Spiir import replaces the defaults with your own tree. Editing
+categories currently requires the database or a Spiir import; a management UI
+is on the roadmap.
+
+## Demo data
+
+In a **local** environment you can reset the database and load a demo user
+(`john@example.com`, password `password`) with sample accounts, a bank
+connection, roughly a year of postings, and sync-run history:
+
+```bash
+php artisan app:install --demo
+```
+
+> **Warning:** `--demo` wipes the database first (`migrate:fresh`). In
+> production, `app:install` asks for confirmation unless `--force` is given.
+
+## Currencies
+
+Amounts are stored and displayed in each account's own currency, and number
+formatting follows your browser locale. The dashboard aggregates income and
+expenses across accounts and displays totals in your most common account
+currency — converting between currencies is not supported yet, so the dashboard
+works best when your accounts share one currency.
 
 ## Migrating from Spiir
 
-If you have a Spiir data export, Freyr can import it directly — a migration path
-for ex-Spiir users. Place your export directory (containing `Categories.json`,
-`User.csv`, `Account.csv`, and `Posting.csv`) somewhere under the project and
-run:
+Freyr is built in the spirit of Spiir, and migrating from a Spiir data export
+is a first-class flow. The recommended order:
 
-```bash
-php artisan app:spiir:import path/to/spiir-export
-```
+1. **Install Freyr** (`php artisan app:install`, see "Getting started").
+2. **Import your export.** Keep the export directory (containing
+   `Categories.json`, `User.csv`, `Account.csv`, and `Posting.csv`) **outside
+   the project directory** — so it cannot end up in version control — and run:
 
-The path defaults to `project/data`. The importer creates the user, accounts,
-categories, and postings from the export.
+   ```bash
+   php artisan app:spiir:import ~/spiir-export
+   ```
+
+   The importer creates your user, accounts, categories, and postings from the
+   export. Your Spiir category tree **replaces** the seeded default categories
+   (the command warns before doing this); any postings that were categorized
+   with a default category become uncategorized.
+
+   Re-running the import on the same database is safe — rows are matched by
+   their Spiir ids and updated in place.
+3. **Connect your bank** from the Bank connections page and link each remote
+   account to the matching imported account. When you link an account that
+   already has imported history, Freyr only syncs transactions **newer** than
+   your latest imported posting (via the account's `ignore_postings_before`
+   date), so the first sync does not duplicate postings that came from the
+   export.
 
 ## API
 
@@ -188,4 +249,4 @@ Laravel Horizon · Laravel Sanctum · Laravel Fortify · Enable Banking.
 
 ## License
 
-See the repository for licensing information.
+Freyr is open-source software licensed under the [MIT license](LICENSE).

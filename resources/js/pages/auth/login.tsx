@@ -1,4 +1,5 @@
 import { Form, Head, usePage } from '@inertiajs/react';
+import DevLoginLink from '@/components/dev-login-link';
 import InputError from '@/components/input-error';
 import PasskeyVerify from '@/components/passkey-verify';
 import PasswordInput from '@/components/password-input';
@@ -8,29 +9,22 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Spinner } from '@/components/ui/spinner';
-import LoginLink from '@/../../vendor/spatie/laravel-login-link/resources/ts/LoginLink';
 import { register } from '@/routes';
+import { dashboard } from '@/routes';
 import { store } from '@/routes/login';
 import { request } from '@/routes/password';
-import LoginLinkController from '@/actions/Spatie/LoginLink/Http/Controllers/LoginLinkController';
-import { dashboard } from '@/routes';
-
-if (typeof globalThis.route !== 'function') {
-    globalThis.route = (name: string): string => {
-        if (name === 'loginLinkLogin') {
-            return LoginLinkController.url();
-        }
-
-        throw new Error(`Route [${name}] is not available.`);
-    };
-}
 
 type Props = {
     status?: string;
     canResetPassword: boolean;
+    canRegister: boolean;
 };
 
-export default function Login({ status, canResetPassword }: Props) {
+export default function Login({
+    status,
+    canResetPassword,
+    canRegister,
+}: Props) {
     const { environment } = usePage().props;
 
     return (
@@ -107,12 +101,14 @@ export default function Login({ status, canResetPassword }: Props) {
                             </Button>
                         </div>
 
-                        <div className="text-center text-sm text-muted-foreground">
-                            Don't have an account?{' '}
-                            <TextLink href={register()} tabIndex={5}>
-                                Sign up
-                            </TextLink>
-                        </div>
+                        {canRegister && (
+                            <div className="text-center text-sm text-muted-foreground">
+                                Don't have an account?{' '}
+                                <TextLink href={register()} tabIndex={5}>
+                                    Sign up
+                                </TextLink>
+                            </div>
+                        )}
                     </>
                 )}
             </Form>
@@ -127,7 +123,7 @@ export default function Login({ status, canResetPassword }: Props) {
                         <div className="h-px flex-1 bg-border" />
                     </div>
 
-                    <LoginLink
+                    <DevLoginLink
                         keyId="1"
                         label="Login as user 1"
                         redirectUrl={dashboard.url()}

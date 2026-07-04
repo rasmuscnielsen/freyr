@@ -13,6 +13,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import { formatMoney as formatSharedMoney } from '@/lib/money';
 import { cn } from '@/lib/utils';
 import { index as bankAccountsIndex } from '@/routes/bank-accounts';
 
@@ -93,11 +94,7 @@ function formatMoney(amount: number | null, currency: string): string {
         return 'Not synced';
     }
 
-    return new Intl.NumberFormat('da-DK', {
-        style: 'currency',
-        currency,
-        maximumFractionDigits: 2,
-    }).format(amount);
+    return formatSharedMoney(amount, currency, { maximumFractionDigits: 2 });
 }
 
 function formatDateTime(value: string | null): string {
@@ -105,7 +102,7 @@ function formatDateTime(value: string | null): string {
         return 'Never';
     }
 
-    return new Intl.DateTimeFormat('da-DK', {
+    return new Intl.DateTimeFormat(undefined, {
         dateStyle: 'medium',
         timeStyle: 'short',
     }).format(new Date(value.replace(' ', 'T')));
@@ -144,7 +141,7 @@ export default function BankAccountShow({
     postings,
     syncRuns,
 }: ShowProps) {
-    const money = new Intl.NumberFormat('da-DK', {
+    const money = new Intl.NumberFormat(undefined, {
         style: 'currency',
         currency: account.currency,
         minimumFractionDigits: 2,
@@ -297,7 +294,10 @@ export default function BankAccountShow({
                                 <AlertDescription>
                                     The bank-reported balance differs from our
                                     running total by Δ{' '}
-                                    {account.balance_mismatch.delta} kr.
+                                    {formatSharedMoney(
+                                        Number(account.balance_mismatch.delta),
+                                        account.currency,
+                                    )}
                                 </AlertDescription>
                             </Alert>
                         )}
@@ -442,7 +442,10 @@ export default function BankAccountShow({
                                         {run.balance_matches === false && (
                                             <Badge variant="destructive">
                                                 Balance mismatch Δ{' '}
-                                                {run.balance_delta} kr.
+                                                {formatSharedMoney(
+                                                    Number(run.balance_delta),
+                                                    account.currency,
+                                                )}
                                             </Badge>
                                         )}
                                         {run.balance_matches === true && (

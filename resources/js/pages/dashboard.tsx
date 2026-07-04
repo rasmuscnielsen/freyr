@@ -23,6 +23,7 @@ import {
     SelectTrigger,
     SelectValue,
 } from '@/components/ui/select';
+import { formatMoney as formatSharedMoney, formatNumber } from '@/lib/money';
 import { dashboard } from '@/routes';
 import { index as postingsIndex } from '@/routes/postings';
 
@@ -87,20 +88,15 @@ type DashboardProps = {
     summary: Summary;
     monthly: MonthlyPoint[];
     breakdown?: Breakdown;
+    primaryCurrency: string | null;
 };
 
-const money = new Intl.NumberFormat('da-DK', {
-    style: 'currency',
-    currency: 'DKK',
-    maximumFractionDigits: 0,
-});
-
-function formatMoney(value: number): string {
-    return money.format(value);
+function formatMoney(value: number, currency: string | null): string {
+    return formatSharedMoney(value, currency, { maximumFractionDigits: 0 });
 }
 
 function formatAxis(value: number): string {
-    return formatMoney(value).replace('kr.', '').trim();
+    return formatNumber(value, { maximumFractionDigits: 0 });
 }
 
 function formatMonthLabel(month: string): string {
@@ -117,7 +113,7 @@ function periodLabel(option: string): string {
     return option === '12m' ? '12 months' : option;
 }
 
-function flowTooltip(props: unknown) {
+function flowTooltip(props: unknown, currency: string | null) {
     const { active, payload, label } = props as {
         active?: boolean;
         payload?: Array<{ name: string; value: number; color?: string }>;
@@ -143,7 +139,10 @@ function flowTooltip(props: unknown) {
                                 {item.name}
                             </span>
                             <span className="font-medium">
-                                {formatMoney(Math.abs(Number(item.value)))}
+                                {formatMoney(
+                                    Math.abs(Number(item.value)),
+                                    currency,
+                                )}
                             </span>
                         </div>
                     ))}
@@ -152,7 +151,7 @@ function flowTooltip(props: unknown) {
     );
 }
 
-function breakdownTooltip(props: unknown) {
+function breakdownTooltip(props: unknown, currency: string | null) {
     const { active, payload } = props as {
         active?: boolean;
         payload?: Array<{ payload?: BreakdownCategory }>;
@@ -168,7 +167,7 @@ function breakdownTooltip(props: unknown) {
         <div className="min-w-56 rounded-md border bg-background p-3 text-sm shadow-md">
             <div className="mb-2 flex items-center justify-between gap-6 font-medium">
                 <span>{category.name}</span>
-                <span>{formatMoney(category.total)}</span>
+                <span>{formatMoney(category.total, currency)}</span>
             </div>
             {category.topSubcategories.length > 0 && (
                 <div className="space-y-1 border-t pt-2 text-muted-foreground">
@@ -179,7 +178,7 @@ function breakdownTooltip(props: unknown) {
                         >
                             <span>{subcategory.name}</span>
                             <span className="font-medium text-foreground">
-                                {formatMoney(subcategory.amount)}
+                                {formatMoney(subcategory.amount, currency)}
                             </span>
                         </div>
                     ))}
@@ -205,7 +204,7 @@ function breakdownTooltip(props: unknown) {
                                     </span>
                                 </span>
                                 <span className="font-medium text-foreground">
-                                    {formatMoney(posting.amount)}
+                                    {formatMoney(posting.amount, currency)}
                                 </span>
                             </div>
                         ))}
@@ -221,6 +220,7 @@ export default function Dashboard({
     summary,
     monthly,
     breakdown,
+    primaryCurrency,
 }: DashboardProps) {
     const [selectedMonth, setSelectedMonth] = useState<string | null>(
         breakdown?.month ?? null,
@@ -327,14 +327,31 @@ export default function Dashboard({
                 </div>
 
                 <div className="grid gap-4 md:grid-cols-5">
-                    <SummaryCard label="Income" value={summary.income} />
-                    <SummaryCard label="Bills" value={summary.bills} />
+                    <SummaryCard
+                        label="Income"
+                        value={summary.income}
+                        currency={primaryCurrency}
+                    />
+                    <SummaryCard
+                        label="Bills"
+                        value={summary.bills}
+                        currency={primaryCurrency}
+                    />
                     <SummaryCard
                         label="Consumption"
                         value={summary.consumption}
+                        currency={primaryCurrency}
                     />
-                    <SummaryCard label="Savings" value={summary.savings} />
-                    <SummaryCard label="Result" value={summary.result} />
+                    <SummaryCard
+                        label="Savings"
+                        value={summary.savings}
+                        currency={primaryCurrency}
+                    />
+                    <SummaryCard
+                        label="Result"
+                        value={summary.result}
+                        currency={primaryCurrency}
+                    />
                 </div>
 
                 <Card>
@@ -384,7 +401,9 @@ export default function Dashboard({
                                         stroke="var(--border)"
                                     />
                                     <Tooltip
-                                        content={flowTooltip}
+                                        content={(props: unknown) =>
+                                            flowTooltip(props, primaryCurrency)
+                                        }
                                         cursor={{ fill: 'var(--muted)' }}
                                     />
                                     <Bar
@@ -497,12 +516,14 @@ export default function Dashboard({
                                     categories={incomeCategories}
                                     color="var(--color-chart-income)"
                                     onSelect={openCategory}
+                                    currency={primaryCurrency}
                                 />
                                 <BreakdownGroup
                                     title="Expenses"
                                     categories={expenseCategories}
                                     color="var(--color-chart-bills)"
                                     onSelect={openCategory}
+                                    currency={primaryCurrency}
                                 />
                             </div>
                         )}
@@ -534,11 +555,13 @@ function BreakdownGroup({
     categories,
     color,
     onSelect,
+    currency,
 }: {
     title: string;
     categories: BreakdownCategory[];
     color: string;
     onSelect: (category: BreakdownCategory) => void;
+    currency: string | null;
 }) {
     const height = Math.max(160, categories.length * 40 + 24);
 
@@ -575,7 +598,9 @@ function BreakdownGroup({
                                 tabIndex={-1}
                             />
                             <Tooltip
-                                content={breakdownTooltip}
+                                content={(props: unknown) =>
+                                    breakdownTooltip(props, currency)
+                                }
                                 cursor={{ fill: 'var(--muted)' }}
                                 position={{ y: 0 }}
                                 allowEscapeViewBox={{ x: false, y: true }}
@@ -603,7 +628,10 @@ function BreakdownGroup({
                                     dataKey="total"
                                     position="right"
                                     formatter={(value: unknown) =>
-                                        formatMoney(Number(value ?? 0))
+                                        formatMoney(
+                                            Number(value ?? 0),
+                                            currency,
+                                        )
                                     }
                                 />
                             </Bar>
@@ -630,7 +658,15 @@ function BreakdownSkeleton() {
     );
 }
 
-function SummaryCard({ label, value }: { label: string; value: number }) {
+function SummaryCard({
+    label,
+    value,
+    currency,
+}: {
+    label: string;
+    value: number;
+    currency: string | null;
+}) {
     return (
         <Card>
             <CardHeader className="pb-2">
@@ -640,7 +676,7 @@ function SummaryCard({ label, value }: { label: string; value: number }) {
             </CardHeader>
             <CardContent>
                 <div className="text-2xl font-semibold">
-                    {formatMoney(value)}
+                    {formatMoney(value, currency)}
                 </div>
             </CardContent>
         </Card>

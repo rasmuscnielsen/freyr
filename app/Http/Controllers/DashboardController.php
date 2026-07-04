@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\BankAccount;
 use App\Models\Posting;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
@@ -145,6 +146,7 @@ class DashboardController extends Controller
             ],
             'summary' => $summary,
             'monthly' => $monthly->values(),
+            'primaryCurrency' => $this->primaryCurrency($request),
             'breakdown' => Inertia::defer(fn (): array => $this->buildBreakdown(
                 $overviewPostings,
                 $start,
@@ -153,6 +155,23 @@ class DashboardController extends Controller
                 $breakdownMonth,
             )),
         ]);
+    }
+
+    /**
+     * The currency the dashboard aggregates are displayed in: the most common
+     * currency across the user's active accounts. Aggregating across mixed
+     * currencies is not supported yet.
+     */
+    private function primaryCurrency(Request $request): ?string
+    {
+        return BankAccount::query()
+            ->whereBelongsTo($request->user())
+            ->where('is_active', true)
+            ->select('currency')
+            ->selectRaw('count(*) as account_count')
+            ->groupBy('currency')
+            ->orderByDesc('account_count')
+            ->value('currency');
     }
 
     /**

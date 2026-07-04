@@ -1,0 +1,52 @@
+{
+    "categories": [
+        {
+            "id": 100,
+            "name": "Income",
+            "categoryType": "Income",
+            "hyphenatedName": "income"
+        },
+        {
+            "id": 200,
+            "name": "Food",
+            "categoryType": "Expense",
+            "hyphenatedName": "food"
+        },
+        {
+            "id": 300,
+            "name": "Transfers",
+            "categoryType": "Transfer",
+            "hyphenatedName": "transfers"
+        }
+    ],
+    "subcategories": [
+        {
+            "id": 110,
+            "categoryId": 100,
+            "name": "Salary",
+            "hyphenatedName": "salary",
+            "expenseType": null,
+            "categoryType": "Income",
+            "hints": null
+        },
+        {
+            "id": 210,
+            "categoryId": 200,
+            "name": "Groceries",
+            "hyphenatedName": "groceries",
+            "expenseType": "Variable",
+            "categoryType": "Expense",
+            "hints": "supermarket"
+        },
+        {
+            "id": 310,
+            "categoryId": 300,
+            "name": "Internal transfer",
+            "hyphenatedName": "internal-transfer",
+            "expenseType": null,
+            "categoryType": "Transfer",
+            "hints": null
+        }
+    ],
+    "subcategoryIdsToIgnore": [310]
+}

@@ -157,6 +157,7 @@ class BankAccountController extends Controller
                 ],
                 'balance_mismatch' => $latestRun === null || ! $latestRun->hasBalanceMismatch() ? null : [
                     'delta' => $latestRun->balanceDelta(),
+                    'currency' => $bankAccount->currency,
                 ],
             ],
             'postings' => $postings,
@@ -227,6 +228,7 @@ class BankAccountController extends Controller
                         ->count(),
                     'balance_mismatch' => $latestRun === null || ! $latestRun->hasBalanceMismatch() ? null : [
                         'delta' => $latestRun->balanceDelta(),
+                        'currency' => $latestRun->bankConnectionAccount?->currency,
                     ],
                     'accounts' => $connection->accounts
                         ->sortBy(fn (BankConnectionAccount $account): string => $account->details ?? $account->name)

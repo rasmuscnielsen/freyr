@@ -4,7 +4,9 @@ namespace App\Http\Controllers;
 
 use App\Http\Requests\LinkBankConnectionAccountRequest;
 use App\Jobs\SyncBankConnectionAccountJob;
+use App\Models\BankAccount;
 use App\Models\BankConnectionAccount;
+use Carbon\CarbonImmutable;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
@@ -29,6 +31,12 @@ class BankConnectionAccountController extends Controller
 
         $bankAccountId = $validated['bank_account_id'] ?? null;
 
+        if ($validated['mode'] === 'existing') {
+            $this->preventHistoricalReimport(
+                $request->user()->bankAccounts()->findOrFail($bankAccountId),
+            );
+        }
+
         if ($validated['mode'] === 'create') {
             $bankAccount = $request->user()->bankAccounts()->create([
                 'legacy_id' => 'enable-banking-'.Str::uuid()->toString(),
@@ -51,6 +59,29 @@ class BankConnectionAccountController extends Controller
         SyncBankConnectionAccountJob::dispatch($bankConnectionAccount);
 
         return back();
+    }
+
+    /**
+     * When linking to an account that already holds postings (e.g. from a
+     * Spiir import or manual entry), only transactions newer than the stored
+     * history should sync, so the first sync does not duplicate postings
+     * that arrived by other means and cannot be matched by external id.
+     */
+    private function preventHistoricalReimport(BankAccount $bankAccount): void
+    {
+        if ($bankAccount->ignore_postings_before !== null) {
+            return;
+        }
+
+        $latestPostingDate = $bankAccount->postings()->max('date');
+
+        if ($latestPostingDate === null) {
+            return;
+        }
+
+        $bankAccount->update([
+            'ignore_postings_before' => CarbonImmutable::parse($latestPostingDate)->addDay(),
+        ]);
     }
 
     public function sync(Request $request, BankConnectionAccount $bankConnectionAccount): RedirectResponse
