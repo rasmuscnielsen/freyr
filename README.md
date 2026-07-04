@@ -176,8 +176,8 @@ connection, roughly a year of postings, and sync-run history:
 php artisan app:install --demo
 ```
 
-> **Warning:** `--demo` wipes the database first (`migrate:fresh`). It is
-> refused outside the `local` environment.
+> **Warning:** `--demo` wipes the database first (`migrate:fresh`). In
+> production, `app:install` asks for confirmation unless `--force` is given.
 
 ## Currencies
 
