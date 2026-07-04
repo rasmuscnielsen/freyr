@@ -23,7 +23,9 @@ import {
     SelectTrigger,
     SelectValue,
 } from '@/components/ui/select';
+import { formatMonth } from '@/lib/dates';
 import { formatMoney as formatSharedMoney, formatNumber } from '@/lib/money';
+import { cn } from '@/lib/utils';
 import { dashboard } from '@/routes';
 import { index as postingsIndex } from '@/routes/postings';
 
@@ -96,18 +98,23 @@ function formatMoney(value: number, currency: string | null): string {
 }
 
 function formatAxis(value: number): string {
-    return formatNumber(value, { maximumFractionDigits: 0 });
+    return formatNumber(value, {
+        notation: 'compact',
+        maximumFractionDigits: 1,
+    });
 }
 
 function formatMonthLabel(month: string): string {
     const [year, monthPart] = month.split('-');
     const date = new Date(Number(year), Number(monthPart) - 1, 1);
 
-    return date.toLocaleDateString('en-GB', {
+    return new Intl.DateTimeFormat(undefined, {
         month: 'long',
         year: 'numeric',
-    });
+    }).format(date);
 }
+
+const mutedTick = { fill: 'var(--muted-foreground)', fontSize: 12 };
 
 function periodLabel(option: string): string {
     return option === '12m' ? '12 months' : option;
@@ -125,7 +132,7 @@ function flowTooltip(props: unknown, currency: string | null) {
     }
 
     return (
-        <div className="rounded-md border bg-background p-3 text-sm shadow-md">
+        <div className="rounded-lg border bg-popover p-3 text-sm text-popover-foreground shadow-lg">
             <div className="mb-2 font-medium">{label}</div>
             <div className="space-y-1">
                 {payload
@@ -164,7 +171,7 @@ function breakdownTooltip(props: unknown, currency: string | null) {
     }
 
     return (
-        <div className="min-w-56 rounded-md border bg-background p-3 text-sm shadow-md">
+        <div className="min-w-56 rounded-lg border bg-popover p-3 text-sm text-popover-foreground shadow-lg">
             <div className="mb-2 flex items-center justify-between gap-6 font-medium">
                 <span>{category.name}</span>
                 <span>{formatMoney(category.total, currency)}</span>
@@ -306,7 +313,8 @@ export default function Dashboard({
                             Income and expenses
                         </h1>
                         <p className="text-sm text-muted-foreground">
-                            {period.start} to {period.end}
+                            {formatMonth(period.start)} –{' '}
+                            {formatMonth(period.end)}
                         </p>
                     </div>
                     <Select
@@ -326,7 +334,7 @@ export default function Dashboard({
                     </Select>
                 </div>
 
-                <div className="grid gap-4 md:grid-cols-5">
+                <div className="grid grid-cols-2 gap-3 md:grid-cols-5 md:gap-4">
                     <SummaryCard
                         label="Income"
                         value={summary.income}
@@ -351,6 +359,7 @@ export default function Dashboard({
                         label="Result"
                         value={summary.result}
                         currency={primaryCurrency}
+                        className="col-span-2 md:col-span-1"
                     />
                 </div>
 
@@ -369,6 +378,7 @@ export default function Dashboard({
                                 <ComposedChart
                                     data={flowData}
                                     stackOffset="sign"
+                                    barCategoryGap="28%"
                                     onClick={(state: unknown) => {
                                         const label = (
                                             state as {
@@ -388,17 +398,30 @@ export default function Dashboard({
                                     }}
                                 >
                                     <CartesianGrid
-                                        strokeDasharray="3 3"
                                         vertical={false}
+                                        stroke="var(--border)"
                                     />
-                                    <XAxis dataKey="label" tabIndex={-1} />
+                                    <XAxis
+                                        dataKey="label"
+                                        tabIndex={-1}
+                                        tickLine={false}
+                                        axisLine={false}
+                                        tickMargin={10}
+                                        tick={mutedTick}
+                                    />
                                     <YAxis
                                         tickFormatter={formatAxis}
                                         tabIndex={-1}
+                                        tickLine={false}
+                                        axisLine={false}
+                                        width={44}
+                                        tick={mutedTick}
+                                        padding={{ top: 16, bottom: 8 }}
                                     />
                                     <ReferenceLine
                                         y={0}
-                                        stroke="var(--border)"
+                                        stroke="var(--muted-foreground)"
+                                        strokeOpacity={0.35}
                                     />
                                     <Tooltip
                                         content={(props: unknown) =>
@@ -468,7 +491,8 @@ export default function Dashboard({
                                         name="Result"
                                         stroke="var(--color-chart-result)"
                                         strokeWidth={2}
-                                        dot={{ r: 4 }}
+                                        dot={{ r: 3 }}
+                                        activeDot={{ r: 4 }}
                                     />
                                 </ComposedChart>
                             </ResponsiveContainer>
@@ -580,22 +604,17 @@ function BreakdownGroup({
                         <BarChart
                             data={categories}
                             layout="vertical"
-                            margin={{ left: 24, right: 64, top: 4, bottom: 4 }}
+                            margin={{ left: 8, right: 72, top: 4, bottom: 4 }}
                         >
-                            <CartesianGrid
-                                horizontal={false}
-                                strokeDasharray="3 3"
-                            />
-                            <XAxis
-                                type="number"
-                                tickFormatter={formatAxis}
-                                tabIndex={-1}
-                            />
+                            <XAxis type="number" hide />
                             <YAxis
                                 dataKey="name"
                                 type="category"
                                 width={130}
                                 tabIndex={-1}
+                                tickLine={false}
+                                axisLine={false}
+                                tick={mutedTick}
                             />
                             <Tooltip
                                 content={(props: unknown) =>
@@ -611,6 +630,7 @@ function BreakdownGroup({
                                 name={title}
                                 fill={color}
                                 radius={[0, 4, 4, 0]}
+                                barSize={22}
                                 cursor="pointer"
                                 onClick={(entry: unknown) => {
                                     const payload = (
@@ -627,6 +647,8 @@ function BreakdownGroup({
                                 <LabelList
                                     dataKey="total"
                                     position="right"
+                                    fill="var(--muted-foreground)"
+                                    fontSize={12}
                                     formatter={(value: unknown) =>
                                         formatMoney(
                                             Number(value ?? 0),
@@ -662,20 +684,18 @@ function SummaryCard({
     label,
     value,
     currency,
+    className,
 }: {
     label: string;
     value: number;
     currency: string | null;
+    className?: string;
 }) {
     return (
-        <Card>
-            <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium text-muted-foreground">
-                    {label}
-                </CardTitle>
-            </CardHeader>
-            <CardContent>
-                <div className="text-2xl font-semibold">
+        <Card className={cn('gap-0 py-0', className)}>
+            <CardContent className="p-4">
+                <div className="text-sm text-muted-foreground">{label}</div>
+                <div className="mt-1 text-2xl font-semibold tracking-tight tabular-nums">
                     {formatMoney(value, currency)}
                 </div>
             </CardContent>

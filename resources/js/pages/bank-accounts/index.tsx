@@ -48,6 +48,7 @@ import {
     SelectTrigger,
     SelectValue,
 } from '@/components/ui/select';
+import { formatDate } from '@/lib/dates';
 import { formatMoney as formatSharedMoney } from '@/lib/money';
 import { cn } from '@/lib/utils';
 import {
@@ -792,7 +793,9 @@ function AccountRow({
                 <div className="flex items-center gap-2">
                     <span className="truncate font-medium">{account.name}</span>
                     {account.is_favorite && (
-                        <Star className="size-3.5 shrink-0 fill-amber-400 text-amber-400" />
+                        <span title="Primary account" className="shrink-0">
+                            <Star className="size-3.5 fill-brand text-brand" />
+                        </span>
                     )}
                     {needsRenewal && (
                         <Badge variant="destructive">Needs renewal</Badge>
@@ -808,7 +811,7 @@ function AccountRow({
                     Last posting
                 </div>
                 <div className="text-sm tabular-nums">
-                    {lastPostingDate ?? '—'}
+                    {lastPostingDate ? formatDate(lastPostingDate) : '—'}
                 </div>
             </div>
 
@@ -1650,7 +1653,7 @@ function CheckboxField({
 
 function connectionStatusVariant(
     status: string,
-): 'default' | 'secondary' | 'destructive' | 'outline' {
+): 'success' | 'secondary' | 'destructive' | 'outline' {
     if (['failed', 'renewal_required', 'revoked'].includes(status)) {
         return 'destructive';
     }
@@ -1663,7 +1666,7 @@ function connectionStatusVariant(
         return 'outline';
     }
 
-    return 'default';
+    return 'success';
 }
 
 BankAccounts.layout = {

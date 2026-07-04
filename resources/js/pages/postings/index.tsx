@@ -1,11 +1,21 @@
 import { Head, Link, router } from '@inertiajs/react';
-import { ChevronLeft, ChevronRight, Search, X } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { ChevronLeft, ChevronRight, Search } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
 import { CategoryCombobox } from '@/components/category-combobox';
 import type { CategoryComboboxOption } from '@/components/category-combobox';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from '@/components/ui/select';
+import { formatDate } from '@/lib/dates';
 import { formatMoney } from '@/lib/money';
 import { cn } from '@/lib/utils';
 import {
@@ -170,34 +180,60 @@ export default function Postings({
         [subcategoryOptions],
     );
 
-    const submitFilters = () => {
+    type FilterState = {
+        account: string;
+        category: string;
+        type: string;
+        text: string;
+        from: string;
+        to: string;
+        uncategorized: boolean;
+        extraordinary: boolean;
+    };
+
+    // Filters apply as soon as a control changes; free-text search is
+    // debounced below. Pass the changed value in as an override, since the
+    // matching state update has not landed yet when the handler runs.
+    const submitFilters = (overrides: Partial<FilterState> = {}) => {
+        const state: FilterState = {
+            account,
+            category,
+            type,
+            text,
+            from,
+            to,
+            uncategorized,
+            extraordinary,
+            ...overrides,
+        };
+
         const filter: Record<string, string | boolean> = {};
 
-        if (account) {
-            filter.account = account;
+        if (state.account) {
+            filter.account = state.account;
         }
 
-        if (category) {
-            filter.category = category;
+        if (state.category) {
+            filter.category = state.category;
         }
 
-        if (type) {
-            filter.type = type;
+        if (state.type) {
+            filter.type = state.type;
         }
 
-        if (text.trim() !== '') {
-            filter.text = text.trim();
+        if (state.text.trim() !== '') {
+            filter.text = state.text.trim();
         }
 
-        if (from || to) {
-            filter.posted_between = `${from},${to}`;
+        if (state.from || state.to) {
+            filter.posted_between = `${state.from},${state.to}`;
         }
 
-        if (uncategorized) {
+        if (state.uncategorized) {
             filter.uncategorized = true;
         }
 
-        if (extraordinary) {
+        if (state.extraordinary) {
             filter.extraordinary = true;
         }
 
@@ -207,6 +243,17 @@ export default function Postings({
             { preserveState: true, preserveScroll: true },
         );
     };
+
+    useEffect(() => {
+        if (text.trim() === String(filters.text ?? '').trim()) {
+            return;
+        }
+
+        const timeout = setTimeout(() => submitFilters(), 350);
+
+        return () => clearTimeout(timeout);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [text, filters.text]);
 
     const clearFilters = () => {
         setAccount('');
@@ -219,6 +266,16 @@ export default function Postings({
         setExtraordinary(false);
         router.get(postingsIndex.url(), {}, { preserveState: true });
     };
+
+    const hasActiveFilters =
+        account !== '' ||
+        category !== '' ||
+        type !== '' ||
+        text !== '' ||
+        from !== '' ||
+        to !== '' ||
+        uncategorized ||
+        extraordinary;
 
     const applyCategory = (
         posting: Posting,
@@ -292,42 +349,72 @@ export default function Postings({
                     </div>
                 </div>
 
-                <div className="grid gap-3 rounded-lg border bg-card p-3 md:grid-cols-[1fr_1fr_1fr_1.5fr_auto]">
-                    <select
-                        value={account}
-                        onChange={(event) => setAccount(event.target.value)}
-                        className="h-9 rounded-md border bg-background px-3 text-sm"
+                <div className="grid gap-3 rounded-xl border bg-card p-3 shadow-sm md:grid-cols-[1fr_1fr_1fr_1.5fr_auto]">
+                    <Select
+                        value={account || 'all'}
+                        onValueChange={(value) => {
+                            const next = value === 'all' ? '' : value;
+                            setAccount(next);
+                            submitFilters({ account: next });
+                        }}
                     >
-                        <option value="">All accounts</option>
-                        {accounts.map((account) => (
-                            <option key={account.id} value={account.id}>
-                                {account.name}
-                            </option>
-                        ))}
-                    </select>
-                    <select
-                        value={category}
-                        onChange={(event) => setCategory(event.target.value)}
-                        className="h-9 rounded-md border bg-background px-3 text-sm"
+                        <SelectTrigger className="w-full">
+                            <SelectValue placeholder="All accounts" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="all">All accounts</SelectItem>
+                            {accounts.map((account) => (
+                                <SelectItem
+                                    key={account.id}
+                                    value={String(account.id)}
+                                >
+                                    {account.name}
+                                </SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
+                    <Select
+                        value={category || 'all'}
+                        onValueChange={(value) => {
+                            const next = value === 'all' ? '' : value;
+                            setCategory(next);
+                            submitFilters({ category: next });
+                        }}
                     >
-                        <option value="">All categories</option>
-                        {categories.map((category) => (
-                            <option key={category.id} value={category.id}>
-                                {category.name}
-                            </option>
-                        ))}
-                    </select>
-                    <select
-                        value={type}
-                        onChange={(event) => setType(event.target.value)}
-                        className="h-9 rounded-md border bg-background px-3 text-sm"
+                        <SelectTrigger className="w-full">
+                            <SelectValue placeholder="All categories" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="all">All categories</SelectItem>
+                            {categories.map((category) => (
+                                <SelectItem
+                                    key={category.id}
+                                    value={String(category.id)}
+                                >
+                                    {category.name}
+                                </SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
+                    <Select
+                        value={type || 'all'}
+                        onValueChange={(value) => {
+                            const next = value === 'all' ? '' : value;
+                            setType(next);
+                            submitFilters({ type: next });
+                        }}
                     >
-                        <option value="">All types</option>
-                        <option value="Expense">Expense</option>
-                        <option value="Income">Income</option>
-                        <option value="Saving">Saving</option>
-                        <option value="Exclude">Excluded</option>
-                    </select>
+                        <SelectTrigger className="w-full">
+                            <SelectValue placeholder="All types" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="all">All types</SelectItem>
+                            <SelectItem value="Expense">Expense</SelectItem>
+                            <SelectItem value="Income">Income</SelectItem>
+                            <SelectItem value="Saving">Saving</SelectItem>
+                            <SelectItem value="Exclude">Excluded</SelectItem>
+                        </SelectContent>
+                    </Select>
                     <div className="relative">
                         <Search className="pointer-events-none absolute top-2.5 left-3 size-4 text-muted-foreground" />
                         <Input
@@ -338,78 +425,100 @@ export default function Postings({
                                     submitFilters();
                                 }
                             }}
-                            placeholder="Search text"
+                            placeholder="Search postings…"
                             className="pl-9"
                         />
                     </div>
-                    <div className="flex gap-2">
-                        <Button onClick={submitFilters}>Apply</Button>
-                        <Button variant="outline" onClick={clearFilters}>
-                            <X className="size-4" />
-                        </Button>
-                    </div>
-                    <div className="flex gap-3 text-sm md:col-span-5">
-                        <label className="flex items-center gap-2">
-                            <input
-                                type="checkbox"
+                    <Button
+                        variant="ghost"
+                        onClick={clearFilters}
+                        disabled={!hasActiveFilters}
+                        className="text-muted-foreground"
+                    >
+                        Reset
+                    </Button>
+                    <div className="flex flex-wrap items-center gap-x-5 gap-y-3 text-sm md:col-span-5">
+                        <div className="flex items-center gap-2">
+                            <Checkbox
+                                id="filter-uncategorized"
                                 checked={uncategorized}
-                                onChange={(event) =>
-                                    setUncategorized(event.target.checked)
-                                }
+                                onCheckedChange={(checked) => {
+                                    const next = checked === true;
+                                    setUncategorized(next);
+                                    submitFilters({ uncategorized: next });
+                                }}
                             />
-                            Uncategorized
-                        </label>
-                        <label className="flex items-center gap-2">
-                            <input
-                                type="checkbox"
+                            <Label
+                                htmlFor="filter-uncategorized"
+                                className="font-normal"
+                            >
+                                Uncategorized
+                            </Label>
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <Checkbox
+                                id="filter-extraordinary"
                                 checked={extraordinary}
-                                onChange={(event) =>
-                                    setExtraordinary(event.target.checked)
-                                }
+                                onCheckedChange={(checked) => {
+                                    const next = checked === true;
+                                    setExtraordinary(next);
+                                    submitFilters({ extraordinary: next });
+                                }}
                             />
-                            Extraordinary
-                        </label>
-                        <label className="flex items-center gap-2">
+                            <Label
+                                htmlFor="filter-extraordinary"
+                                className="font-normal"
+                            >
+                                Extraordinary
+                            </Label>
+                        </div>
+                        <label className="flex items-center gap-2 text-muted-foreground">
                             From
                             <Input
                                 type="date"
                                 value={from}
-                                onChange={(event) =>
-                                    setFrom(event.target.value)
-                                }
-                                className="h-8 w-40"
+                                onChange={(event) => {
+                                    setFrom(event.target.value);
+                                    submitFilters({
+                                        from: event.target.value,
+                                    });
+                                }}
+                                className="h-8 w-40 text-foreground"
                             />
                         </label>
-                        <label className="flex items-center gap-2">
+                        <label className="flex items-center gap-2 text-muted-foreground">
                             To
                             <Input
                                 type="date"
                                 value={to}
-                                onChange={(event) => setTo(event.target.value)}
-                                className="h-8 w-40"
+                                onChange={(event) => {
+                                    setTo(event.target.value);
+                                    submitFilters({ to: event.target.value });
+                                }}
+                                className="h-8 w-40 text-foreground"
                             />
                         </label>
                     </div>
                 </div>
 
-                <div className="overflow-hidden rounded-lg border bg-card">
+                <div className="overflow-hidden rounded-xl border bg-card shadow-sm">
                     <div className="overflow-x-auto">
                         <table className="w-full min-w-[920px] text-sm">
-                            <thead className="bg-muted/50 text-left">
+                            <thead className="text-left">
                                 <tr>
-                                    <th className="px-3 py-2 font-medium">
+                                    <th className="px-3 py-2.5 text-xs font-medium text-muted-foreground">
                                         Date
                                     </th>
-                                    <th className="px-3 py-2 font-medium">
+                                    <th className="px-3 py-2.5 text-xs font-medium text-muted-foreground">
                                         Description
                                     </th>
-                                    <th className="px-3 py-2 font-medium">
+                                    <th className="px-3 py-2.5 text-xs font-medium text-muted-foreground">
                                         Account
                                     </th>
-                                    <th className="px-3 py-2 font-medium">
+                                    <th className="px-3 py-2.5 text-xs font-medium text-muted-foreground">
                                         Category
                                     </th>
-                                    <th className="px-3 py-2 text-right font-medium">
+                                    <th className="px-3 py-2.5 text-right text-xs font-medium text-muted-foreground">
                                         Amount
                                     </th>
                                 </tr>
@@ -423,10 +532,10 @@ export default function Postings({
                                         onKeyDown={(event) =>
                                             rowKeyDown(event, posting, rowIndex)
                                         }
-                                        className="border-t outline-none odd:bg-muted/25 focus:bg-accent"
+                                        className="border-t transition-colors outline-none hover:bg-muted/40 focus:bg-accent"
                                     >
-                                        <td className="px-3 py-2 whitespace-nowrap text-muted-foreground">
-                                            {posting.date}
+                                        <td className="px-3 py-2 whitespace-nowrap text-muted-foreground tabular-nums">
+                                            {formatDate(posting.date)}
                                         </td>
                                         <td className="px-3 py-2">
                                             <div className="font-medium">
@@ -487,10 +596,9 @@ export default function Postings({
                                         </td>
                                         <td
                                             className={cn(
-                                                'px-3 py-2 text-right font-medium whitespace-nowrap',
-                                                posting.amount < 0
-                                                    ? 'text-orange-600 dark:text-orange-400'
-                                                    : 'text-emerald-600 dark:text-emerald-400',
+                                                'px-3 py-2 text-right font-medium whitespace-nowrap tabular-nums',
+                                                posting.amount >= 0 &&
+                                                    'text-chart-income',
                                             )}
                                         >
                                             {formatMoney(
