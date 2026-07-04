@@ -334,31 +334,36 @@ export default function Dashboard({
                     </Select>
                 </div>
 
-                <div className="grid grid-cols-2 gap-3 md:grid-cols-5 md:gap-4">
-                    <SummaryCard
+                <div className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border bg-border shadow-sm md:grid-cols-5">
+                    <StatCell
                         label="Income"
                         value={summary.income}
                         currency={primaryCurrency}
+                        dotClass="bg-chart-income"
                     />
-                    <SummaryCard
+                    <StatCell
                         label="Bills"
                         value={summary.bills}
                         currency={primaryCurrency}
+                        dotClass="bg-chart-bills"
                     />
-                    <SummaryCard
+                    <StatCell
                         label="Consumption"
                         value={summary.consumption}
                         currency={primaryCurrency}
+                        dotClass="bg-chart-consumption"
                     />
-                    <SummaryCard
+                    <StatCell
                         label="Savings"
                         value={summary.savings}
                         currency={primaryCurrency}
+                        dotClass="bg-chart-savings"
                     />
-                    <SummaryCard
+                    <StatCell
                         label="Result"
                         value={summary.result}
                         currency={primaryCurrency}
+                        dotClass="bg-foreground"
                         className="col-span-2 md:col-span-1"
                     />
                 </div>
@@ -680,26 +685,32 @@ function BreakdownSkeleton() {
     );
 }
 
-function SummaryCard({
+function StatCell({
     label,
     value,
     currency,
+    dotClass,
     className,
 }: {
     label: string;
     value: number;
     currency: string | null;
+    dotClass: string;
     className?: string;
 }) {
     return (
-        <Card className={cn('gap-0 py-0', className)}>
-            <CardContent className="p-4">
-                <div className="text-sm text-muted-foreground">{label}</div>
-                <div className="mt-1 text-2xl font-semibold tracking-tight tabular-nums">
-                    {formatMoney(value, currency)}
-                </div>
-            </CardContent>
-        </Card>
+        <div className={cn('bg-card p-4 sm:p-5', className)}>
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <span
+                    className={cn('size-2 shrink-0 rounded-full', dotClass)}
+                    aria-hidden
+                />
+                {label}
+            </div>
+            <div className="mt-1.5 text-2xl font-semibold tracking-tight tabular-nums">
+                {formatMoney(value, currency)}
+            </div>
+        </div>
     );
 }
 

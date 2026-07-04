@@ -5,9 +5,7 @@ import { CategoryCombobox } from '@/components/category-combobox';
 import type { CategoryComboboxOption } from '@/components/category-combobox';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import {
     Select,
     SelectContent,
@@ -101,6 +99,32 @@ type PostingsProps = {
 
 function normalizeLabel(label: string): string {
     return label.replace('&laquo;', 'Previous').replace('&raquo;', 'Next');
+}
+
+function FilterChip({
+    active,
+    onClick,
+    children,
+}: {
+    active: boolean;
+    onClick: () => void;
+    children: React.ReactNode;
+}) {
+    return (
+        <button
+            type="button"
+            aria-pressed={active}
+            onClick={onClick}
+            className={cn(
+                'inline-flex h-9 items-center rounded-full border px-3.5 text-sm transition-colors',
+                active
+                    ? 'border-brand/30 bg-brand/10 font-medium text-brand'
+                    : 'bg-card text-muted-foreground hover:bg-accent hover:text-foreground',
+            )}
+        >
+            {children}
+        </button>
+    );
 }
 
 function focusRow(index: number): void {
@@ -349,7 +373,21 @@ export default function Postings({
                     </div>
                 </div>
 
-                <div className="grid gap-3 rounded-xl border bg-card p-3 shadow-sm md:grid-cols-[1fr_1fr_1fr_1.5fr_auto]">
+                <div className="flex flex-wrap items-center gap-2">
+                    <div className="relative w-full sm:w-64">
+                        <Search className="pointer-events-none absolute top-2.5 left-3 size-4 text-muted-foreground" />
+                        <Input
+                            value={text}
+                            onChange={(event) => setText(event.target.value)}
+                            onKeyDown={(event) => {
+                                if (event.key === 'Enter') {
+                                    submitFilters();
+                                }
+                            }}
+                            placeholder="Search postings…"
+                            className="bg-card pl-9"
+                        />
+                    </div>
                     <Select
                         value={account || 'all'}
                         onValueChange={(value) => {
@@ -358,7 +396,7 @@ export default function Postings({
                             submitFilters({ account: next });
                         }}
                     >
-                        <SelectTrigger className="w-full">
+                        <SelectTrigger className="w-44 bg-card">
                             <SelectValue placeholder="All accounts" />
                         </SelectTrigger>
                         <SelectContent>
@@ -381,7 +419,7 @@ export default function Postings({
                             submitFilters({ category: next });
                         }}
                     >
-                        <SelectTrigger className="w-full">
+                        <SelectTrigger className="w-44 bg-card">
                             <SelectValue placeholder="All categories" />
                         </SelectTrigger>
                         <SelectContent>
@@ -404,7 +442,7 @@ export default function Postings({
                             submitFilters({ type: next });
                         }}
                     >
-                        <SelectTrigger className="w-full">
+                        <SelectTrigger className="w-32 bg-card">
                             <SelectValue placeholder="All types" />
                         </SelectTrigger>
                         <SelectContent>
@@ -415,95 +453,64 @@ export default function Postings({
                             <SelectItem value="Exclude">Excluded</SelectItem>
                         </SelectContent>
                     </Select>
-                    <div className="relative">
-                        <Search className="pointer-events-none absolute top-2.5 left-3 size-4 text-muted-foreground" />
+                    <div className="flex items-center gap-1.5">
                         <Input
-                            value={text}
-                            onChange={(event) => setText(event.target.value)}
-                            onKeyDown={(event) => {
-                                if (event.key === 'Enter') {
-                                    submitFilters();
-                                }
+                            type="date"
+                            aria-label="From date"
+                            value={from}
+                            onChange={(event) => {
+                                setFrom(event.target.value);
+                                submitFilters({ from: event.target.value });
                             }}
-                            placeholder="Search postings…"
-                            className="pl-9"
+                            className="h-9 w-[8.75rem] bg-card"
+                        />
+                        <span className="text-sm text-muted-foreground">–</span>
+                        <Input
+                            type="date"
+                            aria-label="To date"
+                            value={to}
+                            onChange={(event) => {
+                                setTo(event.target.value);
+                                submitFilters({ to: event.target.value });
+                            }}
+                            className="h-9 w-[8.75rem] bg-card"
                         />
                     </div>
-                    <Button
-                        variant="ghost"
-                        onClick={clearFilters}
-                        disabled={!hasActiveFilters}
-                        className="text-muted-foreground"
+                    <FilterChip
+                        active={uncategorized}
+                        onClick={() => {
+                            const next = !uncategorized;
+                            setUncategorized(next);
+                            submitFilters({ uncategorized: next });
+                        }}
                     >
-                        Reset
-                    </Button>
-                    <div className="flex flex-wrap items-center gap-x-5 gap-y-3 text-sm md:col-span-5">
-                        <div className="flex items-center gap-2">
-                            <Checkbox
-                                id="filter-uncategorized"
-                                checked={uncategorized}
-                                onCheckedChange={(checked) => {
-                                    const next = checked === true;
-                                    setUncategorized(next);
-                                    submitFilters({ uncategorized: next });
-                                }}
-                            />
-                            <Label
-                                htmlFor="filter-uncategorized"
-                                className="font-normal"
-                            >
-                                Uncategorized
-                            </Label>
-                        </div>
-                        <div className="flex items-center gap-2">
-                            <Checkbox
-                                id="filter-extraordinary"
-                                checked={extraordinary}
-                                onCheckedChange={(checked) => {
-                                    const next = checked === true;
-                                    setExtraordinary(next);
-                                    submitFilters({ extraordinary: next });
-                                }}
-                            />
-                            <Label
-                                htmlFor="filter-extraordinary"
-                                className="font-normal"
-                            >
-                                Extraordinary
-                            </Label>
-                        </div>
-                        <label className="flex items-center gap-2 text-muted-foreground">
-                            From
-                            <Input
-                                type="date"
-                                value={from}
-                                onChange={(event) => {
-                                    setFrom(event.target.value);
-                                    submitFilters({
-                                        from: event.target.value,
-                                    });
-                                }}
-                                className="h-8 w-40 text-foreground"
-                            />
-                        </label>
-                        <label className="flex items-center gap-2 text-muted-foreground">
-                            To
-                            <Input
-                                type="date"
-                                value={to}
-                                onChange={(event) => {
-                                    setTo(event.target.value);
-                                    submitFilters({ to: event.target.value });
-                                }}
-                                className="h-8 w-40 text-foreground"
-                            />
-                        </label>
-                    </div>
+                        Uncategorized
+                    </FilterChip>
+                    <FilterChip
+                        active={extraordinary}
+                        onClick={() => {
+                            const next = !extraordinary;
+                            setExtraordinary(next);
+                            submitFilters({ extraordinary: next });
+                        }}
+                    >
+                        Extraordinary
+                    </FilterChip>
+                    {hasActiveFilters && (
+                        <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={clearFilters}
+                            className="text-muted-foreground"
+                        >
+                            Reset
+                        </Button>
+                    )}
                 </div>
 
                 <div className="overflow-hidden rounded-xl border bg-card shadow-sm">
                     <div className="overflow-x-auto">
-                        <table className="w-full min-w-[920px] text-sm">
+                        <table className="w-full min-w-[720px] text-sm">
                             <thead className="text-left">
                                 <tr>
                                     <th className="px-3 py-2.5 text-xs font-medium text-muted-foreground">
@@ -512,7 +519,7 @@ export default function Postings({
                                     <th className="px-3 py-2.5 text-xs font-medium text-muted-foreground">
                                         Description
                                     </th>
-                                    <th className="px-3 py-2.5 text-xs font-medium text-muted-foreground">
+                                    <th className="hidden px-3 py-2.5 text-xs font-medium text-muted-foreground lg:table-cell">
                                         Account
                                     </th>
                                     <th className="px-3 py-2.5 text-xs font-medium text-muted-foreground">
@@ -547,7 +554,7 @@ export default function Postings({
                                                 </Badge>
                                             )}
                                         </td>
-                                        <td className="px-3 py-2 text-muted-foreground">
+                                        <td className="hidden px-3 py-2 text-muted-foreground lg:table-cell">
                                             {posting.bank_account.name}
                                         </td>
                                         <td className="relative px-3 py-2">

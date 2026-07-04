@@ -8,7 +8,6 @@ import {
     Plus,
     RefreshCw,
     RotateCcw,
-    Settings2,
     Star,
     TriangleAlert,
     Trash2,
@@ -348,7 +347,7 @@ export default function BankAccounts({
                         onAddAccount={() => setIsCreating(true)}
                     />
                 ) : (
-                    <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_320px]">
+                    <div className="grid items-start gap-8 xl:grid-cols-[minmax(0,1fr)_340px]">
                         <div className="flex flex-col gap-6">
                             {accounts.length === 0 ? (
                                 <div className="rounded-md border border-dashed p-8 text-center text-sm text-muted-foreground">
@@ -487,16 +486,23 @@ function BanksPanel({
     onRemove: (connection: Connection) => void;
 }) {
     return (
-        <aside className="flex flex-col gap-3">
+        <aside className="flex flex-col gap-3 xl:sticky xl:top-6">
             <div className="flex items-center justify-between">
-                <h2 className="text-sm font-semibold">My banks</h2>
+                <div className="flex items-baseline gap-2">
+                    <h2 className="text-sm font-semibold">Connections</h2>
+                    {connections.length > 0 && (
+                        <span className="text-xs text-muted-foreground tabular-nums">
+                            {connections.length}
+                        </span>
+                    )}
+                </div>
                 <Button variant="outline" size="sm" onClick={onAddBank}>
                     <Plus className="size-4" />
                     Add bank
                 </Button>
             </div>
             {connections.length === 0 ? (
-                <div className="rounded-md border border-dashed p-4 text-center text-sm text-muted-foreground">
+                <div className="rounded-xl border border-dashed p-6 text-center text-sm text-muted-foreground">
                     No banks connected yet.
                 </div>
             ) : (
@@ -539,6 +545,17 @@ function ConnectionCard({
         return `Expires in ${expiryDays} ${expiryDays === 1 ? 'day' : 'days'}`;
     };
 
+    // Bank consent windows are 90 days; show how much of it remains.
+    const expiryFraction =
+        expiryDays === null ? null : Math.max(0, Math.min(1, expiryDays / 90));
+    const expiryBarClass = expired
+        ? 'bg-destructive'
+        : expiringSoon
+          ? 'bg-destructive'
+          : expiryDays !== null && expiryDays < 30
+            ? 'bg-amber-400'
+            : 'bg-emerald-500';
+
     const syncAll = () => {
         toast('Syncing bank accounts...');
         router.post(
@@ -553,42 +570,68 @@ function ConnectionCard({
     };
 
     return (
-        <Card className="rounded-lg py-0">
-            <CardContent className="flex flex-col gap-3 p-4">
-                <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0 space-y-1">
-                        <div className="flex items-center gap-2">
-                            <WalletCards className="size-4 shrink-0 text-muted-foreground" />
-                            <h3 className="truncate font-medium">
+        <Card className="py-0">
+            <CardContent className="flex flex-col gap-4 p-4">
+                <div className="flex items-start justify-between gap-3">
+                    <div className="flex min-w-0 items-center gap-3">
+                        <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-brand/10">
+                            <Landmark className="size-4 text-brand" />
+                        </div>
+                        <div className="min-w-0">
+                            <h3 className="truncate text-sm font-semibold">
                                 {connection.aspsp_name}
                             </h3>
+                            <p className="text-xs text-muted-foreground">
+                                {connection.aspsp_country} ·{' '}
+                                {connection.linked_accounts_count} linked
+                            </p>
                         </div>
-                        <p className="text-xs text-muted-foreground">
-                            {connection.aspsp_country} ·{' '}
-                            {connection.linked_accounts_count} linked
-                        </p>
                     </div>
-                    <Badge variant={connectionStatusVariant(connection.status)}>
+                    <span className="flex shrink-0 items-center gap-1.5 pt-0.5 text-xs text-muted-foreground capitalize">
+                        <span
+                            className={cn(
+                                'size-1.5 rounded-full',
+                                connectionStatusDot(connection.status),
+                            )}
+                            aria-hidden
+                        />
                         {connection.status.replace('_', ' ')}
-                    </Badge>
+                    </span>
                 </div>
 
-                <div className="grid gap-1 text-xs text-muted-foreground">
-                    <div
-                        className={
-                            expired || expiringSoon
-                                ? 'font-medium text-destructive'
-                                : ''
-                        }
-                    >
-                        {expiryLabel()}
+                <div className="grid gap-1.5">
+                    <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-0.5 text-xs">
+                        <span
+                            className={
+                                expired || expiringSoon
+                                    ? 'font-medium text-destructive'
+                                    : 'text-muted-foreground'
+                            }
+                        >
+                            {expiryLabel()}
+                        </span>
+                        <span className="text-muted-foreground">
+                            Last sync{' '}
+                            {connection.last_successful_sync_at
+                                ? formatDateTime(
+                                      connection.last_successful_sync_at,
+                                  )
+                                : 'never'}
+                        </span>
                     </div>
-                    <div>
-                        Last sync{' '}
-                        {connection.last_successful_sync_at
-                            ? formatDateTime(connection.last_successful_sync_at)
-                            : 'never'}
-                    </div>
+                    {expiryFraction !== null && (
+                        <div className="h-1 overflow-hidden rounded-full bg-muted">
+                            <div
+                                className={cn(
+                                    'h-full rounded-full',
+                                    expiryBarClass,
+                                )}
+                                style={{
+                                    width: `${expiryFraction * 100}%`,
+                                }}
+                            />
+                        </div>
+                    )}
                 </div>
 
                 {connection.balance_mismatch && (
@@ -639,7 +682,6 @@ function ConnectionCard({
                         </Button>
                     )}
                     <Button size="sm" variant="outline" onClick={onManage}>
-                        <Settings2 className="size-4" />
                         Manage
                     </Button>
                     <DropdownMenu>
@@ -690,9 +732,12 @@ function AccountList({
 }) {
     return (
         <section className="flex flex-col gap-2">
-            <h2 className="text-sm font-semibold text-muted-foreground">
-                {label}
-            </h2>
+            <div className="flex items-baseline gap-2">
+                <h2 className="text-sm font-semibold">{label}</h2>
+                <span className="text-xs text-muted-foreground tabular-nums">
+                    {accounts.length}
+                </span>
+            </div>
             <Card className="rounded-lg py-0">
                 <CardContent className="divide-y p-0">
                     {accounts.map((account) => (
@@ -1649,6 +1694,22 @@ function CheckboxField({
             </div>
         </div>
     );
+}
+
+function connectionStatusDot(status: string): string {
+    if (['failed', 'renewal_required', 'revoked'].includes(status)) {
+        return 'bg-destructive';
+    }
+
+    if (['pending', 'unlinked'].includes(status)) {
+        return 'bg-amber-400';
+    }
+
+    if (status === 'ignored') {
+        return 'bg-muted-foreground/40';
+    }
+
+    return 'bg-emerald-500';
 }
 
 function connectionStatusVariant(
