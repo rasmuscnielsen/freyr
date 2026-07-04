@@ -301,6 +301,88 @@ test('remote accounts can be linked to an existing or newly created bank account
     );
 });
 
+test('linking an account with existing postings sets an import cutoff', function () {
+    $user = User::factory()->create();
+    $connection = BankConnection::factory()->for($user)->create();
+    $remoteAccount = BankConnectionAccount::factory()
+        ->for($connection)
+        ->create(['user_id' => $user->id]);
+    $localAccount = BankAccount::factory()->for($user)->create();
+    Posting::factory()->forAccount($localAccount)->create(['date' => '2026-06-10']);
+    Posting::factory()->forAccount($localAccount)->create(['date' => '2026-05-01']);
+
+    Queue::fake();
+
+    $this->actingAs($user)
+        ->patch(route('bank-connection-accounts.update', $remoteAccount), [
+            'mode' => 'existing',
+            'bank_account_id' => $localAccount->id,
+        ])
+        ->assertRedirect();
+
+    expect($localAccount->refresh()->ignore_postings_before->toDateString())->toBe('2026-06-11');
+
+    // A pre-existing cutoff is never overwritten.
+    $localAccount->update(['ignore_postings_before' => '2026-01-01']);
+
+    $this->actingAs($user)
+        ->patch(route('bank-connection-accounts.update', $remoteAccount), [
+            'mode' => 'existing',
+            'bank_account_id' => $localAccount->id,
+        ])
+        ->assertRedirect();
+
+    expect($localAccount->refresh()->ignore_postings_before->toDateString())->toBe('2026-01-01');
+});
+
+test('linking an account without postings sets no import cutoff', function () {
+    $user = User::factory()->create();
+    $connection = BankConnection::factory()->for($user)->create();
+    $remoteAccount = BankConnectionAccount::factory()
+        ->for($connection)
+        ->create(['user_id' => $user->id]);
+    $localAccount = BankAccount::factory()->for($user)->create();
+
+    Queue::fake();
+
+    $this->actingAs($user)
+        ->patch(route('bank-connection-accounts.update', $remoteAccount), [
+            'mode' => 'existing',
+            'bank_account_id' => $localAccount->id,
+        ])
+        ->assertRedirect();
+
+    expect($localAccount->refresh()->ignore_postings_before)->toBeNull();
+});
+
+test('sync skips transactions before the account import cutoff', function () {
+    $user = User::factory()->create();
+    $connection = BankConnection::factory()->for($user)->create();
+    $localAccount = BankAccount::factory()->for($user)->create([
+        'ignore_postings_before' => '2026-06-20',
+    ]);
+    $remoteAccount = BankConnectionAccount::factory()
+        ->for($connection)
+        ->linkedTo($localAccount)
+        ->create();
+    $client = new FakeEnableBankingClient(
+        balances: enableBankingBalancesPayload(),
+        transactions: enableBankingTransactionsPayload(),
+    );
+
+    app()->instance(EnableBankingClient::class, $client);
+
+    (new SyncBankConnectionAccountJob($remoteAccount))->handle(app(EnableBankingConnectionManager::class));
+
+    $run = BankSyncRun::query()->latest('id')->firstOrFail();
+
+    // The fake booked transaction is dated 2026-06-19, before the cutoff.
+    expect(Posting::query()->count())->toBe(0)
+        ->and($run->status)->toBe(BankSyncRun::STATUS_SUCCEEDED)
+        ->and($run->new_postings_count)->toBe(0)
+        ->and($remoteAccount->refresh()->last_transaction_date->toDateString())->toBe('2026-06-19');
+});
+
 test('sync imports past transactions idempotently and skips future scheduled transactions', function () {
     $user = User::factory()->create();
     $connection = BankConnection::factory()->for($user)->create();

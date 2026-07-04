@@ -8,6 +8,7 @@ use App\Models\Posting;
 use App\Models\Subcategory;
 use App\Models\User;
 use Carbon\CarbonImmutable;
+use Database\Seeders\DefaultCategoriesSeeder;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
@@ -29,6 +30,8 @@ class SpiirExportImporter
             ->all();
 
         return DB::transaction(function () use ($payload, $ignoredSubcategoryIds): array {
+            $this->removeDefaultCategories();
+
             $categoryCount = 0;
 
             foreach ($payload['categories'] ?? [] as $category) {
@@ -75,6 +78,25 @@ class SpiirExportImporter
                 'subcategories' => $subcategoryCount,
             ];
         });
+    }
+
+    public function hasDefaultCategories(): bool
+    {
+        return Category::query()
+            ->where('legacy_id', 'like', DefaultCategoriesSeeder::CATEGORY_LEGACY_ID_PREFIX.'%')
+            ->exists();
+    }
+
+    /**
+     * A Spiir export carries its own category tree, so the seeded defaults
+     * are removed in favor of it. Subcategories cascade with their category
+     * and postings referencing them are nulled at the database level.
+     */
+    private function removeDefaultCategories(): void
+    {
+        Category::query()
+            ->where('legacy_id', 'like', DefaultCategoriesSeeder::CATEGORY_LEGACY_ID_PREFIX.'%')
+            ->delete();
     }
 
     /**

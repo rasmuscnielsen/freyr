@@ -28,6 +28,17 @@ class ImportSpiirExportCommand extends Command
             return self::FAILURE;
         }
 
+        if ($importer->hasDefaultCategories()) {
+            $this->components->warn(
+                'The seeded default categories will be replaced by the categories from your Spiir export. '
+                .'Postings categorized with a default category become uncategorized.',
+            );
+
+            if (! $this->confirm('Continue?', true)) {
+                return self::FAILURE;
+            }
+        }
+
         $summary = $importer->importExport($path);
 
         $this->components->info(sprintf(

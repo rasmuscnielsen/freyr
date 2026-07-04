@@ -21,7 +21,14 @@ First public release.
 - Manual categorization with a category tree (income / expense / saving /
   transfer types) and a seeded default tree for new installations.
 - Spiir export importer (`php artisan app:spiir:import <path>`) as a migration
-  path for ex-Spiir users.
+  path for ex-Spiir users; it replaces the seeded default categories with the
+  export's tree (after a confirmation prompt).
+- `php artisan app:install` (migrations + default categories; `--demo` resets
+  a local database with sample data) and `php artisan app:deployed`
+  (migrations + cache optimization and Horizon restart in production).
+- Linking a bank connection to an account that already has postings sets an
+  import cutoff (`ignore_postings_before`) so the first Enable Banking sync
+  does not duplicate imported history.
 - Read-only REST API secured by Sanctum personal access tokens.
 - Auth via Fortify: registration (can be disabled with
   `REGISTRATION_ENABLED=false`), email verification, password reset, 2FA, and

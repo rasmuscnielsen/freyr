@@ -251,10 +251,17 @@ class EnableBankingConnectionManager
             'duplicate_postings_count' => 0,
         ];
 
+        $ignorePostingsBefore = $account->bankAccount?->ignore_postings_before;
+
         foreach ($transactions as $transaction) {
             $transactionId = $this->transactionMapper->transactionId($transaction);
 
             if ($transactionId === '' || $account->bank_account_id === null) {
+                continue;
+            }
+
+            if ($ignorePostingsBefore !== null
+                && $this->transactionMapper->transactionDate($transaction)->lt($ignorePostingsBefore)) {
                 continue;
             }
 
