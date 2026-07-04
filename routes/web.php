@@ -15,10 +15,12 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::post('bank-connections', [BankConnectionController::class, 'store'])->name('bank-connections.store');
     Route::get('bank-connections/callback', [BankConnectionController::class, 'callback'])->name('bank-connections.callback');
     Route::post('bank-connections/{bankConnection}/renew', [BankConnectionController::class, 'renew'])->name('bank-connections.renew');
+    Route::post('bank-connections/{bankConnection}/sync', [BankConnectionController::class, 'sync'])->name('bank-connections.sync');
+    Route::delete('bank-connections/{bankConnection}', [BankConnectionController::class, 'destroy'])->name('bank-connections.destroy');
     Route::patch('bank-connection-accounts/{bankConnectionAccount}', [BankConnectionAccountController::class, 'update'])->name('bank-connection-accounts.update');
     Route::post('bank-connection-accounts/{bankConnectionAccount}/sync', [BankConnectionAccountController::class, 'sync'])->name('bank-connection-accounts.sync');
     Route::resource('postings', PostingController::class)->only(['index', 'update']);
-    Route::resource('bank-accounts', BankAccountController::class)->only(['index', 'store', 'update', 'destroy']);
+    Route::resource('bank-accounts', BankAccountController::class)->only(['index', 'show', 'store', 'update', 'destroy']);
 });
 
 require __DIR__.'/settings.php';

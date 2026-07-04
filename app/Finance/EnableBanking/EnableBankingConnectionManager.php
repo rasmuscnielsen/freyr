@@ -130,7 +130,9 @@ class EnableBankingConnectionManager
                 ->map(fn (array $transaction): CarbonImmutable => $this->transactionMapper->transactionDate($transaction))
                 ->max();
 
-            DB::transaction(function () use ($account, $connection, $run, $balances, $counts, $lastTransactionDate): void {
+            $reconciliation = $this->reconcileBalance($account, $balances);
+
+            DB::transaction(function () use ($account, $connection, $run, $balances, $counts, $lastTransactionDate, $reconciliation): void {
                 $this->updateBankAccountBalances($account, $balances, $lastTransactionDate);
 
                 $account->update([
@@ -151,6 +153,7 @@ class EnableBankingConnectionManager
                     'date_to' => $lastTransactionDate?->toDateString(),
                     'finished_at' => now(),
                     ...$counts,
+                    ...$reconciliation,
                 ]);
             });
         } catch (Throwable $exception) {
@@ -304,6 +307,61 @@ class EnableBankingConnectionManager
             'last_updated_at' => now(),
             'last_known_posting_date' => $lastTransactionDate?->toDateString() ?? $account->last_transaction_date,
         ]);
+    }
+
+    /**
+     * Reconcile our local running balance against the bank-reported booked balance.
+     *
+     * The expected figure is the bank's booked (CLBD) balance at sync time. The computed
+     * figure is the running balance stored on the newest posting we hold for this account
+     * (latest by date, then by id, among postings from this source with a non-null balance).
+     *
+     * The comparison is deliberately naive: it does not attempt to account for pending or
+     * not-yet-booked transactions. If the newest local posting predates the balance snapshot
+     * (e.g. the bank has booked movements we have not imported, or holds pending entries), the
+     * two figures will simply disagree and `balance_matches` becomes false. That mismatch is the
+     * intended warning signal, not an error — it never fails the run.
+     *
+     * When no posting carries a running balance, reconciliation cannot be performed and both the
+     * computed balance and `balance_matches` are left null.
+     *
+     * @param  list<array<string, mixed>>  $balances
+     * @return array{expected_balance: ?string, computed_balance: ?string, balance_matches: ?bool}
+     */
+    private function reconcileBalance(BankConnectionAccount $account, array $balances): array
+    {
+        $booked = collect($balances)->firstWhere('balance_type', 'CLBD') ?? $balances[0] ?? null;
+        $expectedBalance = data_get($booked, 'balance_amount.amount');
+        $expectedBalance = $expectedBalance === null ? null : (string) $expectedBalance;
+
+        $computedBalance = null;
+
+        if ($account->bank_account_id !== null) {
+            $latestPosting = Posting::query()
+                ->where('user_id', $account->bankConnection->user_id)
+                ->where('source', BankConnectionAccount::SOURCE_ENABLE_BANKING)
+                ->where('external_account_uid_hash', $account->external_account_uid_hash)
+                ->whereNotNull('balance')
+                ->orderByDesc('date')
+                ->orderByDesc('id')
+                ->first();
+
+            $computedBalance = $latestPosting?->balance;
+        }
+
+        if ($computedBalance === null || $expectedBalance === null) {
+            return [
+                'expected_balance' => $expectedBalance,
+                'computed_balance' => $computedBalance,
+                'balance_matches' => null,
+            ];
+        }
+
+        return [
+            'expected_balance' => $expectedBalance,
+            'computed_balance' => $computedBalance,
+            'balance_matches' => abs((float) $expectedBalance - (float) $computedBalance) <= 0.005,
+        ];
     }
 
     private function recordFailedSync(BankSyncRun $run, BankConnectionAccount $account, Throwable $exception): void

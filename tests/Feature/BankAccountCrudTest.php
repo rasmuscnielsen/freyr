@@ -4,6 +4,7 @@ use App\Finance\EnableBanking\EnableBankingClient;
 use App\Models\BankAccount;
 use App\Models\BankConnection;
 use App\Models\BankConnectionAccount;
+use App\Models\BankSyncRun;
 use App\Models\Posting;
 use App\Models\User;
 use Illuminate\Support\Facades\Cache;
@@ -106,6 +107,74 @@ test('bank accounts with postings are archived instead of deleted', function () 
 
     expect($account->refresh()->is_active)->toBeFalse()
         ->and(BankAccount::query()->count())->toBe(1);
+});
+
+test('bank accounts page exposes the my banks connection panel', function () {
+    $user = User::factory()->create();
+    Cache::forget('enable-banking.aspsps.dk.personal.ais');
+    app()->instance(EnableBankingClient::class, new BankAccountCrudEnableBankingClient);
+
+    $account = BankAccount::factory()->for($user)->create();
+    $connection = BankConnection::factory()->for($user)->forBank('Lunar Bank')->create();
+    BankConnectionAccount::factory()->for($connection)->linkedTo($account)->create(['details' => 'Everyday']);
+
+    $this->actingAs($user)
+        ->get(route('bank-accounts.index'))
+        ->assertOk()
+        ->assertInertia(fn (Assert $page) => $page
+            ->component('bank-accounts/index')
+            ->where('connections.0.aspsp_name', 'Lunar Bank')
+            ->where('connections.0.linked_accounts_count', 1)
+            ->where('connections.0.accounts.0.name', 'Everyday')
+            ->where('connections.0.accounts.0.bank_account.name', $account->name));
+});
+
+test('bank account detail page renders postings and sync history', function () {
+    $user = User::factory()->create();
+    $account = BankAccount::factory()->for($user)->create(['name' => 'Everyday']);
+    $connection = BankConnection::factory()->for($user)->create();
+    $remoteAccount = BankConnectionAccount::factory()->for($connection)->linkedTo($account)->create();
+    Posting::factory()->forAccount($account)->create(['description' => 'Grocery run', 'date' => '2026-06-15']);
+    BankSyncRun::factory()->forConnectionAccount($remoteAccount->refresh())->create();
+
+    $this->actingAs($user)
+        ->get(route('bank-accounts.show', $account))
+        ->assertOk()
+        ->assertInertia(fn (Assert $page) => $page
+            ->component('bank-accounts/show')
+            ->where('account.name', 'Everyday')
+            ->where('account.connection.aspsp_name', $connection->aspsp_name)
+            ->has('postings.data', 1)
+            ->where('postings.data.0.description', 'Grocery run')
+            ->has('syncRuns', 1));
+});
+
+test('bank account detail surfaces a balance mismatch from the latest run', function () {
+    $user = User::factory()->create();
+    $account = BankAccount::factory()->for($user)->create();
+    $connection = BankConnection::factory()->for($user)->create();
+    $remoteAccount = BankConnectionAccount::factory()->for($connection)->linkedTo($account)->create();
+    BankSyncRun::factory()->forConnectionAccount($remoteAccount->refresh())->create([
+        'expected_balance' => '150.00',
+        'computed_balance' => '100.00',
+        'balance_matches' => false,
+    ]);
+
+    $this->actingAs($user)
+        ->get(route('bank-accounts.show', $account))
+        ->assertOk()
+        ->assertInertia(fn (Assert $page) => $page
+            ->where('account.balance_mismatch.delta', '50.00'));
+});
+
+test('bank account detail page is authorized to the owner', function () {
+    $owner = User::factory()->create();
+    $intruder = User::factory()->create();
+    $account = BankAccount::factory()->for($owner)->create();
+
+    $this->actingAs($intruder)
+        ->get(route('bank-accounts.show', $account))
+        ->assertForbidden();
 });
 
 class BankAccountCrudEnableBankingClient extends EnableBankingClient

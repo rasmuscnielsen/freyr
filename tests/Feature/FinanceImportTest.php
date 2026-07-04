@@ -7,6 +7,10 @@ use App\Models\Subcategory;
 use Illuminate\Support\Facades\Schema;
 
 test('it imports the bundled finance export idempotently', function () {
+    if (! is_file(base_path('project/data/Categories.json'))) {
+        $this->markTestSkipped('Local Spiir export not present at project/data.');
+    }
+
     $this->artisan('app:spiir:import')
         ->assertSuccessful();
 

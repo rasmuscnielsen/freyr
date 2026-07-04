@@ -1,4 +1,5 @@
 import { Head, router } from '@inertiajs/react';
+import { useState } from 'react';
 import {
     Bar,
     BarChart,
@@ -13,6 +14,7 @@ import {
     XAxis,
     YAxis,
 } from 'recharts';
+import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
     Select,
@@ -25,10 +27,11 @@ import { dashboard } from '@/routes';
 import { index as postingsIndex } from '@/routes/postings';
 
 type Period = {
+    selected: string;
     months: number;
     start: string;
     end: string;
-    options: number[];
+    options: string[];
 };
 
 type Summary = {
@@ -53,19 +56,37 @@ type MonthlyPoint = {
     result: number;
 };
 
-type SpendingCategory = {
+type TopSubcategory = {
     name: string;
     amount: number;
-    total_amount: number;
-    posting_count: number;
-    category_id: number | null;
+};
+
+type TopPosting = {
+    description: string;
+    date: string;
+    amount: number;
+};
+
+type BreakdownCategory = {
+    id: number | null;
+    name: string;
+    type: 'income' | 'expense';
+    total: number;
+    topSubcategories: TopSubcategory[];
+    topPostings: TopPosting[];
+};
+
+type Breakdown = {
+    month: string | null;
+    months: number;
+    categories: BreakdownCategory[];
 };
 
 type DashboardProps = {
     period: Period;
     summary: Summary;
     monthly: MonthlyPoint[];
-    spendingCategories: SpendingCategory[];
+    breakdown?: Breakdown;
 };
 
 const money = new Intl.NumberFormat('da-DK', {
@@ -78,7 +99,25 @@ function formatMoney(value: number): string {
     return money.format(value);
 }
 
-function chartTooltip(props: unknown) {
+function formatAxis(value: number): string {
+    return formatMoney(value).replace('kr.', '').trim();
+}
+
+function formatMonthLabel(month: string): string {
+    const [year, monthPart] = month.split('-');
+    const date = new Date(Number(year), Number(monthPart) - 1, 1);
+
+    return date.toLocaleDateString('en-GB', {
+        month: 'long',
+        year: 'numeric',
+    });
+}
+
+function periodLabel(option: string): string {
+    return option === '12m' ? '12 months' : option;
+}
+
+function flowTooltip(props: unknown) {
     const { active, payload, label } = props as {
         active?: boolean;
         payload?: Array<{ name: string; value: number; color?: string }>;
@@ -104,7 +143,7 @@ function chartTooltip(props: unknown) {
                                 {item.name}
                             </span>
                             <span className="font-medium">
-                                {formatMoney(item.value)}
+                                {formatMoney(Math.abs(Number(item.value)))}
                             </span>
                         </div>
                     ))}
@@ -113,37 +152,149 @@ function chartTooltip(props: unknown) {
     );
 }
 
+function breakdownTooltip(props: unknown) {
+    const { active, payload } = props as {
+        active?: boolean;
+        payload?: Array<{ payload?: BreakdownCategory }>;
+    };
+
+    const category = active ? payload?.[0]?.payload : undefined;
+
+    if (!category) {
+        return null;
+    }
+
+    return (
+        <div className="min-w-56 rounded-md border bg-background p-3 text-sm shadow-md">
+            <div className="mb-2 flex items-center justify-between gap-6 font-medium">
+                <span>{category.name}</span>
+                <span>{formatMoney(category.total)}</span>
+            </div>
+            {category.topSubcategories.length > 0 && (
+                <div className="space-y-1 border-t pt-2 text-muted-foreground">
+                    {category.topSubcategories.map((subcategory) => (
+                        <div
+                            key={subcategory.name}
+                            className="flex items-center justify-between gap-6"
+                        >
+                            <span>{subcategory.name}</span>
+                            <span className="font-medium text-foreground">
+                                {formatMoney(subcategory.amount)}
+                            </span>
+                        </div>
+                    ))}
+                </div>
+            )}
+            {category.topPostings.length > 0 && (
+                <div className="mt-2 border-t pt-2">
+                    <div className="mb-1 text-xs font-medium tracking-wide text-muted-foreground uppercase">
+                        Largest postings
+                    </div>
+                    <div className="space-y-1 text-muted-foreground">
+                        {category.topPostings.map((posting) => (
+                            <div
+                                key={`${posting.date}-${posting.description}-${posting.amount}`}
+                                className="flex items-center justify-between gap-6"
+                            >
+                                <span className="flex min-w-0 items-baseline gap-2">
+                                    <span className="max-w-40 truncate">
+                                        {posting.description}
+                                    </span>
+                                    <span className="shrink-0 text-xs">
+                                        {posting.date}
+                                    </span>
+                                </span>
+                                <span className="font-medium text-foreground">
+                                    {formatMoney(posting.amount)}
+                                </span>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+}
+
 export default function Dashboard({
     period,
     summary,
     monthly,
-    spendingCategories,
+    breakdown,
 }: DashboardProps) {
-    const changePeriod = (months: string) => {
+    const [selectedMonth, setSelectedMonth] = useState<string | null>(
+        breakdown?.month ?? null,
+    );
+
+    const lastCompletedMonth = period.end.slice(0, 7);
+
+    const flowData = monthly.map((point) => ({
+        ...point,
+        billsStacked: -Math.abs(point.bills),
+        consumptionStacked: -Math.abs(point.consumption),
+    }));
+
+    const changePeriod = (value: string) => {
+        setSelectedMonth(null);
         router.get(
-            dashboard.url({ query: { months } }),
+            dashboard.url({ query: { period: value } }),
             {},
             { preserveScroll: true, preserveState: true },
         );
     };
 
-    const openCategory = (category: SpendingCategory) => {
-        if (category.category_id === null) {
-            router.visit(
-                postingsIndex.url({
-                    query: { filter: { uncategorized: true } },
-                }),
-            );
+    const reloadBreakdown = (month: string | null) => {
+        setSelectedMonth(month);
+        router.reload({
+            only: ['breakdown'],
+            data: { breakdownMonth: month ?? undefined },
+        });
+    };
 
+    const toggleMonth = (month: string) => {
+        if (month > lastCompletedMonth) {
             return;
         }
 
-        router.visit(
-            postingsIndex.url({
-                query: { filter: { category: category.category_id } },
-            }),
-        );
+        reloadBreakdown(selectedMonth === month ? null : month);
     };
+
+    const onFlowBarClick = (entry: { payload?: MonthlyPoint }) => {
+        if (entry.payload?.month) {
+            toggleMonth(entry.payload.month);
+        }
+    };
+
+    const openCategory = (category: BreakdownCategory) => {
+        const filter: Record<string, string | number | boolean> =
+            category.id === null
+                ? { uncategorized: true }
+                : { category: category.id };
+
+        if (selectedMonth !== null) {
+            const [year, monthPart] = selectedMonth.split('-').map(Number);
+            const from = new Date(Date.UTC(year, monthPart - 1, 1));
+            const to = new Date(Date.UTC(year, monthPart, 0));
+            filter.posted_between = [
+                from.toISOString().slice(0, 10),
+                to.toISOString().slice(0, 10),
+            ].join(',');
+        }
+
+        router.visit(postingsIndex.url({ query: { filter } }));
+    };
+
+    const incomeCategories = (breakdown?.categories ?? []).filter(
+        (category) => category.type === 'income',
+    );
+    const expenseCategories = (breakdown?.categories ?? []).filter(
+        (category) => category.type === 'expense',
+    );
+
+    const breakdownHeading =
+        selectedMonth !== null
+            ? formatMonthLabel(selectedMonth)
+            : 'Average per month';
 
     return (
         <>
@@ -159,7 +310,7 @@ export default function Dashboard({
                         </p>
                     </div>
                     <Select
-                        value={String(period.months)}
+                        value={period.selected}
                         onValueChange={changePeriod}
                     >
                         <SelectTrigger className="w-40">
@@ -167,8 +318,8 @@ export default function Dashboard({
                         </SelectTrigger>
                         <SelectContent>
                             {period.options.map((option) => (
-                                <SelectItem key={option} value={String(option)}>
-                                    {option} months
+                                <SelectItem key={option} value={option}>
+                                    {periodLabel(option)}
                                 </SelectItem>
                             ))}
                         </SelectContent>
@@ -198,78 +349,97 @@ export default function Dashboard({
                                 minWidth={0}
                                 minHeight={320}
                             >
-                                <ComposedChart data={monthly}>
+                                <ComposedChart
+                                    data={flowData}
+                                    stackOffset="sign"
+                                    onClick={(state: unknown) => {
+                                        const label = (
+                                            state as {
+                                                activePayload?: Array<{
+                                                    payload?: MonthlyPoint;
+                                                }>;
+                                            }
+                                        )?.activePayload?.[0]?.payload?.month;
+
+                                        if (label) {
+                                            toggleMonth(label);
+                                        }
+                                    }}
+                                    style={{
+                                        cursor: 'pointer',
+                                        outline: 'none',
+                                    }}
+                                >
                                     <CartesianGrid
                                         strokeDasharray="3 3"
                                         vertical={false}
                                     />
-                                    <XAxis dataKey="label" />
+                                    <XAxis dataKey="label" tabIndex={-1} />
                                     <YAxis
-                                        tickFormatter={(value: number) =>
-                                            formatMoney(value).replace(
-                                                'kr.',
-                                                '',
-                                            )
-                                        }
+                                        tickFormatter={formatAxis}
+                                        tabIndex={-1}
                                     />
                                     <ReferenceLine
                                         y={0}
                                         stroke="var(--border)"
                                     />
-                                    <Tooltip content={chartTooltip} />
+                                    <Tooltip
+                                        content={flowTooltip}
+                                        cursor={{ fill: 'var(--muted)' }}
+                                    />
                                     <Bar
                                         dataKey="income"
                                         name="Income"
-                                        fill="var(--color-chart-2)"
+                                        fill="var(--color-chart-income)"
+                                        stackId="flow"
                                         radius={[4, 4, 0, 0]}
+                                        onClick={onFlowBarClick}
                                     >
-                                        {monthly.map((entry) => (
+                                        {flowData.map((entry) => (
                                             <Cell
                                                 key={`income-${entry.month}`}
-                                                opacity={
-                                                    entry.month >
-                                                    period.end.slice(0, 7)
-                                                        ? 0.45
-                                                        : 1
-                                                }
+                                                opacity={cellOpacity(
+                                                    entry.month,
+                                                    lastCompletedMonth,
+                                                    selectedMonth,
+                                                )}
                                             />
                                         ))}
                                     </Bar>
                                     <Bar
-                                        dataKey="bills"
+                                        dataKey="billsStacked"
                                         name="Bills"
-                                        fill="var(--color-chart-1)"
-                                        stackId="expenses"
-                                        radius={[0, 0, 4, 4]}
+                                        fill="var(--color-chart-bills)"
+                                        stackId="flow"
+                                        onClick={onFlowBarClick}
                                     >
-                                        {monthly.map((entry) => (
+                                        {flowData.map((entry) => (
                                             <Cell
                                                 key={`bills-${entry.month}`}
-                                                opacity={
-                                                    entry.month >
-                                                    period.end.slice(0, 7)
-                                                        ? 0.45
-                                                        : 1
-                                                }
+                                                opacity={cellOpacity(
+                                                    entry.month,
+                                                    lastCompletedMonth,
+                                                    selectedMonth,
+                                                )}
                                             />
                                         ))}
                                     </Bar>
                                     <Bar
-                                        dataKey="consumption"
+                                        dataKey="consumptionStacked"
                                         name="Consumption"
-                                        fill="var(--color-chart-5)"
-                                        stackId="expenses"
+                                        fill="var(--color-chart-consumption)"
+                                        stackId="flow"
                                         radius={[0, 0, 4, 4]}
+                                        onClick={onFlowBarClick}
                                     >
-                                        {monthly.map((entry) => (
+                                        {flowData.map((entry) => (
                                             <Cell
                                                 key={`consumption-${entry.month}`}
-                                                opacity={
-                                                    entry.month >
-                                                    period.end.slice(0, 7)
-                                                        ? 0.45
-                                                        : 1
-                                                }
+                                                opacity={cellOpacity(
+                                                    entry.month,
+                                                    lastCompletedMonth,
+                                                    selectedMonth,
+                                                )}
                                             />
                                         ))}
                                     </Bar>
@@ -277,90 +447,186 @@ export default function Dashboard({
                                         type="monotone"
                                         dataKey="result"
                                         name="Result"
-                                        stroke="var(--foreground)"
+                                        stroke="var(--color-chart-result)"
                                         strokeWidth={2}
                                         dot={{ r: 4 }}
                                     />
                                 </ComposedChart>
                             </ResponsiveContainer>
                         </div>
+                        <p className="mt-2 text-xs text-muted-foreground">
+                            Click a month to break it down below.{' '}
+                            {selectedMonth !== null && (
+                                <button
+                                    type="button"
+                                    className="underline underline-offset-2"
+                                    onClick={() => reloadBreakdown(null)}
+                                >
+                                    Show average
+                                </button>
+                            )}
+                        </p>
                     </CardContent>
                 </Card>
 
                 <Card>
-                    <CardHeader>
-                        <CardTitle>Where the money went</CardTitle>
+                    <CardHeader className="flex flex-row items-center justify-between gap-4">
+                        <CardTitle>
+                            Breakdown &mdash; {breakdownHeading}
+                        </CardTitle>
+                        {selectedMonth !== null && (
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => reloadBreakdown(null)}
+                            >
+                                Back to average
+                            </Button>
+                        )}
                     </CardHeader>
                     <CardContent>
-                        <div className="h-96">
-                            <ResponsiveContainer
-                                width="100%"
-                                height={384}
-                                minWidth={0}
-                                minHeight={384}
-                            >
-                                <BarChart
-                                    data={spendingCategories}
-                                    layout="vertical"
-                                    margin={{
-                                        left: 24,
-                                        right: 56,
-                                        top: 8,
-                                        bottom: 8,
-                                    }}
-                                >
-                                    <CartesianGrid
-                                        horizontal={false}
-                                        strokeDasharray="3 3"
-                                    />
-                                    <XAxis
-                                        type="number"
-                                        tickFormatter={(value: number) =>
-                                            formatMoney(value).replace(
-                                                'kr.',
-                                                '',
-                                            )
-                                        }
-                                    />
-                                    <YAxis
-                                        dataKey="name"
-                                        type="category"
-                                        width={150}
-                                    />
-                                    <Tooltip content={chartTooltip} />
-                                    <Bar
-                                        dataKey="amount"
-                                        name="Monthly average"
-                                        fill="var(--color-chart-1)"
-                                        radius={[0, 4, 4, 0]}
-                                        cursor="pointer"
-                                        onClick={(entry: unknown) => {
-                                            const payload = (
-                                                entry as {
-                                                    payload?: SpendingCategory;
-                                                }
-                                            ).payload;
-
-                                            if (payload) {
-                                                openCategory(payload);
-                                            }
-                                        }}
-                                    >
-                                        <LabelList
-                                            dataKey="amount"
-                                            position="right"
-                                            formatter={(value: unknown) =>
-                                                formatMoney(Number(value ?? 0))
-                                            }
-                                        />
-                                    </Bar>
-                                </BarChart>
-                            </ResponsiveContainer>
-                        </div>
+                        {breakdown === undefined ? (
+                            <div className="grid gap-6 md:grid-cols-2">
+                                <BreakdownSkeleton />
+                                <BreakdownSkeleton />
+                            </div>
+                        ) : (
+                            <div className="grid gap-6 md:grid-cols-2">
+                                <BreakdownGroup
+                                    title="Income"
+                                    categories={incomeCategories}
+                                    color="var(--color-chart-income)"
+                                    onSelect={openCategory}
+                                />
+                                <BreakdownGroup
+                                    title="Expenses"
+                                    categories={expenseCategories}
+                                    color="var(--color-chart-bills)"
+                                    onSelect={openCategory}
+                                />
+                            </div>
+                        )}
                     </CardContent>
                 </Card>
             </div>
         </>
+    );
+}
+
+function cellOpacity(
+    month: string,
+    lastCompletedMonth: string,
+    selectedMonth: string | null,
+): number {
+    if (month > lastCompletedMonth) {
+        return 0.45;
+    }
+
+    if (selectedMonth !== null && selectedMonth !== month) {
+        return 0.35;
+    }
+
+    return 1;
+}
+
+function BreakdownGroup({
+    title,
+    categories,
+    color,
+    onSelect,
+}: {
+    title: string;
+    categories: BreakdownCategory[];
+    color: string;
+    onSelect: (category: BreakdownCategory) => void;
+}) {
+    const height = Math.max(160, categories.length * 40 + 24);
+
+    return (
+        <div>
+            <h3 className="mb-2 text-sm font-medium text-muted-foreground">
+                {title}
+            </h3>
+            {categories.length === 0 ? (
+                <p className="py-8 text-center text-sm text-muted-foreground">
+                    No data for this period.
+                </p>
+            ) : (
+                <div style={{ height }}>
+                    <ResponsiveContainer width="100%" height="100%">
+                        <BarChart
+                            data={categories}
+                            layout="vertical"
+                            margin={{ left: 24, right: 64, top: 4, bottom: 4 }}
+                        >
+                            <CartesianGrid
+                                horizontal={false}
+                                strokeDasharray="3 3"
+                            />
+                            <XAxis
+                                type="number"
+                                tickFormatter={formatAxis}
+                                tabIndex={-1}
+                            />
+                            <YAxis
+                                dataKey="name"
+                                type="category"
+                                width={130}
+                                tabIndex={-1}
+                            />
+                            <Tooltip
+                                content={breakdownTooltip}
+                                cursor={{ fill: 'var(--muted)' }}
+                                position={{ y: 0 }}
+                                allowEscapeViewBox={{ x: false, y: true }}
+                                wrapperStyle={{ zIndex: 20 }}
+                            />
+                            <Bar
+                                dataKey="total"
+                                name={title}
+                                fill={color}
+                                radius={[0, 4, 4, 0]}
+                                cursor="pointer"
+                                onClick={(entry: unknown) => {
+                                    const payload = (
+                                        entry as {
+                                            payload?: BreakdownCategory;
+                                        }
+                                    ).payload;
+
+                                    if (payload) {
+                                        onSelect(payload);
+                                    }
+                                }}
+                            >
+                                <LabelList
+                                    dataKey="total"
+                                    position="right"
+                                    formatter={(value: unknown) =>
+                                        formatMoney(Number(value ?? 0))
+                                    }
+                                />
+                            </Bar>
+                        </BarChart>
+                    </ResponsiveContainer>
+                </div>
+            )}
+        </div>
+    );
+}
+
+function BreakdownSkeleton() {
+    return (
+        <div className="space-y-3">
+            <div className="h-4 w-20 animate-pulse rounded bg-muted" />
+            {Array.from({ length: 4 }).map((_, index) => (
+                <div
+                    key={index}
+                    className="h-8 animate-pulse rounded bg-muted"
+                    style={{ width: `${90 - index * 15}%` }}
+                />
+            ))}
+        </div>
     );
 }
 

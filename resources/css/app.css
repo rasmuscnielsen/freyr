@@ -51,6 +51,12 @@
     --color-chart-4: var(--chart-4);
     --color-chart-5: var(--chart-5);
 
+    --color-chart-income: var(--chart-income);
+    --color-chart-bills: var(--chart-bills);
+    --color-chart-consumption: var(--chart-consumption);
+    --color-chart-savings: var(--chart-savings);
+    --color-chart-result: var(--chart-result);
+
     --color-sidebar: var(--sidebar);
     --color-sidebar-foreground: var(--sidebar-foreground);
     --color-sidebar-primary: var(--sidebar-primary);
@@ -86,6 +92,11 @@
     --chart-3: oklch(0.398 0.07 227.392);
     --chart-4: oklch(0.828 0.189 84.429);
     --chart-5: oklch(0.769 0.188 70.08);
+    --chart-income: oklch(0.596 0.145 163.225);
+    --chart-bills: oklch(0.646 0.222 41.116);
+    --chart-consumption: oklch(0.795 0.184 86.047);
+    --chart-savings: oklch(0.588 0.158 241.966);
+    --chart-result: var(--foreground);
     --radius: 0.625rem;
     --sidebar: oklch(0.985 0 0);
     --sidebar-foreground: oklch(0.145 0 0);
@@ -122,6 +133,11 @@
     --chart-3: oklch(0.769 0.188 70.08);
     --chart-4: oklch(0.627 0.265 303.9);
     --chart-5: oklch(0.645 0.246 16.439);
+    --chart-income: oklch(0.765 0.155 163.223);
+    --chart-bills: oklch(0.75 0.165 55.934);
+    --chart-consumption: oklch(0.852 0.155 91.605);
+    --chart-savings: oklch(0.746 0.14 232.661);
+    --chart-result: var(--foreground);
     --sidebar: oklch(0.205 0 0);
     --sidebar-foreground: oklch(0.985 0 0);
     --sidebar-primary: oklch(0.985 0 0);
@@ -139,5 +155,12 @@
 
     body {
         @apply bg-background text-foreground;
+    }
+
+    .recharts-wrapper,
+    .recharts-surface,
+    .recharts-wrapper *:focus,
+    .recharts-surface *:focus {
+        outline: none;
     }
 }

@@ -8,9 +8,13 @@ use App\Http\Requests\UpdateBankAccountRequest;
 use App\Models\BankAccount;
 use App\Models\BankConnection;
 use App\Models\BankConnectionAccount;
+use App\Models\BankSyncRun;
+use App\Models\Posting;
+use App\Models\User;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Arr;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Str;
 use Inertia\Inertia;
@@ -89,11 +93,74 @@ class BankAccountController extends Controller
                         'aspsp_country' => $connectionAccount->bankConnection->aspsp_country,
                     ],
                 ]),
+            'connections' => $this->connectionsPayload($user),
             'availableBanks' => $this->availableBanks($enableBanking),
             'defaults' => [
                 'aspsp_name' => config('services.enable_banking.aspsp_name'),
                 'aspsp_country' => config('services.enable_banking.aspsp_country'),
             ],
+        ]);
+    }
+
+    public function show(Request $request, BankAccount $bankAccount): Response
+    {
+        abort_unless($request->user()?->is($bankAccount->user), 403);
+
+        $bankAccount->loadCount('postings');
+        $bankAccount->load('bankConnectionAccounts.bankConnection');
+
+        $postings = $bankAccount->postings()
+            ->with(['categorizedSubcategory.category'])
+            ->orderByDesc('date')
+            ->orderByDesc('id')
+            ->paginate(50)
+            ->withQueryString()
+            ->through(fn (Posting $posting): array => [
+                'id' => $posting->id,
+                'date' => $posting->date?->toDateString(),
+                'description' => $posting->description,
+                'amount' => (float) $posting->amount,
+                'balance' => $posting->balance === null ? null : (float) $posting->balance,
+                'currency' => $posting->currency,
+                'category' => $posting->categorizedSubcategory?->category === null ? null : [
+                    'name' => $posting->categorizedSubcategory->category->name,
+                    'subcategory' => $posting->categorizedSubcategory->name,
+                ],
+            ]);
+
+        $connectionAccount = $bankAccount->bankConnectionAccounts->first();
+        $connection = $connectionAccount?->bankConnection;
+        $latestRun = $this->latestBankAccountRun($bankAccount);
+
+        return Inertia::render('bank-accounts/show', [
+            'account' => [
+                'id' => $bankAccount->id,
+                'name' => $bankAccount->name,
+                'bank_name' => $bankAccount->bank_name,
+                'currency' => $bankAccount->currency,
+                'account_type' => $bankAccount->account_type,
+                'last_booked_balance' => $bankAccount->last_booked_balance === null ? null : (float) $bankAccount->last_booked_balance,
+                'last_available_balance' => $bankAccount->last_available_balance === null ? null : (float) $bankAccount->last_available_balance,
+                'last_known_posting_date' => $bankAccount->last_known_posting_date?->toDateString(),
+                'last_updated_at' => $bankAccount->last_updated_at?->toDateTimeString(),
+                'is_active' => $bankAccount->is_active,
+                'is_favorite' => $bankAccount->is_favorite,
+                'postings_count' => $bankAccount->postings_count,
+                'last_synced_at' => $connectionAccount?->last_synced_at?->toDateTimeString(),
+                'connection' => $connection === null ? null : [
+                    'id' => $connection->id,
+                    'status' => $connection->status,
+                    'aspsp_name' => $connection->aspsp_name,
+                    'aspsp_country' => $connection->aspsp_country,
+                    'needs_renewal' => $connection->needsRenewal(),
+                    'access_valid_until' => $connection->access_valid_until?->toIso8601String(),
+                ],
+                'balance_mismatch' => $latestRun === null || ! $latestRun->hasBalanceMismatch() ? null : [
+                    'delta' => $latestRun->balanceDelta(),
+                ],
+            ],
+            'postings' => $postings,
+            'syncRuns' => $this->syncRunsPayload($bankAccount->syncRuns()->latest('id')->limit(5)->get()),
         ]);
     }
 
@@ -127,6 +194,90 @@ class BankAccountController extends Controller
         $bankAccount->delete();
 
         return back();
+    }
+
+    /**
+     * Build the "My banks" side-panel payload: one entry per bank connection with its
+     * status, expiry, latest sync and reconciliation state, and its remote accounts.
+     *
+     * @return list<array<string, mixed>>
+     */
+    private function connectionsPayload(User $user): array
+    {
+        return $user->bankConnections()
+            ->with(['accounts.bankAccount', 'accounts.bankConnection'])
+            ->orderByDesc('created_at')
+            ->get()
+            ->map(function (BankConnection $connection): array {
+                $latestRun = $connection->syncRuns()->latest('id')->first();
+
+                return [
+                    'id' => $connection->id,
+                    'status' => $connection->status,
+                    'aspsp_name' => $connection->aspsp_name,
+                    'aspsp_country' => $connection->aspsp_country,
+                    'access_valid_until' => $connection->access_valid_until?->toIso8601String(),
+                    'last_successful_sync_at' => $connection->last_successful_sync_at?->toDateTimeString(),
+                    'failure_code' => $connection->failure_code,
+                    'failure_message' => $connection->failure_message,
+                    'needs_renewal' => $connection->needsRenewal(),
+                    'linked_accounts_count' => $connection->accounts
+                        ->where('status', BankConnectionAccount::STATUS_LINKED)
+                        ->whereNotNull('bank_account_id')
+                        ->count(),
+                    'balance_mismatch' => $latestRun === null || ! $latestRun->hasBalanceMismatch() ? null : [
+                        'delta' => $latestRun->balanceDelta(),
+                    ],
+                    'accounts' => $connection->accounts
+                        ->sortBy(fn (BankConnectionAccount $account): string => $account->details ?? $account->name)
+                        ->values()
+                        ->map(fn (BankConnectionAccount $account): array => [
+                            'id' => $account->id,
+                            'status' => $account->status,
+                            'name' => $account->details ?? $account->name,
+                            'currency' => $account->currency,
+                            'product' => $account->product,
+                            'account_number_last_four' => $account->account_number_last_four,
+                            'last_synced_at' => $account->last_synced_at?->toDateTimeString(),
+                            'last_transaction_date' => $account->last_transaction_date?->toDateString(),
+                            'bank_account' => $account->bankAccount === null ? null : [
+                                'id' => $account->bankAccount->id,
+                                'name' => $account->bankAccount->name,
+                            ],
+                        ])
+                        ->all(),
+                ];
+            })
+            ->all();
+    }
+
+    /**
+     * @param  Collection<int, BankSyncRun>  $runs
+     * @return list<array<string, mixed>>
+     */
+    private function syncRunsPayload(Collection $runs): array
+    {
+        return $runs
+            ->map(fn (BankSyncRun $run): array => [
+                'id' => $run->id,
+                'status' => $run->status,
+                'started_at' => $run->started_at?->toDateTimeString(),
+                'date_from' => $run->date_from?->toDateString(),
+                'date_to' => $run->date_to?->toDateString(),
+                'new_postings_count' => $run->new_postings_count,
+                'updated_postings_count' => $run->updated_postings_count,
+                'duplicate_postings_count' => $run->duplicate_postings_count,
+                'error_code' => $run->error_code,
+                'error_message' => $run->error_message,
+                'balance_matches' => $run->balance_matches,
+                'balance_delta' => $run->balanceDelta(),
+            ])
+            ->all();
+    }
+
+    private function latestBankAccountRun(BankAccount $bankAccount): ?BankSyncRun
+    {
+        return $bankAccount->syncRuns()->latest('id')->first();
     }
 
     /**

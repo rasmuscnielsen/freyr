@@ -402,6 +402,166 @@ test('renewed callbacks preserve existing account links', function () {
     );
 });
 
+test('sync reconciles a matching balance and records the figures', function () {
+    $user = User::factory()->create();
+    $connection = BankConnection::factory()->for($user)->create();
+    $localAccount = BankAccount::factory()->for($user)->create();
+    $remoteAccount = BankConnectionAccount::factory()
+        ->for($connection)
+        ->linkedTo($localAccount)
+        ->create();
+    $client = new FakeEnableBankingClient(
+        balances: enableBankingBalancesPayload(),
+        transactions: enableBankingTransactionsPayload(),
+    );
+
+    app()->instance(EnableBankingClient::class, $client);
+
+    (new SyncBankConnectionAccountJob($remoteAccount))->handle(app(EnableBankingConnectionManager::class));
+
+    $run = BankSyncRun::query()->latest('id')->firstOrFail();
+
+    expect($run->status)->toBe(BankSyncRun::STATUS_SUCCEEDED)
+        ->and($run->balance_matches)->toBeTrue()
+        ->and($run->expected_balance)->toBe('51339.66')
+        ->and($run->computed_balance)->toBe('51339.66')
+        ->and($run->hasBalanceMismatch())->toBeFalse()
+        ->and($run->balanceDelta())->toBe('0.00');
+});
+
+test('sync flags a balance mismatch without failing the run', function () {
+    $user = User::factory()->create();
+    $connection = BankConnection::factory()->for($user)->create();
+    $localAccount = BankAccount::factory()->for($user)->create();
+    $remoteAccount = BankConnectionAccount::factory()
+        ->for($connection)
+        ->linkedTo($localAccount)
+        ->create();
+
+    $balances = enableBankingBalancesPayload();
+    $balances[0]['balance_amount']['amount'] = '51439.66';
+
+    $client = new FakeEnableBankingClient(
+        balances: $balances,
+        transactions: enableBankingTransactionsPayload(),
+    );
+
+    app()->instance(EnableBankingClient::class, $client);
+
+    (new SyncBankConnectionAccountJob($remoteAccount))->handle(app(EnableBankingConnectionManager::class));
+
+    $run = BankSyncRun::query()->latest('id')->firstOrFail();
+
+    expect($run->status)->toBe(BankSyncRun::STATUS_SUCCEEDED)
+        ->and($run->balance_matches)->toBeFalse()
+        ->and($run->expected_balance)->toBe('51439.66')
+        ->and($run->computed_balance)->toBe('51339.66')
+        ->and($run->hasBalanceMismatch())->toBeTrue()
+        ->and($run->balanceDelta())->toBe('100.00');
+});
+
+test('sync leaves reconciliation null when postings carry no running balance', function () {
+    $user = User::factory()->create();
+    $connection = BankConnection::factory()->for($user)->create();
+    $localAccount = BankAccount::factory()->for($user)->create();
+    $remoteAccount = BankConnectionAccount::factory()
+        ->for($connection)
+        ->linkedTo($localAccount)
+        ->create();
+
+    $transactions = enableBankingTransactionsPayload();
+    unset($transactions[0]['balance_after_transaction']);
+
+    $client = new FakeEnableBankingClient(
+        balances: enableBankingBalancesPayload(),
+        transactions: $transactions,
+    );
+
+    app()->instance(EnableBankingClient::class, $client);
+
+    (new SyncBankConnectionAccountJob($remoteAccount))->handle(app(EnableBankingConnectionManager::class));
+
+    $run = BankSyncRun::query()->latest('id')->firstOrFail();
+
+    expect($run->status)->toBe(BankSyncRun::STATUS_SUCCEEDED)
+        ->and($run->expected_balance)->toBe('51339.66')
+        ->and($run->computed_balance)->toBeNull()
+        ->and($run->balance_matches)->toBeNull()
+        ->and($run->hasBalanceMismatch())->toBeFalse()
+        ->and($run->balanceDelta())->toBeNull();
+});
+
+test('connection sync endpoint dispatches jobs for every linked account', function () {
+    $user = User::factory()->create();
+    $connection = BankConnection::factory()->for($user)->create();
+    $firstAccount = BankAccount::factory()->for($user)->create();
+    $secondAccount = BankAccount::factory()->for($user)->create();
+    $firstLinked = BankConnectionAccount::factory()->for($connection)->linkedTo($firstAccount)->create();
+    $secondLinked = BankConnectionAccount::factory()->for($connection)->linkedTo($secondAccount)->create();
+    BankConnectionAccount::factory()->for($connection)->create(['user_id' => $user->id]);
+
+    Queue::fake();
+
+    $this->actingAs($user)
+        ->post(route('bank-connections.sync', $connection))
+        ->assertRedirect();
+
+    Queue::assertPushedTimes(SyncBankConnectionAccountJob::class, 2);
+    Queue::assertPushed(
+        SyncBankConnectionAccountJob::class,
+        fn (SyncBankConnectionAccountJob $job): bool => $job->bankConnectionAccount->is($firstLinked),
+    );
+    Queue::assertPushed(
+        SyncBankConnectionAccountJob::class,
+        fn (SyncBankConnectionAccountJob $job): bool => $job->bankConnectionAccount->is($secondLinked),
+    );
+});
+
+test('connection sync endpoint is authorized to the owner', function () {
+    $owner = User::factory()->create();
+    $intruder = User::factory()->create();
+    $connection = BankConnection::factory()->for($owner)->create();
+
+    Queue::fake();
+
+    $this->actingAs($intruder)
+        ->post(route('bank-connections.sync', $connection))
+        ->assertForbidden();
+
+    Queue::assertNothingPushed();
+});
+
+test('removing a connection keeps local accounts and postings but deletes remote accounts and runs', function () {
+    $user = User::factory()->create();
+    $connection = BankConnection::factory()->for($user)->create();
+    $localAccount = BankAccount::factory()->for($user)->create();
+    $remoteAccount = BankConnectionAccount::factory()->for($connection)->linkedTo($localAccount)->create();
+    Posting::factory()->forAccount($localAccount)->create();
+    BankSyncRun::factory()->forConnectionAccount($remoteAccount->refresh())->create();
+
+    $this->actingAs($user)
+        ->delete(route('bank-connections.destroy', $connection))
+        ->assertRedirect();
+
+    expect(BankConnection::query()->count())->toBe(0)
+        ->and(BankConnectionAccount::query()->count())->toBe(0)
+        ->and(BankSyncRun::query()->count())->toBe(0)
+        ->and(BankAccount::query()->whereKey($localAccount->id)->exists())->toBeTrue()
+        ->and(Posting::query()->where('bank_account_id', $localAccount->id)->count())->toBe(1);
+});
+
+test('removing a connection is authorized to the owner', function () {
+    $owner = User::factory()->create();
+    $intruder = User::factory()->create();
+    $connection = BankConnection::factory()->for($owner)->create();
+
+    $this->actingAs($intruder)
+        ->delete(route('bank-connections.destroy', $connection))
+        ->assertForbidden();
+
+    expect(BankConnection::query()->count())->toBe(1);
+});
+
 class FakeEnableBankingClient extends EnableBankingClient
 {
     /**

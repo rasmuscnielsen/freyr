@@ -69,6 +69,14 @@ class BankAccount extends Model
     }
 
     /**
+     * @return HasMany<BankSyncRun, $this>
+     */
+    public function syncRuns(): HasMany
+    {
+        return $this->hasMany(BankSyncRun::class);
+    }
+
+    /**
      * Get the attributes that should be cast.
      *
      * @return array<string, string>

@@ -1,6 +1,8 @@
 import { Head, Link, router } from '@inertiajs/react';
-import { Check, ChevronLeft, ChevronRight, Search, X } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Search, X } from 'lucide-react';
 import { useMemo, useState } from 'react';
+import { CategoryCombobox } from '@/components/category-combobox';
+import type { CategoryComboboxOption } from '@/components/category-combobox';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -106,6 +108,25 @@ function focusRow(index: number): void {
     });
 }
 
+/**
+ * Finds the row index of the next uncategorized posting at or after `fromIndex`
+ * for fast triage. Falls back to the next row, then the given row, so focus is
+ * always predictable.
+ */
+function nextTriageRowIndex(postings: Posting[], fromIndex: number): number {
+    for (let index = fromIndex; index < postings.length; index += 1) {
+        if (!postings[index]?.subcategory) {
+            return index;
+        }
+    }
+
+    if (fromIndex < postings.length) {
+        return fromIndex;
+    }
+
+    return Math.max(postings.length - 1, 0);
+}
+
 export default function Postings({
     postings,
     filters,
@@ -128,8 +149,7 @@ export default function Postings({
     const [editingPostingId, setEditingPostingId] = useState<number | null>(
         null,
     );
-    const [categorySearch, setCategorySearch] = useState('');
-    const [activeOption, setActiveOption] = useState(0);
+    const [savingPostingId, setSavingPostingId] = useState<number | null>(null);
 
     const subcategoryOptions = useMemo<SubcategoryOption[]>(
         () =>
@@ -146,17 +166,14 @@ export default function Postings({
         [categories],
     );
 
-    const filteredSubcategories = useMemo(() => {
-        const needle = categorySearch.trim().toLowerCase();
-        const options =
-            needle === ''
-                ? subcategoryOptions
-                : subcategoryOptions.filter((option) =>
-                      option.label.toLowerCase().includes(needle),
-                  );
-
-        return options.slice(0, 20);
-    }, [categorySearch, subcategoryOptions]);
+    const comboboxOptions = useMemo<CategoryComboboxOption[]>(
+        () =>
+            subcategoryOptions.map((option) => ({
+                id: option.id,
+                label: option.label,
+            })),
+        [subcategoryOptions],
+    );
 
     const submitFilters = () => {
         const filter: Record<string, string | boolean> = {};
@@ -213,6 +230,8 @@ export default function Postings({
         subcategoryId: number | null,
         rowIndex: number,
     ) => {
+        setSavingPostingId(posting.id);
+
         router.patch(
             updatePosting.url(posting.id),
             { categorized_subcategory_id: subcategoryId },
@@ -220,9 +239,14 @@ export default function Postings({
                 preserveScroll: true,
                 onSuccess: () => {
                     setEditingPostingId(null);
-                    setCategorySearch('');
-                    setActiveOption(0);
-                    focusRow(rowIndex + 1);
+                    // Advance to the next uncategorized row for fast triage,
+                    // starting after the row we just categorized.
+                    focusRow(
+                        nextTriageRowIndex(postings.data, rowIndex + 1),
+                    );
+                },
+                onFinish: () => {
+                    setSavingPostingId(null);
                 },
             },
         );
@@ -241,15 +265,15 @@ export default function Postings({
 
         if (event.key === 'ArrowDown') {
             event.preventDefault();
-            focusRow(rowIndex + 1);
+            focusRow(Math.min(rowIndex + 1, postings.data.length - 1));
         }
 
         if (event.key === 'ArrowUp') {
             event.preventDefault();
-            focusRow(rowIndex - 1);
+            focusRow(Math.max(rowIndex - 1, 0));
         }
 
-        if (event.key === 'Enter') {
+        if (event.key === 'Enter' || event.key === ' ') {
             event.preventDefault();
             setEditingPostingId(posting.id);
         }
@@ -426,9 +450,13 @@ export default function Postings({
                                         </td>
                                         <td className="relative px-3 py-2">
                                             {editingPostingId === posting.id ? (
-                                                <CategoryEditor
-                                                    activeOption={activeOption}
-                                                    applyCategory={(
+                                                <CategoryCombobox
+                                                    options={comboboxOptions}
+                                                    isSaving={
+                                                        savingPostingId ===
+                                                        posting.id
+                                                    }
+                                                    onSelect={(
                                                         subcategoryId,
                                                     ) =>
                                                         applyCategory(
@@ -437,30 +465,18 @@ export default function Postings({
                                                             rowIndex,
                                                         )
                                                     }
-                                                    categorySearch={
-                                                        categorySearch
-                                                    }
-                                                    options={
-                                                        filteredSubcategories
-                                                    }
-                                                    setActiveOption={
-                                                        setActiveOption
-                                                    }
-                                                    setCategorySearch={
-                                                        setCategorySearch
-                                                    }
-                                                    close={() => {
+                                                    onClose={() => {
                                                         setEditingPostingId(
                                                             null,
                                                         );
-                                                        setCategorySearch('');
-                                                        setActiveOption(0);
+                                                        focusRow(rowIndex);
                                                     }}
                                                 />
                                             ) : (
                                                 <Button
                                                     type="button"
                                                     variant="ghost"
+                                                    aria-haspopup="listbox"
                                                     className={cn(
                                                         'h-auto justify-start px-2 py-1 text-left',
                                                         !posting.subcategory &&
@@ -545,94 +561,3 @@ Postings.layout = {
         },
     ],
 };
-
-function CategoryEditor({
-    activeOption,
-    applyCategory,
-    categorySearch,
-    close,
-    options,
-    setActiveOption,
-    setCategorySearch,
-}: {
-    activeOption: number;
-    applyCategory: (subcategoryId: number | null) => void;
-    categorySearch: string;
-    close: () => void;
-    options: SubcategoryOption[];
-    setActiveOption: (index: number) => void;
-    setCategorySearch: (value: string) => void;
-}) {
-    return (
-        <div className="absolute top-1 left-2 z-20 w-80 rounded-md border bg-popover p-2 shadow-lg">
-            <Input
-                autoFocus
-                value={categorySearch}
-                onChange={(event) => {
-                    setCategorySearch(event.target.value);
-                    setActiveOption(0);
-                }}
-                onKeyDown={(event) => {
-                    if (event.key === 'Escape') {
-                        event.preventDefault();
-                        close();
-                    }
-
-                    if (event.key === 'ArrowDown') {
-                        event.preventDefault();
-                        setActiveOption(
-                            Math.min(activeOption + 1, options.length - 1),
-                        );
-                    }
-
-                    if (event.key === 'ArrowUp') {
-                        event.preventDefault();
-                        setActiveOption(Math.max(activeOption - 1, 0));
-                    }
-
-                    if (event.key === 'Enter') {
-                        event.preventDefault();
-                        const option = options[activeOption];
-
-                        if (option) {
-                            applyCategory(option.id);
-                        }
-                    }
-                }}
-                placeholder="Search category"
-            />
-            <div className="mt-2 max-h-64 overflow-y-auto">
-                {options.map((option, index) => (
-                    <button
-                        key={option.id}
-                        type="button"
-                        className={cn(
-                            'flex w-full items-center justify-between rounded-sm px-2 py-1.5 text-left text-sm',
-                            index === activeOption && 'bg-accent',
-                        )}
-                        onMouseEnter={() => setActiveOption(index)}
-                        onClick={() => applyCategory(option.id)}
-                    >
-                        <span>{option.label}</span>
-                        {index === activeOption && (
-                            <Check className="size-4 text-muted-foreground" />
-                        )}
-                    </button>
-                ))}
-            </div>
-            <div className="mt-2 flex justify-between border-t pt-2">
-                <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => applyCategory(null)}
-                >
-                    Clear
-                </Button>
-                <Button type="button" variant="ghost" size="sm" onClick={close}>
-                    Close
-                </Button>
-            </div>
-        </div>
-    );
-}
