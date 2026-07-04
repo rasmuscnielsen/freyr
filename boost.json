@@ -22,6 +22,7 @@
         "pest-testing",
         "inertia-react-development",
         "tailwindcss-development",
-        "browser-testing-login-link"
+        "browser-testing-login-link",
+        "frontend-design"
     ]
 }
