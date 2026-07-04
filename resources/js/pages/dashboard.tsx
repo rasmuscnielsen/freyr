@@ -334,37 +334,44 @@ export default function Dashboard({
                     </Select>
                 </div>
 
-                <div className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border bg-border shadow-sm md:grid-cols-5">
-                    <StatCell
-                        label="Income"
-                        value={summary.income}
+                <div className="flex flex-col gap-5">
+                    <div>
+                        <div className="text-sm text-muted-foreground">
+                            Result for period
+                        </div>
+                        <div className="mt-1 text-4xl font-semibold tracking-tight tabular-nums">
+                            {formatMoney(summary.result, primaryCurrency)}
+                        </div>
+                        <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-1.5 text-sm">
+                            <HeroStat
+                                label="Income"
+                                value={summary.income}
+                                currency={primaryCurrency}
+                                dotClass="bg-chart-income"
+                            />
+                            <HeroStat
+                                label="Bills"
+                                value={summary.bills}
+                                currency={primaryCurrency}
+                                dotClass="bg-chart-bills"
+                            />
+                            <HeroStat
+                                label="Consumption"
+                                value={summary.consumption}
+                                currency={primaryCurrency}
+                                dotClass="bg-chart-consumption"
+                            />
+                            <HeroStat
+                                label="Savings"
+                                value={summary.savings}
+                                currency={primaryCurrency}
+                                dotClass="bg-chart-savings"
+                            />
+                        </div>
+                    </div>
+                    <AllocationBar
+                        summary={summary}
                         currency={primaryCurrency}
-                        dotClass="bg-chart-income"
-                    />
-                    <StatCell
-                        label="Bills"
-                        value={summary.bills}
-                        currency={primaryCurrency}
-                        dotClass="bg-chart-bills"
-                    />
-                    <StatCell
-                        label="Consumption"
-                        value={summary.consumption}
-                        currency={primaryCurrency}
-                        dotClass="bg-chart-consumption"
-                    />
-                    <StatCell
-                        label="Savings"
-                        value={summary.savings}
-                        currency={primaryCurrency}
-                        dotClass="bg-chart-savings"
-                    />
-                    <StatCell
-                        label="Result"
-                        value={summary.result}
-                        currency={primaryCurrency}
-                        dotClass="bg-foreground"
-                        className="col-span-2 md:col-span-1"
                     />
                 </div>
 
@@ -685,30 +692,113 @@ function BreakdownSkeleton() {
     );
 }
 
-function StatCell({
+function HeroStat({
     label,
     value,
     currency,
     dotClass,
-    className,
 }: {
     label: string;
     value: number;
     currency: string | null;
     dotClass: string;
-    className?: string;
 }) {
     return (
-        <div className={cn('bg-card p-4 sm:p-5', className)}>
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                <span
-                    className={cn('size-2 shrink-0 rounded-full', dotClass)}
-                    aria-hidden
-                />
-                {label}
-            </div>
-            <div className="mt-1.5 text-2xl font-semibold tracking-tight tabular-nums">
+        <span className="flex items-center gap-1.5">
+            <span
+                className={cn('size-2 shrink-0 rounded-full', dotClass)}
+                aria-hidden
+            />
+            <span className="text-muted-foreground">{label}</span>
+            <span className="font-medium tabular-nums">
                 {formatMoney(value, currency)}
+            </span>
+        </span>
+    );
+}
+
+/**
+ * Shows how the period's income was spent, as shares of income. "Left over"
+ * is what remains after bills, consumption, and savings transfers.
+ */
+function AllocationBar({
+    summary,
+    currency,
+}: {
+    summary: Summary;
+    currency: string | null;
+}) {
+    const income = summary.income;
+
+    if (income <= 0) {
+        return null;
+    }
+
+    const bills = Math.abs(summary.bills);
+    const consumption = Math.abs(summary.consumption);
+    const savings = Math.max(summary.savings, 0);
+    const leftOver = Math.max(income - bills - consumption - savings, 0);
+
+    const segments = [
+        { label: 'Bills', value: bills, colorClass: 'bg-chart-bills' },
+        {
+            label: 'Consumption',
+            value: consumption,
+            colorClass: 'bg-chart-consumption',
+        },
+        { label: 'Savings', value: savings, colorClass: 'bg-chart-savings' },
+        { label: 'Left over', value: leftOver, colorClass: 'bg-chart-income' },
+    ].filter((segment) => segment.value > 0);
+
+    const total = segments.reduce((sum, segment) => sum + segment.value, 0);
+
+    if (total <= 0) {
+        return null;
+    }
+
+    return (
+        <div className="flex flex-col gap-2.5">
+            <div className="flex h-2.5 w-full gap-[3px]">
+                {segments.map((segment) => (
+                    <div
+                        key={segment.label}
+                        className={cn(
+                            'h-full rounded-full',
+                            segment.colorClass,
+                        )}
+                        style={{
+                            width: `${(segment.value / total) * 100}%`,
+                        }}
+                    />
+                ))}
+            </div>
+            <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5 text-sm">
+                {segments.map((segment) => (
+                    <span
+                        key={segment.label}
+                        className="flex items-center gap-1.5"
+                    >
+                        <span
+                            className={cn(
+                                'size-2 shrink-0 rounded-full',
+                                segment.colorClass,
+                            )}
+                            aria-hidden
+                        />
+                        <span className="text-muted-foreground">
+                            {segment.label}
+                        </span>
+                        <span className="font-medium tabular-nums">
+                            {formatNumber((segment.value / total) * 100, {
+                                maximumFractionDigits: 1,
+                            })}
+                            %
+                        </span>
+                        <span className="text-muted-foreground tabular-nums">
+                            {formatMoney(segment.value, currency)}
+                        </span>
+                    </span>
+                ))}
             </div>
         </div>
     );
