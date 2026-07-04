@@ -6,7 +6,6 @@ use App\Models\BankAccount;
 use App\Models\BankConnection;
 use App\Models\BankConnectionAccount;
 use App\Models\BankSyncRun;
-use App\Models\Category;
 use App\Models\Posting;
 use App\Models\Subcategory;
 use App\Models\User;
@@ -22,9 +21,14 @@ class DatabaseSeeder extends Seeder
 
     /**
      * Seed the application's database.
+     *
+     * The default category tree is seeded in every environment; the demo
+     * user with sample data only in local.
      */
     public function run(): void
     {
+        $this->call(DefaultCategoriesSeeder::class);
+
         if (! app()->environment('local')) {
             return;
         }
@@ -34,7 +38,7 @@ class DatabaseSeeder extends Seeder
             'email' => 'john@example.com',
         ]);
 
-        $subcategories = $this->createCategories();
+        $subcategories = $this->defaultSubcategoriesByKey();
         $accounts = $this->createAccounts($user);
         $connectionAccounts = $this->createBankConnection($user, $accounts);
 
@@ -46,33 +50,15 @@ class DatabaseSeeder extends Seeder
     /**
      * @return Collection<string, Subcategory>
      */
-    private function createCategories(): Collection
+    private function defaultSubcategoriesByKey(): Collection
     {
-        $subcategories = collect();
-
-        foreach ($this->categoryDefinitions() as $categoryDefinition) {
-            $category = Category::factory()->create([
-                'legacy_id' => 'seed-category-'.$categoryDefinition['key'],
-                'name' => $categoryDefinition['name'],
-                'type' => $categoryDefinition['type'],
-                'hyphenated_name' => Str::slug($categoryDefinition['name']),
-            ]);
-
-            foreach ($categoryDefinition['subcategories'] as $subcategoryDefinition) {
-                $subcategories->put($subcategoryDefinition['key'], Subcategory::factory()
-                    ->forCategory($category)
-                    ->create([
-                        'legacy_id' => 'seed-subcategory-'.$subcategoryDefinition['key'],
-                        'name' => $subcategoryDefinition['name'],
-                        'hyphenated_name' => Str::slug($subcategoryDefinition['name']),
-                        'expense_type' => $subcategoryDefinition['expense_type'] ?? null,
-                        'hints' => $subcategoryDefinition['hints'] ?? null,
-                        'is_ignored' => $subcategoryDefinition['is_ignored'] ?? false,
-                    ]));
-            }
-        }
-
-        return $subcategories;
+        return Subcategory::query()
+            ->where('legacy_id', 'like', DefaultCategoriesSeeder::SUBCATEGORY_LEGACY_ID_PREFIX.'%')
+            ->get()
+            ->keyBy(fn (Subcategory $subcategory): string => Str::after(
+                $subcategory->legacy_id,
+                DefaultCategoriesSeeder::SUBCATEGORY_LEGACY_ID_PREFIX,
+            ));
     }
 
     /**
@@ -397,83 +383,5 @@ class DatabaseSeeder extends Seeder
     private function monthlyMerchant(array $merchants, int $index): string
     {
         return $merchants[$index % count($merchants)];
-    }
-
-    /**
-     * @return list<array{key:string,name:string,type:string,subcategories:list<array{key:string,name:string,expense_type?:string|null,hints?:string|null,is_ignored?:bool}>}>
-     */
-    private function categoryDefinitions(): array
-    {
-        return [
-            [
-                'key' => 'income',
-                'name' => 'Income',
-                'type' => 'Income',
-                'subcategories' => [
-                    ['key' => 'salary', 'name' => 'Salary'],
-                    ['key' => 'reimbursements', 'name' => 'Reimbursements'],
-                ],
-            ],
-            [
-                'key' => 'housing',
-                'name' => 'Housing',
-                'type' => 'Expense',
-                'subcategories' => [
-                    ['key' => 'rent', 'name' => 'Rent', 'expense_type' => 'Fixed'],
-                    ['key' => 'utilities', 'name' => 'Utilities', 'expense_type' => 'Fixed'],
-                    ['key' => 'internet', 'name' => 'Internet', 'expense_type' => 'Fixed'],
-                    ['key' => 'insurance', 'name' => 'Insurance', 'expense_type' => 'Fixed'],
-                ],
-            ],
-            [
-                'key' => 'food',
-                'name' => 'Food',
-                'type' => 'Expense',
-                'subcategories' => [
-                    ['key' => 'groceries', 'name' => 'Groceries', 'expense_type' => 'Variable'],
-                    ['key' => 'restaurants', 'name' => 'Restaurants', 'expense_type' => 'Variable'],
-                    ['key' => 'coffee', 'name' => 'Coffee', 'expense_type' => 'Variable'],
-                ],
-            ],
-            [
-                'key' => 'lifestyle',
-                'name' => 'Lifestyle',
-                'type' => 'Expense',
-                'subcategories' => [
-                    ['key' => 'streaming', 'name' => 'Streaming', 'expense_type' => 'Fixed'],
-                    ['key' => 'pharmacy', 'name' => 'Pharmacy', 'expense_type' => 'Variable'],
-                    ['key' => 'clothing', 'name' => 'Clothing', 'expense_type' => 'Variable'],
-                    ['key' => 'home', 'name' => 'Home', 'expense_type' => 'Variable'],
-                    ['key' => 'electronics', 'name' => 'Electronics', 'expense_type' => 'Variable'],
-                    ['key' => 'travel', 'name' => 'Travel', 'expense_type' => 'Variable'],
-                ],
-            ],
-            [
-                'key' => 'transport',
-                'name' => 'Transport',
-                'type' => 'Expense',
-                'subcategories' => [
-                    ['key' => 'transport', 'name' => 'Public transport', 'expense_type' => 'Variable'],
-                    ['key' => 'phone', 'name' => 'Phone', 'expense_type' => 'Fixed'],
-                ],
-            ],
-            [
-                'key' => 'saving',
-                'name' => 'Saving',
-                'type' => 'Saving',
-                'subcategories' => [
-                    ['key' => 'emergency_fund', 'name' => 'Emergency fund'],
-                    ['key' => 'investments', 'name' => 'Investments'],
-                ],
-            ],
-            [
-                'key' => 'transfer',
-                'name' => 'Transfers',
-                'type' => 'Transfer',
-                'subcategories' => [
-                    ['key' => 'internal_transfer', 'name' => 'Internal transfer', 'is_ignored' => true],
-                ],
-            ],
-        ];
     }
 }

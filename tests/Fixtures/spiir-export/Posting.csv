@@ -1,0 +1,6 @@
+Id;AccountId;SubcategoryId;CategorizedSubcategoryId;CounterEntryPostingId;Date;Description;OriginalDescription;Amount;Balance;CategoryType;Currency;CategorizedBy;Created
+post-1;acc-1;110;110;;2024-01-01;Salary;SALARY JANUARY;30000,00;31500,50;1;DKK;user;2024-01-01T08:00:00
+post-2;acc-1;210;;;2024-01-03;Supermarket;NETTO 123;-250,75;31249,75;2;DKK;auto;2024-01-03T18:12:00
+post-3;acc-1;310;310;post-4;2024-01-05;Transfer to travel card;TRANSFER;-1000,00;30249,75;4;DKK;user;2024-01-05T12:00:00
+post-4;acc-2;310;310;post-3;2024-01-05;Transfer from everyday;TRANSFER;134.20;384.20;4;EUR;user;2024-01-05T12:00:00
+post-5;acc-2;;;;2024-01-08;Berlin cafe;CAFE BERLIN;-12.50;371.70;2;EUR;;2024-01-08T14:45:00

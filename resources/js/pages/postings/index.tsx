@@ -6,6 +6,7 @@ import type { CategoryComboboxOption } from '@/components/category-combobox';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { formatMoney } from '@/lib/money';
 import { cn } from '@/lib/utils';
 import {
     index as postingsIndex,
@@ -87,12 +88,6 @@ type PostingsProps = {
     accounts: Account[];
     categories: Category[];
 };
-
-const money = new Intl.NumberFormat('da-DK', {
-    style: 'currency',
-    currency: 'DKK',
-    minimumFractionDigits: 2,
-});
 
 function normalizeLabel(label: string): string {
     return label.replace('&laquo;', 'Previous').replace('&raquo;', 'Next');
@@ -241,9 +236,7 @@ export default function Postings({
                     setEditingPostingId(null);
                     // Advance to the next uncategorized row for fast triage,
                     // starting after the row we just categorized.
-                    focusRow(
-                        nextTriageRowIndex(postings.data, rowIndex + 1),
-                    );
+                    focusRow(nextTriageRowIndex(postings.data, rowIndex + 1));
                 },
                 onFinish: () => {
                     setSavingPostingId(null);
@@ -456,9 +449,7 @@ export default function Postings({
                                                         savingPostingId ===
                                                         posting.id
                                                     }
-                                                    onSelect={(
-                                                        subcategoryId,
-                                                    ) =>
+                                                    onSelect={(subcategoryId) =>
                                                         applyCategory(
                                                             posting,
                                                             subcategoryId,
@@ -502,7 +493,10 @@ export default function Postings({
                                                     : 'text-emerald-600 dark:text-emerald-400',
                                             )}
                                         >
-                                            {money.format(posting.amount)}
+                                            {formatMoney(
+                                                posting.amount,
+                                                posting.currency,
+                                            )}
                                         </td>
                                     </tr>
                                 ))}

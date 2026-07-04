@@ -53,8 +53,8 @@ cp .env.example .env
 # 3. Generate the application key
 php artisan key:generate
 
-# 4. Configure your database in .env (see .env.example), then run migrations.
-#    Add --seed in local/dev to load demo data (see "Demo data" below).
+# 4. Configure your database in .env (see .env.example), then run migrations
+#    and seed the default category tree (see "Categories" below).
 php artisan migrate --seed
 
 # 5. Build the frontend assets...
@@ -73,6 +73,10 @@ composer run dev
 Freyr uses [Enable Banking](https://enablebanking.com) to connect to banks. You
 need an Enable Banking account and an application registered in their control
 panel.
+
+Enable Banking is **completely free for personal use**: you can register a
+production application and whitelist your own bank accounts for personal use,
+so a self-hosted Freyr costs you nothing in API fees.
 
 1. Sign up at [enablebanking.com](https://enablebanking.com) and create an
    application in their control panel.
@@ -105,7 +109,10 @@ Run the queue worker with Horizon:
 php artisan horizon
 ```
 
-The Horizon dashboard is available at `/horizon`.
+The Horizon dashboard is available at `/horizon`. Access is restricted to the
+user emails listed in the `ADMIN_EMAILS` environment variable
+(comma-separated). If `ADMIN_EMAILS` is empty, nobody can open the dashboard —
+set it to your own account's email.
 
 Run the scheduler:
 
@@ -126,10 +133,25 @@ In production, make sure both a Horizon process and the scheduler are running
 (e.g. a `cron` entry running `php artisan schedule:run` every minute, plus a
 supervised `php artisan horizon` process).
 
+## Registration
+
+Anyone who can reach your instance can create an account by default. If your
+Freyr should be private (e.g. single-user), create your own account first and
+then set `REGISTRATION_ENABLED=false` — the sign-up page returns 404 from then
+on.
+
+## Categories
+
+Seeding (`php artisan db:seed`) installs a sensible default tree of categories
+and subcategories (income, housing, food, transport, savings, and so on). It is
+safe to run in any environment and idempotent — re-running never duplicates.
+Editing categories currently requires the database or a Spiir import; a
+management UI is on the roadmap.
+
 ## Demo data
 
-In a local environment, seeding creates a demo user (`john@example.com`) along
-with sample accounts, a bank connection, a full category tree, roughly a year of
+In a **local** environment, seeding additionally creates a demo user
+(`john@example.com`) with sample accounts, a bank connection, roughly a year of
 postings, and sync-run history:
 
 ```bash
@@ -138,21 +160,27 @@ php artisan migrate --seed
 php artisan db:seed
 ```
 
-The seeder only runs in the `local` environment.
+## Currencies
+
+Amounts are stored and displayed in each account's own currency, and number
+formatting follows your browser locale. The dashboard aggregates income and
+expenses across accounts and displays totals in your most common account
+currency — converting between currencies is not supported yet, so the dashboard
+works best when your accounts share one currency.
 
 ## Migrating from Spiir
 
 If you have a Spiir data export, Freyr can import it directly — a migration path
-for ex-Spiir users. Place your export directory (containing `Categories.json`,
-`User.csv`, `Account.csv`, and `Posting.csv`) somewhere under the project and
-run:
+for ex-Spiir users. Keep the export directory (containing `Categories.json`,
+`User.csv`, `Account.csv`, and `Posting.csv`) **outside the project directory**
+(so it cannot end up in version control) and run:
 
 ```bash
-php artisan app:spiir:import path/to/spiir-export
+php artisan app:spiir:import ~/spiir-export
 ```
 
-The path defaults to `project/data`. The importer creates the user, accounts,
-categories, and postings from the export.
+The importer creates the user, accounts, categories, and postings from the
+export.
 
 ## API
 
@@ -188,4 +216,4 @@ Laravel Horizon · Laravel Sanctum · Laravel Fortify · Enable Banking.
 
 ## License
 
-See the repository for licensing information.
+Freyr is open-source software licensed under the [MIT license](LICENSE).

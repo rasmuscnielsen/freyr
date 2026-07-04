@@ -211,7 +211,7 @@ class EnableBankingConnectionManager
             'identification_hashes' => Arr::wrap($accountPayload['identification_hashes'] ?? []),
             'name' => (string) ($accountPayload['name'] ?? 'Bank account'),
             'details' => $accountPayload['details'] ?? null,
-            'currency' => (string) ($accountPayload['currency'] ?? 'DKK'),
+            'currency' => (string) ($accountPayload['currency'] ?? ''),
             'iban' => data_get($accountPayload, 'account_id.iban'),
             'account_number' => data_get($accountPayload, 'account_id.other.identification'),
             'account_number_last_four' => Str::of((string) data_get($accountPayload, 'account_id.other.identification'))->substr(-4)->toString(),

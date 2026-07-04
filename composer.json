@@ -1,11 +1,13 @@
 {
     "$schema": "https://getcomposer.org/schema.json",
-    "name": "laravel/react-starter-kit",
+    "name": "rasmuscnielsen/freyr",
     "type": "project",
-    "description": "The skeleton application for the Laravel framework.",
+    "description": "Self-hosted personal budgeting with automatic bank sync, built in the spirit of Spiir.",
     "keywords": [
-        "laravel",
-        "framework"
+        "budgeting",
+        "personal-finance",
+        "open-banking",
+        "laravel"
     ],
     "license": "MIT",
     "require": {

@@ -18,7 +18,7 @@ return new class extends Migration
             $table->string('name');
             $table->string('bank_key')->nullable();
             $table->string('bank_name')->nullable();
-            $table->char('currency', 3)->default('DKK');
+            $table->char('currency', 3);
             $table->decimal('last_booked_balance', 15, 2)->nullable();
             $table->decimal('last_available_balance', 15, 2)->nullable();
             $table->string('account_type')->nullable();

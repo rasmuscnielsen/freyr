@@ -159,7 +159,7 @@ class SpiirExportImporter
                     'supports_payment_to' => $this->boolean($row['SupportsPaymentTo'] ?? null),
                     'is_favorite' => $this->boolean($row['IsFavorite'] ?? null),
                     'connection_type' => $this->nullableString($row['ConnectionType'] ?? null),
-                    'donation_topup_count' => (int) ($row['DonationTopupCount'] ?: 0),
+                    'donation_topup_count' => (int) (($row['DonationTopupCount'] ?? null) ?: 0),
                     'legacy_created_at' => $this->dateTime($row['Created'] ?? null),
                 ],
             );

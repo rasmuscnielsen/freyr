@@ -83,9 +83,12 @@ export function CategoryCombobox({
     // Debounce the search value that drives filtering. Typing stays responsive
     // because `search` (the input value) updates immediately.
     useEffect(() => {
-        const timer = window.setTimeout(() => {
-            setDebouncedSearch(search);
-        }, Math.max(debounceMs, 0));
+        const timer = window.setTimeout(
+            () => {
+                setDebouncedSearch(search);
+            },
+            Math.max(debounceMs, 0),
+        );
 
         return () => window.clearTimeout(timer);
     }, [search, debounceMs]);

@@ -48,6 +48,7 @@ import {
     SelectTrigger,
     SelectValue,
 } from '@/components/ui/select';
+import { formatMoney as formatSharedMoney } from '@/lib/money';
 import { cn } from '@/lib/utils';
 import {
     index as bankAccountsIndex,
@@ -138,7 +139,7 @@ type Connection = {
     failure_message: string | null;
     needs_renewal: boolean;
     linked_accounts_count: number;
-    balance_mismatch: { delta: string } | null;
+    balance_mismatch: { delta: string; currency: string | null } | null;
     accounts: ConnectionAccount[];
 };
 
@@ -181,7 +182,7 @@ const accountTypeOptions = [
 const emptyForm: AccountForm = {
     name: '',
     bank_name: '',
-    currency: 'DKK',
+    currency: '',
     account_type: 'Consumption',
     last_known_posting_date: '',
     is_active: true,
@@ -214,11 +215,7 @@ function formatMoney(amount: number | null, currency: string): string {
         return 'Not synced';
     }
 
-    return new Intl.NumberFormat('da-DK', {
-        style: 'currency',
-        currency,
-        maximumFractionDigits: 0,
-    }).format(amount);
+    return formatSharedMoney(amount, currency, { maximumFractionDigits: 0 });
 }
 
 function formatDateTime(value: string | null): string {
@@ -226,7 +223,7 @@ function formatDateTime(value: string | null): string {
         return 'Not synced';
     }
 
-    return new Intl.DateTimeFormat('da-DK', {
+    return new Intl.DateTimeFormat(undefined, {
         dateStyle: 'medium',
         timeStyle: 'short',
     }).format(new Date(value.replace(' ', 'T')));
@@ -600,7 +597,11 @@ function ConnectionCard({
                             Balance mismatch after last sync
                         </AlertTitle>
                         <AlertDescription className="text-xs">
-                            Δ {connection.balance_mismatch.delta} kr.
+                            Δ{' '}
+                            {formatSharedMoney(
+                                Number(connection.balance_mismatch.delta),
+                                connection.balance_mismatch.currency,
+                            )}
                         </AlertDescription>
                     </Alert>
                 )}
@@ -1326,6 +1327,7 @@ function AccountDialog({
                             <Input
                                 id="currency"
                                 maxLength={3}
+                                placeholder="EUR"
                                 value={form.data.currency}
                                 onChange={(event) =>
                                     form.setData(
