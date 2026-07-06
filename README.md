@@ -1,3 +1,8 @@
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="art/banner-dark.svg">
+  <img src="art/banner-light.svg" alt="Freyr — self-hosted, bank-connected personal budgeting">
+</picture>
+
 # Freyr
 
 Freyr is a self-hosted personal budgeting application. It connects to your bank,
