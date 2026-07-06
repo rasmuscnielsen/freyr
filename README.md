@@ -34,7 +34,7 @@ data on their own server.
 
 ## Requirements
 
-- **PHP 8.4**
+- **PHP 8.5**
 - **PostgreSQL** (recommended). The app runs on other drivers, but the postings
   table stores an optional AI description embedding using the `pgvector`
   extension on PostgreSQL (it falls back to a plain JSON column on other
