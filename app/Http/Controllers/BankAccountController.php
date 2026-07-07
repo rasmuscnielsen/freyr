@@ -124,6 +124,7 @@ class BankAccountController extends Controller
                 'balance' => $posting->balance === null ? null : (float) $posting->balance,
                 'currency' => $posting->currency,
                 'comment' => $posting->comment,
+                'is_extraordinary' => $posting->is_extraordinary,
                 'categorized_subcategory_id' => $posting->categorized_subcategory_id,
                 'category' => $posting->categorizedSubcategory?->category === null ? null : [
                     'name' => $posting->categorizedSubcategory->category->name,
@@ -163,11 +164,12 @@ class BankAccountController extends Controller
             'postings' => $postings,
             'balanceAudit' => Inertia::optional(fn (): ?array => $isManual ? null : $inspector->inspect($bankAccount)),
             'syncRuns' => $this->syncRunsPayload($bankAccount->syncRuns()->latest('id')->limit(5)->get()),
-            'categories' => ! $isManual ? [] : Category::query()
+            'categories' => Category::query()
                 ->with(['subcategories' => fn ($query) => $query->orderBy('name')])
-                ->orderBy('type')
                 ->orderBy('name')
                 ->get()
+                ->sortBy(fn (Category $category): int => $category->type->displayOrder())
+                ->values()
                 ->map(fn (Category $category): array => [
                     'id' => $category->id,
                     'name' => $category->name,

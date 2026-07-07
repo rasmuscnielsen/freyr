@@ -1,8 +1,9 @@
 import { Head, Link, router } from '@inertiajs/react';
-import { ChevronLeft, ChevronRight, Search } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Search, StarIcon } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { CategoryCombobox } from '@/components/category-combobox';
 import type { CategoryComboboxOption } from '@/components/category-combobox';
+import { PostingFormDialog } from '@/components/posting-form-dialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -179,6 +180,7 @@ export default function Postings({
         null,
     );
     const [savingPostingId, setSavingPostingId] = useState<number | null>(null);
+    const [modalPosting, setModalPosting] = useState<Posting | null>(null);
 
     const subcategoryOptions = useMemo<SubcategoryOption[]>(
         () =>
@@ -539,25 +541,29 @@ export default function Postings({
                                         onKeyDown={(event) =>
                                             rowKeyDown(event, posting, rowIndex)
                                         }
-                                        className="border-t transition-colors outline-none hover:bg-muted/40 focus:bg-accent"
+                                        onClick={() => setModalPosting(posting)}
+                                        className="cursor-pointer border-t transition-colors outline-none hover:bg-muted/40 focus:bg-accent"
                                     >
                                         <td className="px-3 py-2 whitespace-nowrap text-muted-foreground tabular-nums">
                                             {formatDate(posting.date)}
                                         </td>
-                                        <td className="px-3 py-2">
+                                        <td className="px-3 py-2 flex gap-2 items-center">
                                             <div className="font-medium">
                                                 {posting.description}
                                             </div>
                                             {posting.is_extraordinary && (
-                                                <Badge variant="secondary">
-                                                    Extraordinary
-                                                </Badge>
+                                                <StarIcon className="size-4 fill-current" />
                                             )}
                                         </td>
                                         <td className="hidden px-3 py-2 text-muted-foreground lg:table-cell">
                                             {posting.bank_account.name}
                                         </td>
-                                        <td className="relative px-3 py-2">
+                                        <td
+                                            className="relative px-3 py-2"
+                                            onClick={(event) =>
+                                                event.stopPropagation()
+                                            }
+                                        >
                                             {/* Reserve the trigger's height so swapping to
                                                 the (absolutely-positioned) combobox never
                                                 shifts the row. */}
@@ -668,6 +674,34 @@ export default function Postings({
                     )}
                 </div>
             </div>
+
+            <PostingFormDialog
+                key={
+                    modalPosting === null
+                        ? 'posting-modal-closed'
+                        : `posting-modal-${modalPosting.id}`
+                }
+                open={modalPosting !== null}
+                onClose={() => setModalPosting(null)}
+                title="Edit posting"
+                description="Categorize the posting, add a comment, or mark it extraordinary. Date, description, and amount are managed on the account."
+                currency={modalPosting?.currency ?? 'DKK'}
+                categoryOptions={comboboxOptions}
+                initial={{
+                    date: modalPosting?.date ?? '',
+                    description: modalPosting?.description ?? '',
+                    amount: String(modalPosting?.amount ?? ''),
+                    categorized_subcategory_id:
+                        modalPosting?.subcategory?.id ?? null,
+                    comment: modalPosting?.comment ?? '',
+                    is_extraordinary: modalPosting?.is_extraordinary ?? false,
+                }}
+                coreFieldsEditable={false}
+                action={{
+                    method: 'patch',
+                    url: updatePosting.url(modalPosting?.id ?? 0),
+                }}
+            />
         </>
     );
 }

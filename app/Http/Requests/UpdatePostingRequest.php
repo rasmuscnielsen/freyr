@@ -32,6 +32,7 @@ class UpdatePostingRequest extends FormRequest
             'amount' => ['sometimes', 'required', 'numeric', 'decimal:0,2'],
             'categorized_subcategory_id' => ['sometimes', 'nullable', 'integer', 'exists:subcategories,id'],
             'comment' => ['sometimes', 'nullable', 'string', 'max:2000'],
+            'is_extraordinary' => ['sometimes', 'boolean'],
         ];
     }
 }

@@ -207,16 +207,40 @@ test('bank account detail exposes manual state and categories for manual account
             ->has('categories', 1));
 });
 
-test('bank account detail marks connected accounts as not manual', function () {
+test('bank account detail marks connected accounts as not manual but still offers categories', function () {
     $user = User::factory()->create();
     $account = BankAccount::factory()->for($user)->create();
     $connection = BankConnection::factory()->for($user)->create();
     BankConnectionAccount::factory()->for($connection)->linkedTo($account)->create();
+    Subcategory::factory()->create();
 
     $this->actingAs($user)
         ->get(route('bank-accounts.show', $account))
         ->assertOk()
         ->assertInertia(fn (Assert $page) => $page
             ->where('account.is_manual', false)
-            ->has('categories', 0));
+            ->has('categories', 1));
+});
+
+test('manual postings can be created and updated with the extraordinary flag', function () {
+    $user = User::factory()->create();
+    $account = BankAccount::factory()->for($user)->create();
+
+    $this->actingAs($user)
+        ->post(route('bank-accounts.postings.store', $account), manualPostingPayload([
+            'is_extraordinary' => true,
+        ]))
+        ->assertRedirect();
+
+    $posting = Posting::query()->firstOrFail();
+
+    expect($posting->is_extraordinary)->toBeTrue();
+
+    $this->actingAs($user)
+        ->patch(route('bank-accounts.postings.update', [$account, $posting]), manualPostingPayload([
+            'is_extraordinary' => false,
+        ]))
+        ->assertRedirect();
+
+    expect($posting->refresh()->is_extraordinary)->toBeFalse();
 });

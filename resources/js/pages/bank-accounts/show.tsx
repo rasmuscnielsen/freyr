@@ -1,19 +1,21 @@
-import { Head, Link, router, useForm } from '@inertiajs/react';
+import { Head, Link, router } from '@inertiajs/react';
 import {
     ArrowLeft,
     Building2,
     CalendarClock,
     ChevronLeft,
     ChevronRight,
-    Pencil,
     Plus,
     RefreshCw,
+    Sparkles,
     Star,
     Trash2,
     TriangleAlert,
 } from 'lucide-react';
-import { useEffect, useState } from 'react';
-import InputError from '@/components/input-error';
+import { useEffect, useMemo, useState } from 'react';
+import type { CategoryComboboxOption } from '@/components/category-combobox';
+import { PostingFormDialog } from '@/components/posting-form-dialog';
+import type { PostingFormValues } from '@/components/posting-form-dialog';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -26,17 +28,6 @@ import {
     DialogHeader,
     DialogTitle,
 } from '@/components/ui/dialog';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import {
-    Select,
-    SelectContent,
-    SelectGroup,
-    SelectItem,
-    SelectLabel,
-    SelectTrigger,
-    SelectValue,
-} from '@/components/ui/select';
 import { Spinner } from '@/components/ui/spinner';
 import { formatDate } from '@/lib/dates';
 import { formatMoney as formatSharedMoney } from '@/lib/money';
@@ -47,6 +38,7 @@ import {
     store as storePosting,
     update as updatePosting,
 } from '@/routes/bank-accounts/postings';
+import { update as updateAnyPosting } from '@/routes/postings';
 
 type SyncRun = {
     id: number;
@@ -120,6 +112,7 @@ type Posting = {
     balance: number | null;
     currency: string;
     comment: string | null;
+    is_extraordinary: boolean;
     categorized_subcategory_id: number | null;
     category: { name: string; subcategory: string } | null;
 };
@@ -153,15 +146,7 @@ type ShowProps = {
     balanceAudit?: BalanceAudit | null;
 };
 
-type PostingForm = {
-    date: string;
-    description: string;
-    amount: string;
-    categorized_subcategory_id: number | null;
-    comment: string;
-};
-
-function emptyPostingForm(): PostingForm {
+function emptyPostingForm(): PostingFormValues {
     const today = new Date();
     const month = String(today.getMonth() + 1).padStart(2, '0');
     const day = String(today.getDate()).padStart(2, '0');
@@ -172,16 +157,18 @@ function emptyPostingForm(): PostingForm {
         amount: '',
         categorized_subcategory_id: null,
         comment: '',
+        is_extraordinary: false,
     };
 }
 
-function postingToForm(posting: Posting): PostingForm {
+function postingToForm(posting: Posting): PostingFormValues {
     return {
         date: posting.date ?? '',
         description: posting.description,
         amount: String(posting.amount),
         categorized_subcategory_id: posting.categorized_subcategory_id,
         comment: posting.comment ?? '',
+        is_extraordinary: posting.is_extraordinary,
     };
 }
 
@@ -245,6 +232,16 @@ export default function BankAccountShow({
         null,
     );
     const [isAuditOpen, setIsAuditOpen] = useState(false);
+    const categoryOptions = useMemo<CategoryComboboxOption[]>(
+        () =>
+            categories.flatMap((category) =>
+                category.subcategories.map((subcategory) => ({
+                    id: subcategory.id,
+                    label: `${category.name} / ${subcategory.name}`,
+                })),
+            ),
+        [categories],
+    );
     const money = new Intl.NumberFormat(undefined, {
         style: 'currency',
         currency: account.currency,
@@ -423,9 +420,9 @@ export default function BankAccountShow({
                     </CardContent>
                 </Card>
 
-                {account.is_manual && (
-                    <div className="flex items-center justify-between">
-                        <h2 className="text-sm font-medium">Postings</h2>
+                <div className="flex items-center justify-between">
+                    <h2 className="text-sm font-medium">Postings</h2>
+                    {account.is_manual && (
                         <Button
                             size="sm"
                             onClick={() => setIsCreatingPosting(true)}
@@ -433,8 +430,8 @@ export default function BankAccountShow({
                             <Plus className="size-4" />
                             Add posting
                         </Button>
-                    </div>
-                )}
+                    )}
+                </div>
 
                 <div className="overflow-hidden rounded-xl border bg-card shadow-sm">
                     <div className="overflow-x-auto">
@@ -479,13 +476,23 @@ export default function BankAccountShow({
                                     postings.data.map((posting) => (
                                         <tr
                                             key={posting.id}
-                                            className="border-t transition-colors hover:bg-muted/40"
+                                            className="cursor-pointer border-t transition-colors hover:bg-muted/40"
+                                            onClick={() =>
+                                                setEditingPosting(posting)
+                                            }
                                         >
                                             <td className="px-3 py-2 whitespace-nowrap text-muted-foreground tabular-nums">
                                                 {formatDate(posting.date)}
                                             </td>
                                             <td className="px-3 py-2 font-medium">
-                                                {posting.description}
+                                                <span className="flex items-center gap-1.5">
+                                                    {posting.description}
+                                                    {posting.is_extraordinary && (
+                                                        <span title="Extraordinary">
+                                                            <Sparkles className="size-3.5 shrink-0 text-brand" />
+                                                        </span>
+                                                    )}
+                                                </span>
                                             </td>
                                             <td className="px-3 py-2 text-muted-foreground">
                                                 {posting.category
@@ -510,34 +517,20 @@ export default function BankAccountShow({
                                             </td>
                                             {account.is_manual && (
                                                 <td className="px-3 py-2 text-right whitespace-nowrap">
-                                                    <div className="flex justify-end gap-1">
-                                                        <Button
-                                                            variant="ghost"
-                                                            size="icon"
-                                                            className="size-7 text-muted-foreground"
-                                                            aria-label="Edit posting"
-                                                            onClick={() =>
-                                                                setEditingPosting(
-                                                                    posting,
-                                                                )
-                                                            }
-                                                        >
-                                                            <Pencil className="size-3.5" />
-                                                        </Button>
-                                                        <Button
-                                                            variant="ghost"
-                                                            size="icon"
-                                                            className="size-7 text-muted-foreground hover:text-destructive"
-                                                            aria-label="Delete posting"
-                                                            onClick={() =>
-                                                                setDeletingPosting(
-                                                                    posting,
-                                                                )
-                                                            }
-                                                        >
-                                                            <Trash2 className="size-3.5" />
-                                                        </Button>
-                                                    </div>
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="icon"
+                                                        className="size-7 text-muted-foreground hover:text-destructive"
+                                                        aria-label="Delete posting"
+                                                        onClick={(event) => {
+                                                            event.stopPropagation();
+                                                            setDeletingPosting(
+                                                                posting,
+                                                            );
+                                                        }}
+                                                    >
+                                                        <Trash2 className="size-3.5" />
+                                                    </Button>
                                                 </td>
                                             )}
                                         </tr>
@@ -644,29 +637,57 @@ export default function BankAccountShow({
                 />
             )}
 
+            <PostingFormDialog
+                key={
+                    editingPosting === null
+                        ? `posting-dialog-${isCreatingPosting ? 'create' : 'closed'}`
+                        : `posting-dialog-${editingPosting.id}`
+                }
+                open={editingPosting !== null || isCreatingPosting}
+                onClose={() => {
+                    setEditingPosting(null);
+                    setIsCreatingPosting(false);
+                }}
+                title={editingPosting === null ? 'Add posting' : 'Edit posting'}
+                description={
+                    editingPosting === null
+                        ? `Record a posting on ${account.name}. Use a negative amount for money going out.`
+                        : account.is_manual
+                          ? 'Adjust the details of this posting.'
+                          : 'Postings from your bank are read-only, but you can categorize them, comment, and mark them extraordinary.'
+                }
+                currency={account.currency}
+                categoryOptions={categoryOptions}
+                initial={
+                    editingPosting === null
+                        ? emptyPostingForm()
+                        : postingToForm(editingPosting)
+                }
+                coreFieldsEditable={account.is_manual}
+                action={
+                    editingPosting === null
+                        ? { method: 'post', url: storePosting.url(account.id) }
+                        : account.is_manual
+                          ? {
+                                method: 'patch',
+                                url: updatePosting.url({
+                                    bank_account: account.id,
+                                    posting: editingPosting.id,
+                                }),
+                            }
+                          : {
+                                method: 'patch',
+                                url: updateAnyPosting.url(editingPosting.id),
+                            }
+                }
+            />
+
             {account.is_manual && (
-                <>
-                    <PostingDialog
-                        key={
-                            editingPosting === null
-                                ? `posting-dialog-${isCreatingPosting ? 'create' : 'closed'}`
-                                : `posting-dialog-${editingPosting.id}`
-                        }
-                        account={account}
-                        categories={categories}
-                        posting={editingPosting}
-                        open={editingPosting !== null || isCreatingPosting}
-                        onClose={() => {
-                            setEditingPosting(null);
-                            setIsCreatingPosting(false);
-                        }}
-                    />
-                    <DeletePostingDialog
-                        account={account}
-                        posting={deletingPosting}
-                        onClose={() => setDeletingPosting(null)}
-                    />
-                </>
+                <DeletePostingDialog
+                    account={account}
+                    posting={deletingPosting}
+                    onClose={() => setDeletingPosting(null)}
+                />
             )}
         </>
     );
@@ -840,187 +861,6 @@ function BalanceAuditDialog({
                 <DialogFooter>
                     <Button variant="outline" onClick={onClose}>
                         Close
-                    </Button>
-                </DialogFooter>
-            </DialogContent>
-        </Dialog>
-    );
-}
-
-function PostingDialog({
-    account,
-    categories,
-    posting,
-    open,
-    onClose,
-}: {
-    account: Account;
-    categories: Category[];
-    posting: Posting | null;
-    open: boolean;
-    onClose: () => void;
-}) {
-    const isEditing = posting !== null;
-    const form = useForm<PostingForm>(
-        posting === null ? emptyPostingForm() : postingToForm(posting),
-    );
-
-    const submit = () => {
-        form.transform((data) => ({
-            ...data,
-            comment: data.comment.trim() === '' ? null : data.comment,
-        }));
-
-        if (isEditing) {
-            form.patch(
-                updatePosting.url({
-                    bank_account: account.id,
-                    posting: posting.id,
-                }),
-                {
-                    preserveScroll: true,
-                    onSuccess: onClose,
-                },
-            );
-
-            return;
-        }
-
-        form.post(storePosting.url(account.id), {
-            preserveScroll: true,
-            onSuccess: onClose,
-        });
-    };
-
-    return (
-        <Dialog open={open} onOpenChange={(nextOpen) => !nextOpen && onClose()}>
-            <DialogContent className="sm:max-w-lg">
-                <DialogHeader>
-                    <DialogTitle>
-                        {isEditing ? 'Edit posting' : 'Add posting'}
-                    </DialogTitle>
-                    <DialogDescription>
-                        {isEditing
-                            ? 'Adjust the details of this posting.'
-                            : `Record a posting on ${account.name}. Use a negative amount for money going out.`}
-                    </DialogDescription>
-                </DialogHeader>
-
-                <div className="grid gap-4">
-                    <div className="grid gap-4 sm:grid-cols-2">
-                        <div className="grid gap-2">
-                            <Label htmlFor="posting-date">Date</Label>
-                            <Input
-                                id="posting-date"
-                                type="date"
-                                value={form.data.date}
-                                onChange={(event) =>
-                                    form.setData('date', event.target.value)
-                                }
-                            />
-                            <InputError message={form.errors.date} />
-                        </div>
-
-                        <div className="grid gap-2">
-                            <Label htmlFor="posting-amount">
-                                Amount ({account.currency})
-                            </Label>
-                            <Input
-                                id="posting-amount"
-                                type="number"
-                                step="0.01"
-                                placeholder="-125.00"
-                                value={form.data.amount}
-                                onChange={(event) =>
-                                    form.setData('amount', event.target.value)
-                                }
-                            />
-                            <InputError message={form.errors.amount} />
-                        </div>
-                    </div>
-
-                    <div className="grid gap-2">
-                        <Label htmlFor="posting-description">Description</Label>
-                        <Input
-                            id="posting-description"
-                            value={form.data.description}
-                            onChange={(event) =>
-                                form.setData('description', event.target.value)
-                            }
-                        />
-                        <InputError message={form.errors.description} />
-                    </div>
-
-                    <div className="grid gap-2">
-                        <Label>Category</Label>
-                        <Select
-                            value={
-                                form.data.categorized_subcategory_id === null
-                                    ? 'none'
-                                    : String(
-                                          form.data.categorized_subcategory_id,
-                                      )
-                            }
-                            onValueChange={(value) =>
-                                form.setData(
-                                    'categorized_subcategory_id',
-                                    value === 'none' ? null : Number(value),
-                                )
-                            }
-                        >
-                            <SelectTrigger className="w-full">
-                                <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                                <SelectItem value="none">
-                                    Uncategorized
-                                </SelectItem>
-                                {categories.map((category) => (
-                                    <SelectGroup key={category.id}>
-                                        <SelectLabel>
-                                            {category.name}
-                                        </SelectLabel>
-                                        {category.subcategories.map(
-                                            (subcategory) => (
-                                                <SelectItem
-                                                    key={subcategory.id}
-                                                    value={String(
-                                                        subcategory.id,
-                                                    )}
-                                                >
-                                                    {subcategory.name}
-                                                </SelectItem>
-                                            ),
-                                        )}
-                                    </SelectGroup>
-                                ))}
-                            </SelectContent>
-                        </Select>
-                        <InputError
-                            message={form.errors.categorized_subcategory_id}
-                        />
-                    </div>
-
-                    <div className="grid gap-2">
-                        <Label htmlFor="posting-comment">Comment</Label>
-                        <Input
-                            id="posting-comment"
-                            placeholder="Optional note"
-                            value={form.data.comment}
-                            onChange={(event) =>
-                                form.setData('comment', event.target.value)
-                            }
-                        />
-                        <InputError message={form.errors.comment} />
-                    </div>
-                </div>
-
-                <DialogFooter>
-                    <Button variant="outline" onClick={onClose}>
-                        Cancel
-                    </Button>
-                    <Button onClick={submit} disabled={form.processing}>
-                        {form.processing ? 'Saving...' : 'Save posting'}
                     </Button>
                 </DialogFooter>
             </DialogContent>
