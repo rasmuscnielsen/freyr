@@ -843,45 +843,43 @@ function BreakdownRow({
     const [anchorX, setAnchorX] = useState(0);
 
     return (
-        <HoverCard openDelay={100} closeDelay={80}>
-            <HoverCardTrigger asChild>
-                <div
-                    onMouseEnter={(event) =>
-                        setAnchorX(
-                            event.clientX -
-                                event.currentTarget.getBoundingClientRect()
-                                    .left,
-                        )
-                    }
-                    className="group flex w-full flex-col gap-1 rounded-md py-1 text-left"
-                >
-                    <span className="text-sm font-medium">{category.name}</span>
-                    <span className="flex items-center gap-3">
+        <div className="flex w-full flex-col gap-1 py-1 text-left">
+            <span className="text-sm font-medium">{category.name}</span>
+            <span className="flex items-center gap-3">
+                <HoverCard openDelay={100} closeDelay={80}>
+                    <HoverCardTrigger asChild>
                         <span
-                            className="h-5 min-w-0 shrink rounded-full transition-opacity group-hover:opacity-90"
+                            onMouseEnter={(event) =>
+                                setAnchorX(
+                                    event.clientX -
+                                        event.currentTarget.getBoundingClientRect()
+                                            .left,
+                                )
+                            }
+                            className="h-5 min-w-0 shrink rounded-full transition-opacity hover:opacity-90"
                             style={{
                                 width: `${Math.max(pct, 2)}%`,
                                 backgroundColor: barColor,
                             }}
                         />
-                        <span className="shrink-0 text-sm text-muted-foreground tabular-nums">
-                            {formatMoney(category.total, currency)}
-                        </span>
-                    </span>
-                </div>
-            </HoverCardTrigger>
-            <HoverCardContent
-                align="start"
-                alignOffset={anchorX}
-                className="w-72"
-            >
-                <BreakdownDetail
-                    category={category}
-                    currency={currency}
-                    onSelect={onSelect}
-                />
-            </HoverCardContent>
-        </HoverCard>
+                    </HoverCardTrigger>
+                    <HoverCardContent
+                        align="start"
+                        alignOffset={anchorX}
+                        className="w-72"
+                    >
+                        <BreakdownDetail
+                            category={category}
+                            currency={currency}
+                            onSelect={onSelect}
+                        />
+                    </HoverCardContent>
+                </HoverCard>
+                <span className="shrink-0 text-sm text-muted-foreground tabular-nums">
+                    {formatMoney(category.total, currency)}
+                </span>
+            </span>
+        </div>
     );
 }
 
