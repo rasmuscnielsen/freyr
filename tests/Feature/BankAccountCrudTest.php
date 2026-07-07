@@ -18,8 +18,6 @@ function bankAccountPayload(array $overrides = []): array
         'bank_key' => 'DK_Wise',
         'bank_name' => 'Wise',
         'currency' => 'DKK',
-        'last_booked_balance' => '1200.50',
-        'last_available_balance' => '1200.50',
         'account_type' => 'Consumption',
         'account_subcategory_key' => 'consumption',
         'last_known_posting_date' => '2026-06-05',
@@ -150,22 +148,18 @@ test('bank account detail page renders postings and sync history', function () {
             ->has('syncRuns', 1));
 });
 
-test('bank account detail surfaces a balance mismatch from the latest run', function () {
+test('bank account detail surfaces a live balance diff against the postings chain', function () {
     $user = User::factory()->create();
-    $account = BankAccount::factory()->for($user)->create();
+    $account = BankAccount::factory()->for($user)->create(['current_balance' => '150.00']);
     $connection = BankConnection::factory()->for($user)->create();
-    $remoteAccount = BankConnectionAccount::factory()->for($connection)->linkedTo($account)->create();
-    BankSyncRun::factory()->forConnectionAccount($remoteAccount->refresh())->create([
-        'expected_balance' => '150.00',
-        'computed_balance' => '100.00',
-        'balance_matches' => false,
-    ]);
+    BankConnectionAccount::factory()->for($connection)->linkedTo($account)->create();
+    Posting::factory()->forAccount($account)->create(['balance' => '100.00']);
 
     $this->actingAs($user)
         ->get(route('bank-accounts.show', $account))
         ->assertOk()
         ->assertInertia(fn (Assert $page) => $page
-            ->where('account.balance_mismatch.delta', '50.00'));
+            ->where('account.balance_diff', '50.00'));
 });
 
 test('bank account detail page is authorized to the owner', function () {

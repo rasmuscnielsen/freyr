@@ -89,8 +89,7 @@ type Account = {
     bank_key: string | null;
     bank_name: string | null;
     currency: string;
-    last_booked_balance: number | null;
-    last_available_balance: number | null;
+    current_balance: number | null;
     account_type: string | null;
     account_subcategory_key: string | null;
     last_known_posting_date: string | null;
@@ -863,10 +862,10 @@ function AccountRow({
             <div className="w-28 text-right md:w-36">
                 <div className="text-xs text-muted-foreground">Balance</div>
                 <div className="font-semibold tabular-nums">
-                    {account.last_booked_balance === null
+                    {account.current_balance === null
                         ? '—'
                         : formatMoney(
-                              account.last_booked_balance,
+                              account.current_balance,
                               account.currency,
                           )}
                 </div>
@@ -1323,7 +1322,7 @@ function AccountDialog({
                             <ReadOnlyFact
                                 label="Current balance"
                                 value={formatMoney(
-                                    account.last_booked_balance,
+                                    account.current_balance,
                                     account.currency,
                                 )}
                             />

@@ -30,5 +30,5 @@ test('it seeds a coherent demo environment', function () {
         ->firstOrFail();
 
     expect((float) $latestEverydayPosting->balance)
-        ->toBe((float) $latestEverydayPosting->bankAccount->last_booked_balance);
+        ->toBe((float) $latestEverydayPosting->bankAccount->current_balance);
 });

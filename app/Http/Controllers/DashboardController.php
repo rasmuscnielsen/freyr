@@ -217,17 +217,13 @@ class DashboardController extends Controller
             ->whereBelongsTo($request->user())
             ->where('is_active', true)
             ->where('currency', $primaryCurrency)
-            ->get(['last_booked_balance', 'last_available_balance']);
+            ->get(['current_balance']);
 
         if ($accounts->isEmpty()) {
             return null;
         }
 
-        return round($accounts->sum(function (BankAccount $account): float {
-            $balance = $account->last_booked_balance ?? $account->last_available_balance;
-
-            return $balance === null ? 0.0 : (float) $balance;
-        }), 2);
+        return round($accounts->sum(fn (BankAccount $account): float => $account->current_balance === null ? 0.0 : (float) $account->current_balance), 2);
     }
 
     /**

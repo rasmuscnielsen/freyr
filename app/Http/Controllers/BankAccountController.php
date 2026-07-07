@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Finance\BalanceChainInspector;
 use App\Finance\EnableBanking\EnableBankingClient;
 use App\Http\Requests\StoreBankAccountRequest;
 use App\Http\Requests\UpdateBankAccountRequest;
@@ -9,6 +10,7 @@ use App\Models\BankAccount;
 use App\Models\BankConnection;
 use App\Models\BankConnectionAccount;
 use App\Models\BankSyncRun;
+use App\Models\Category;
 use App\Models\Posting;
 use App\Models\User;
 use Illuminate\Http\RedirectResponse;
@@ -43,8 +45,7 @@ class BankAccountController extends Controller
                 'bank_key' => $account->bank_key,
                 'bank_name' => $account->bank_name,
                 'currency' => $account->currency,
-                'last_booked_balance' => $account->last_booked_balance === null ? null : (float) $account->last_booked_balance,
-                'last_available_balance' => $account->last_available_balance === null ? null : (float) $account->last_available_balance,
+                'current_balance' => $account->current_balance === null ? null : (float) $account->current_balance,
                 'account_type' => $account->account_type,
                 'account_subcategory_key' => $account->account_subcategory_key,
                 'last_known_posting_date' => $account->last_known_posting_date?->toDateString(),
@@ -102,7 +103,7 @@ class BankAccountController extends Controller
         ]);
     }
 
-    public function show(Request $request, BankAccount $bankAccount): Response
+    public function show(Request $request, BankAccount $bankAccount, BalanceChainInspector $inspector): Response
     {
         abort_unless($request->user()?->is($bankAccount->user), 403);
 
@@ -122,6 +123,8 @@ class BankAccountController extends Controller
                 'amount' => (float) $posting->amount,
                 'balance' => $posting->balance === null ? null : (float) $posting->balance,
                 'currency' => $posting->currency,
+                'comment' => $posting->comment,
+                'categorized_subcategory_id' => $posting->categorized_subcategory_id,
                 'category' => $posting->categorizedSubcategory?->category === null ? null : [
                     'name' => $posting->categorizedSubcategory->category->name,
                     'subcategory' => $posting->categorizedSubcategory->name,
@@ -130,7 +133,7 @@ class BankAccountController extends Controller
 
         $connectionAccount = $bankAccount->bankConnectionAccounts->first();
         $connection = $connectionAccount?->bankConnection;
-        $latestRun = $this->latestBankAccountRun($bankAccount);
+        $isManual = ! $bankAccount->hasBankConnection();
 
         return Inertia::render('bank-accounts/show', [
             'account' => [
@@ -139,12 +142,12 @@ class BankAccountController extends Controller
                 'bank_name' => $bankAccount->bank_name,
                 'currency' => $bankAccount->currency,
                 'account_type' => $bankAccount->account_type,
-                'last_booked_balance' => $bankAccount->last_booked_balance === null ? null : (float) $bankAccount->last_booked_balance,
-                'last_available_balance' => $bankAccount->last_available_balance === null ? null : (float) $bankAccount->last_available_balance,
+                'current_balance' => $bankAccount->current_balance === null ? null : (float) $bankAccount->current_balance,
                 'last_known_posting_date' => $bankAccount->last_known_posting_date?->toDateString(),
                 'last_updated_at' => $bankAccount->last_updated_at?->toDateTimeString(),
                 'is_active' => $bankAccount->is_active,
                 'is_favorite' => $bankAccount->is_favorite,
+                'is_manual' => $isManual,
                 'postings_count' => $bankAccount->postings_count,
                 'last_synced_at' => $connectionAccount?->last_synced_at?->toDateTimeString(),
                 'connection' => $connection === null ? null : [
@@ -155,13 +158,25 @@ class BankAccountController extends Controller
                     'needs_renewal' => $connection->needsRenewal(),
                     'access_valid_until' => $connection->access_valid_until?->toIso8601String(),
                 ],
-                'balance_mismatch' => $latestRun === null || ! $latestRun->hasBalanceMismatch() ? null : [
-                    'delta' => $latestRun->balanceDelta(),
-                    'currency' => $bankAccount->currency,
-                ],
+                'balance_diff' => $isManual ? null : $this->balanceDiff($bankAccount),
             ],
             'postings' => $postings,
+            'balanceAudit' => Inertia::optional(fn (): ?array => $isManual ? null : $inspector->inspect($bankAccount)),
             'syncRuns' => $this->syncRunsPayload($bankAccount->syncRuns()->latest('id')->limit(5)->get()),
+            'categories' => ! $isManual ? [] : Category::query()
+                ->with(['subcategories' => fn ($query) => $query->orderBy('name')])
+                ->orderBy('type')
+                ->orderBy('name')
+                ->get()
+                ->map(fn (Category $category): array => [
+                    'id' => $category->id,
+                    'name' => $category->name,
+                    'type' => $category->type,
+                    'subcategories' => $category->subcategories->map(fn ($subcategory): array => [
+                        'id' => $subcategory->id,
+                        'name' => $subcategory->name,
+                    ]),
+                ]),
         ]);
     }
 
@@ -277,9 +292,25 @@ class BankAccountController extends Controller
             ->all();
     }
 
-    private function latestBankAccountRun(BankAccount $bankAccount): ?BankSyncRun
+    /**
+     * Live difference between the bank-reported balance and the newest running
+     * balance from postings, or null when they agree (or either is unknown).
+     */
+    private function balanceDiff(BankAccount $bankAccount): ?string
     {
-        return $bankAccount->syncRuns()->latest('id')->first();
+        $latestPostingBalance = $bankAccount->postings()
+            ->whereNotNull('balance')
+            ->orderByDesc('date')
+            ->orderByDesc('id')
+            ->value('balance');
+
+        if ($latestPostingBalance === null || $bankAccount->current_balance === null) {
+            return null;
+        }
+
+        $delta = (float) $bankAccount->current_balance - (float) $latestPostingBalance;
+
+        return abs($delta) <= 0.005 ? null : number_format($delta, 2, '.', '');
     }
 
     /**

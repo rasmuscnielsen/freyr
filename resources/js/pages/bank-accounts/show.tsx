@@ -1,22 +1,52 @@
-import { Head, Link } from '@inertiajs/react';
+import { Head, Link, router, useForm } from '@inertiajs/react';
 import {
     ArrowLeft,
     Building2,
     CalendarClock,
     ChevronLeft,
     ChevronRight,
+    Pencil,
+    Plus,
     RefreshCw,
     Star,
+    Trash2,
     TriangleAlert,
 } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import InputError from '@/components/input-error';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+} from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import {
+    Select,
+    SelectContent,
+    SelectGroup,
+    SelectItem,
+    SelectLabel,
+    SelectTrigger,
+    SelectValue,
+} from '@/components/ui/select';
+import { Spinner } from '@/components/ui/spinner';
 import { formatDate } from '@/lib/dates';
 import { formatMoney as formatSharedMoney } from '@/lib/money';
 import { cn } from '@/lib/utils';
 import { index as bankAccountsIndex } from '@/routes/bank-accounts';
+import {
+    destroy as destroyPosting,
+    store as storePosting,
+    update as updatePosting,
+} from '@/routes/bank-accounts/postings';
 
 type SyncRun = {
     id: number;
@@ -48,16 +78,38 @@ type Account = {
     bank_name: string | null;
     currency: string;
     account_type: string | null;
-    last_booked_balance: number | null;
-    last_available_balance: number | null;
+    current_balance: number | null;
     last_known_posting_date: string | null;
     last_updated_at: string | null;
     is_active: boolean;
     is_favorite: boolean;
+    is_manual: boolean;
     postings_count: number;
     last_synced_at: string | null;
     connection: Connection | null;
-    balance_mismatch: { delta: string } | null;
+    balance_diff: string | null;
+};
+
+type AuditPosting = {
+    id: number;
+    date: string;
+    description: string;
+    amount: number;
+    balance: number | null;
+};
+
+type BalanceBreak = {
+    kind: 'gap' | 'possible_duplicate' | 'suspect_day' | 'tail_lag';
+    date: string | null;
+    delta: string | null;
+    postings: AuditPosting[];
+};
+
+type BalanceAudit = {
+    is_consistent: boolean;
+    total_delta: string | null;
+    checked_postings: number;
+    breaks: BalanceBreak[];
 };
 
 type Posting = {
@@ -67,7 +119,16 @@ type Posting = {
     amount: number;
     balance: number | null;
     currency: string;
+    comment: string | null;
+    categorized_subcategory_id: number | null;
     category: { name: string; subcategory: string } | null;
+};
+
+type Category = {
+    id: number;
+    name: string;
+    type: string;
+    subcategories: { id: number; name: string }[];
 };
 
 type PaginationLink = {
@@ -88,11 +149,45 @@ type ShowProps = {
     account: Account;
     postings: Paginator<Posting>;
     syncRuns: SyncRun[];
+    categories: Category[];
+    balanceAudit?: BalanceAudit | null;
 };
+
+type PostingForm = {
+    date: string;
+    description: string;
+    amount: string;
+    categorized_subcategory_id: number | null;
+    comment: string;
+};
+
+function emptyPostingForm(): PostingForm {
+    const today = new Date();
+    const month = String(today.getMonth() + 1).padStart(2, '0');
+    const day = String(today.getDate()).padStart(2, '0');
+
+    return {
+        date: `${today.getFullYear()}-${month}-${day}`,
+        description: '',
+        amount: '',
+        categorized_subcategory_id: null,
+        comment: '',
+    };
+}
+
+function postingToForm(posting: Posting): PostingForm {
+    return {
+        date: posting.date ?? '',
+        description: posting.description,
+        amount: String(posting.amount),
+        categorized_subcategory_id: posting.categorized_subcategory_id,
+        comment: posting.comment ?? '',
+    };
+}
 
 function formatMoney(amount: number | null, currency: string): string {
     if (amount === null) {
-        return 'Not synced';
+        return '—';
     }
 
     return formatSharedMoney(amount, currency, { maximumFractionDigits: 2 });
@@ -141,7 +236,15 @@ export default function BankAccountShow({
     account,
     postings,
     syncRuns,
+    categories,
+    balanceAudit,
 }: ShowProps) {
+    const [isCreatingPosting, setIsCreatingPosting] = useState(false);
+    const [editingPosting, setEditingPosting] = useState<Posting | null>(null);
+    const [deletingPosting, setDeletingPosting] = useState<Posting | null>(
+        null,
+    );
+    const [isAuditOpen, setIsAuditOpen] = useState(false);
     const money = new Intl.NumberFormat(undefined, {
         style: 'currency',
         currency: account.currency,
@@ -212,29 +315,28 @@ export default function BankAccountShow({
                                 </div>
                             </div>
 
-                            <div className="grid gap-4 text-right sm:grid-cols-2">
-                                <div>
-                                    <div className="text-xs text-muted-foreground">
-                                        Booked balance
-                                    </div>
-                                    <div className="text-2xl font-semibold tracking-tight tabular-nums">
-                                        {formatMoney(
-                                            account.last_booked_balance,
+                            <div className="text-right">
+                                <div className="text-xs text-muted-foreground">
+                                    Balance
+                                </div>
+                                <div className="text-2xl font-semibold tracking-tight tabular-nums">
+                                    {formatMoney(
+                                        account.current_balance,
+                                        account.currency,
+                                    )}
+                                </div>
+                                {account.balance_diff !== null && (
+                                    <Badge
+                                        variant="destructive"
+                                        className="mt-1"
+                                    >
+                                        Off by{' '}
+                                        {formatSharedMoney(
+                                            Number(account.balance_diff),
                                             account.currency,
                                         )}
-                                    </div>
-                                </div>
-                                <div>
-                                    <div className="text-xs text-muted-foreground">
-                                        Available balance
-                                    </div>
-                                    <div className="text-2xl font-semibold tracking-tight tabular-nums">
-                                        {formatMoney(
-                                            account.last_available_balance,
-                                            account.currency,
-                                        )}
-                                    </div>
-                                </div>
+                                    </Badge>
+                                )}
                             </div>
                         </div>
 
@@ -292,24 +394,47 @@ export default function BankAccountShow({
                                 </Alert>
                             )}
 
-                        {account.balance_mismatch && (
+                        {account.balance_diff !== null && (
                             <Alert variant="destructive">
                                 <TriangleAlert className="size-4" />
                                 <AlertTitle>
-                                    Balance mismatch after last sync
+                                    Postings don't add up to the bank balance
                                 </AlertTitle>
-                                <AlertDescription>
-                                    The bank-reported balance differs from our
-                                    running total by Δ{' '}
-                                    {formatSharedMoney(
-                                        Number(account.balance_mismatch.delta),
-                                        account.currency,
-                                    )}
+                                <AlertDescription className="flex flex-wrap items-center gap-3">
+                                    <span>
+                                        The bank-reported balance differs from
+                                        the running total of your postings by{' '}
+                                        {formatSharedMoney(
+                                            Number(account.balance_diff),
+                                            account.currency,
+                                        )}
+                                        .
+                                    </span>
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
+                                        onClick={() => setIsAuditOpen(true)}
+                                    >
+                                        Show details
+                                    </Button>
                                 </AlertDescription>
                             </Alert>
                         )}
                     </CardContent>
                 </Card>
+
+                {account.is_manual && (
+                    <div className="flex items-center justify-between">
+                        <h2 className="text-sm font-medium">Postings</h2>
+                        <Button
+                            size="sm"
+                            onClick={() => setIsCreatingPosting(true)}
+                        >
+                            <Plus className="size-4" />
+                            Add posting
+                        </Button>
+                    </div>
+                )}
 
                 <div className="overflow-hidden rounded-xl border bg-card shadow-sm">
                     <div className="overflow-x-auto">
@@ -331,13 +456,20 @@ export default function BankAccountShow({
                                     <th className="px-3 py-2.5 text-right text-xs font-medium text-muted-foreground">
                                         Balance
                                     </th>
+                                    {account.is_manual && (
+                                        <th className="px-3 py-2.5 text-right text-xs font-medium text-muted-foreground">
+                                            <span className="sr-only">
+                                                Actions
+                                            </span>
+                                        </th>
+                                    )}
                                 </tr>
                             </thead>
                             <tbody>
                                 {postings.data.length === 0 ? (
                                     <tr>
                                         <td
-                                            colSpan={5}
+                                            colSpan={account.is_manual ? 6 : 5}
                                             className="px-3 py-8 text-center text-muted-foreground"
                                         >
                                             No postings for this account yet.
@@ -376,6 +508,38 @@ export default function BankAccountShow({
                                                           posting.balance,
                                                       )}
                                             </td>
+                                            {account.is_manual && (
+                                                <td className="px-3 py-2 text-right whitespace-nowrap">
+                                                    <div className="flex justify-end gap-1">
+                                                        <Button
+                                                            variant="ghost"
+                                                            size="icon"
+                                                            className="size-7 text-muted-foreground"
+                                                            aria-label="Edit posting"
+                                                            onClick={() =>
+                                                                setEditingPosting(
+                                                                    posting,
+                                                                )
+                                                            }
+                                                        >
+                                                            <Pencil className="size-3.5" />
+                                                        </Button>
+                                                        <Button
+                                                            variant="ghost"
+                                                            size="icon"
+                                                            className="size-7 text-muted-foreground hover:text-destructive"
+                                                            aria-label="Delete posting"
+                                                            onClick={() =>
+                                                                setDeletingPosting(
+                                                                    posting,
+                                                                )
+                                                            }
+                                                        >
+                                                            <Trash2 className="size-3.5" />
+                                                        </Button>
+                                                    </div>
+                                                </td>
+                                            )}
                                         </tr>
                                     ))
                                 )}
@@ -470,7 +634,451 @@ export default function BankAccountShow({
                     </div>
                 )}
             </div>
+
+            {!account.is_manual && (
+                <BalanceAuditDialog
+                    account={account}
+                    audit={balanceAudit}
+                    open={isAuditOpen}
+                    onClose={() => setIsAuditOpen(false)}
+                />
+            )}
+
+            {account.is_manual && (
+                <>
+                    <PostingDialog
+                        key={
+                            editingPosting === null
+                                ? `posting-dialog-${isCreatingPosting ? 'create' : 'closed'}`
+                                : `posting-dialog-${editingPosting.id}`
+                        }
+                        account={account}
+                        categories={categories}
+                        posting={editingPosting}
+                        open={editingPosting !== null || isCreatingPosting}
+                        onClose={() => {
+                            setEditingPosting(null);
+                            setIsCreatingPosting(false);
+                        }}
+                    />
+                    <DeletePostingDialog
+                        account={account}
+                        posting={deletingPosting}
+                        onClose={() => setDeletingPosting(null)}
+                    />
+                </>
+            )}
         </>
+    );
+}
+
+const breakKindLabels: Record<
+    BalanceBreak['kind'],
+    { title: string; explanation: string }
+> = {
+    gap: {
+        title: 'Missing transaction',
+        explanation:
+            'The running balance jumps here — a transaction of about this amount appears to be missing (or extra) before this day.',
+    },
+    possible_duplicate: {
+        title: 'Possible duplicate',
+        explanation:
+            'These identical postings would explain the difference if one of them was imported twice.',
+    },
+    suspect_day: {
+        title: 'Inconsistent day',
+        explanation:
+            "This day's postings contradict their own running balances — one of them is likely wrong.",
+    },
+    tail_lag: {
+        title: 'Bank balance is ahead',
+        explanation:
+            'The bank-reported balance is ahead of the newest posting. This is often just pending or not-yet-synced transactions.',
+    },
+};
+
+function BalanceAuditDialog({
+    account,
+    audit,
+    open,
+    onClose,
+}: {
+    account: Account;
+    audit: BalanceAudit | null | undefined;
+    open: boolean;
+    onClose: () => void;
+}) {
+    useEffect(() => {
+        if (open && audit === undefined) {
+            router.reload({ only: ['balanceAudit'] });
+        }
+    }, [open, audit]);
+
+    return (
+        <Dialog open={open} onOpenChange={(nextOpen) => !nextOpen && onClose()}>
+            <DialogContent className="sm:max-w-2xl">
+                <DialogHeader>
+                    <DialogTitle>Balance check</DialogTitle>
+                    <DialogDescription>
+                        Compares the running balance of your postings against
+                        the bank-reported balance and points at where the chain
+                        stops adding up.
+                    </DialogDescription>
+                </DialogHeader>
+
+                {audit == null ? (
+                    <div className="flex items-center gap-2 py-6 text-sm text-muted-foreground">
+                        <Spinner />
+                        Checking postings...
+                    </div>
+                ) : (
+                    <div className="flex max-h-[60vh] flex-col gap-4 overflow-y-auto">
+                        <div className="text-sm text-muted-foreground">
+                            Checked {audit.checked_postings} postings.
+                            {audit.total_delta !== null && (
+                                <>
+                                    {' '}
+                                    Total difference:{' '}
+                                    <span className="font-medium text-foreground tabular-nums">
+                                        {formatSharedMoney(
+                                            Number(audit.total_delta),
+                                            account.currency,
+                                        )}
+                                    </span>
+                                </>
+                            )}
+                        </div>
+
+                        {audit.is_consistent ? (
+                            <Alert>
+                                <AlertTitle>Everything adds up</AlertTitle>
+                                <AlertDescription>
+                                    No breaks were found in the running balance
+                                    chain.
+                                </AlertDescription>
+                            </Alert>
+                        ) : (
+                            audit.breaks.map((chainBreak, index) => (
+                                <div
+                                    key={`${chainBreak.kind}-${chainBreak.date}-${index}`}
+                                    className="rounded-md border p-3"
+                                >
+                                    <div className="flex flex-wrap items-center gap-2">
+                                        <Badge variant="destructive">
+                                            {
+                                                breakKindLabels[chainBreak.kind]
+                                                    .title
+                                            }
+                                        </Badge>
+                                        {chainBreak.date && (
+                                            <span className="text-sm text-muted-foreground">
+                                                {formatDate(chainBreak.date)}
+                                            </span>
+                                        )}
+                                        {chainBreak.delta !== null && (
+                                            <span className="text-sm font-medium tabular-nums">
+                                                {formatSharedMoney(
+                                                    Number(chainBreak.delta),
+                                                    account.currency,
+                                                )}
+                                            </span>
+                                        )}
+                                    </div>
+                                    <p className="mt-1 text-sm text-muted-foreground">
+                                        {
+                                            breakKindLabels[chainBreak.kind]
+                                                .explanation
+                                        }
+                                    </p>
+                                    {chainBreak.postings.length > 0 && (
+                                        <table className="mt-2 w-full text-sm">
+                                            <tbody>
+                                                {chainBreak.postings.map(
+                                                    (posting) => (
+                                                        <tr
+                                                            key={posting.id}
+                                                            className="border-t"
+                                                        >
+                                                            <td className="py-1.5 pr-3 whitespace-nowrap text-muted-foreground tabular-nums">
+                                                                {formatDate(
+                                                                    posting.date,
+                                                                )}
+                                                            </td>
+                                                            <td className="py-1.5 pr-3">
+                                                                {
+                                                                    posting.description
+                                                                }
+                                                            </td>
+                                                            <td className="py-1.5 pr-3 text-right whitespace-nowrap tabular-nums">
+                                                                {formatSharedMoney(
+                                                                    posting.amount,
+                                                                    account.currency,
+                                                                )}
+                                                            </td>
+                                                            <td className="py-1.5 text-right whitespace-nowrap text-muted-foreground tabular-nums">
+                                                                {posting.balance ===
+                                                                null
+                                                                    ? '—'
+                                                                    : formatSharedMoney(
+                                                                          posting.balance,
+                                                                          account.currency,
+                                                                      )}
+                                                            </td>
+                                                        </tr>
+                                                    ),
+                                                )}
+                                            </tbody>
+                                        </table>
+                                    )}
+                                </div>
+                            ))
+                        )}
+                    </div>
+                )}
+
+                <DialogFooter>
+                    <Button variant="outline" onClick={onClose}>
+                        Close
+                    </Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
+    );
+}
+
+function PostingDialog({
+    account,
+    categories,
+    posting,
+    open,
+    onClose,
+}: {
+    account: Account;
+    categories: Category[];
+    posting: Posting | null;
+    open: boolean;
+    onClose: () => void;
+}) {
+    const isEditing = posting !== null;
+    const form = useForm<PostingForm>(
+        posting === null ? emptyPostingForm() : postingToForm(posting),
+    );
+
+    const submit = () => {
+        form.transform((data) => ({
+            ...data,
+            comment: data.comment.trim() === '' ? null : data.comment,
+        }));
+
+        if (isEditing) {
+            form.patch(
+                updatePosting.url({
+                    bank_account: account.id,
+                    posting: posting.id,
+                }),
+                {
+                    preserveScroll: true,
+                    onSuccess: onClose,
+                },
+            );
+
+            return;
+        }
+
+        form.post(storePosting.url(account.id), {
+            preserveScroll: true,
+            onSuccess: onClose,
+        });
+    };
+
+    return (
+        <Dialog open={open} onOpenChange={(nextOpen) => !nextOpen && onClose()}>
+            <DialogContent className="sm:max-w-lg">
+                <DialogHeader>
+                    <DialogTitle>
+                        {isEditing ? 'Edit posting' : 'Add posting'}
+                    </DialogTitle>
+                    <DialogDescription>
+                        {isEditing
+                            ? 'Adjust the details of this posting.'
+                            : `Record a posting on ${account.name}. Use a negative amount for money going out.`}
+                    </DialogDescription>
+                </DialogHeader>
+
+                <div className="grid gap-4">
+                    <div className="grid gap-4 sm:grid-cols-2">
+                        <div className="grid gap-2">
+                            <Label htmlFor="posting-date">Date</Label>
+                            <Input
+                                id="posting-date"
+                                type="date"
+                                value={form.data.date}
+                                onChange={(event) =>
+                                    form.setData('date', event.target.value)
+                                }
+                            />
+                            <InputError message={form.errors.date} />
+                        </div>
+
+                        <div className="grid gap-2">
+                            <Label htmlFor="posting-amount">
+                                Amount ({account.currency})
+                            </Label>
+                            <Input
+                                id="posting-amount"
+                                type="number"
+                                step="0.01"
+                                placeholder="-125.00"
+                                value={form.data.amount}
+                                onChange={(event) =>
+                                    form.setData('amount', event.target.value)
+                                }
+                            />
+                            <InputError message={form.errors.amount} />
+                        </div>
+                    </div>
+
+                    <div className="grid gap-2">
+                        <Label htmlFor="posting-description">Description</Label>
+                        <Input
+                            id="posting-description"
+                            value={form.data.description}
+                            onChange={(event) =>
+                                form.setData('description', event.target.value)
+                            }
+                        />
+                        <InputError message={form.errors.description} />
+                    </div>
+
+                    <div className="grid gap-2">
+                        <Label>Category</Label>
+                        <Select
+                            value={
+                                form.data.categorized_subcategory_id === null
+                                    ? 'none'
+                                    : String(
+                                          form.data.categorized_subcategory_id,
+                                      )
+                            }
+                            onValueChange={(value) =>
+                                form.setData(
+                                    'categorized_subcategory_id',
+                                    value === 'none' ? null : Number(value),
+                                )
+                            }
+                        >
+                            <SelectTrigger className="w-full">
+                                <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="none">
+                                    Uncategorized
+                                </SelectItem>
+                                {categories.map((category) => (
+                                    <SelectGroup key={category.id}>
+                                        <SelectLabel>
+                                            {category.name}
+                                        </SelectLabel>
+                                        {category.subcategories.map(
+                                            (subcategory) => (
+                                                <SelectItem
+                                                    key={subcategory.id}
+                                                    value={String(
+                                                        subcategory.id,
+                                                    )}
+                                                >
+                                                    {subcategory.name}
+                                                </SelectItem>
+                                            ),
+                                        )}
+                                    </SelectGroup>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                        <InputError
+                            message={form.errors.categorized_subcategory_id}
+                        />
+                    </div>
+
+                    <div className="grid gap-2">
+                        <Label htmlFor="posting-comment">Comment</Label>
+                        <Input
+                            id="posting-comment"
+                            placeholder="Optional note"
+                            value={form.data.comment}
+                            onChange={(event) =>
+                                form.setData('comment', event.target.value)
+                            }
+                        />
+                        <InputError message={form.errors.comment} />
+                    </div>
+                </div>
+
+                <DialogFooter>
+                    <Button variant="outline" onClick={onClose}>
+                        Cancel
+                    </Button>
+                    <Button onClick={submit} disabled={form.processing}>
+                        {form.processing ? 'Saving...' : 'Save posting'}
+                    </Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
+    );
+}
+
+function DeletePostingDialog({
+    account,
+    posting,
+    onClose,
+}: {
+    account: Account;
+    posting: Posting | null;
+    onClose: () => void;
+}) {
+    const remove = () => {
+        if (posting === null) {
+            return;
+        }
+
+        router.delete(
+            destroyPosting.url({
+                bank_account: account.id,
+                posting: posting.id,
+            }),
+            {
+                preserveScroll: true,
+                onSuccess: onClose,
+            },
+        );
+    };
+
+    return (
+        <Dialog
+            open={posting !== null}
+            onOpenChange={(nextOpen) => !nextOpen && onClose()}
+        >
+            <DialogContent className="sm:max-w-md">
+                <DialogHeader>
+                    <DialogTitle>Delete this posting?</DialogTitle>
+                    <DialogDescription>
+                        {posting === null
+                            ? ''
+                            : `"${posting.description}" (${formatSharedMoney(posting.amount, posting.currency)}) will be permanently removed from ${account.name}.`}
+                    </DialogDescription>
+                </DialogHeader>
+                <DialogFooter>
+                    <Button variant="outline" onClick={onClose}>
+                        Cancel
+                    </Button>
+                    <Button variant="destructive" onClick={remove}>
+                        <Trash2 className="size-4" />
+                        Delete posting
+                    </Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
     );
 }
 

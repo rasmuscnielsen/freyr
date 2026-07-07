@@ -388,25 +388,28 @@ test('the balance prop sums active accounts in the primary currency', function (
     BankAccount::factory()->for($user)->create([
         'currency' => 'EUR',
         'is_active' => true,
-        'last_booked_balance' => 1000,
-        'last_available_balance' => 900,
+        'current_balance' => 1000,
     ]);
-    // Falls back to the available balance when the booked one is missing.
+    // Accounts without a known balance contribute nothing.
     BankAccount::factory()->for($user)->create([
         'currency' => 'EUR',
         'is_active' => true,
-        'last_booked_balance' => null,
-        'last_available_balance' => 250,
+        'current_balance' => null,
+    ]);
+    BankAccount::factory()->for($user)->create([
+        'currency' => 'EUR',
+        'is_active' => true,
+        'current_balance' => 250,
     ]);
     // Inactive and non-primary-currency accounts are ignored.
     BankAccount::factory()->for($user)->inactive()->create([
         'currency' => 'EUR',
-        'last_booked_balance' => 5000,
+        'current_balance' => 5000,
     ]);
     BankAccount::factory()->for($user)->create([
         'currency' => 'USD',
         'is_active' => true,
-        'last_booked_balance' => 7000,
+        'current_balance' => 7000,
     ]);
 
     $this->actingAs($user)
