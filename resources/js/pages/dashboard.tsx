@@ -775,12 +775,23 @@ function BreakdownGroup({
         (max, category) => Math.max(max, category.total),
         0,
     );
+    const groupTotal = categories.reduce(
+        (sum, category) => sum + category.total,
+        0,
+    );
 
     return (
         <div>
-            <h3 className="mb-3 text-sm font-medium text-muted-foreground">
-                {title}
-            </h3>
+            <div className="mb-3 flex items-center justify-between">
+                <h3 className="text-sm font-medium text-muted-foreground">
+                    {title}
+                </h3>
+                {categories.length > 0 && (
+                    <span className="text-sm font-medium tabular-nums">
+                        {formatMoney(groupTotal, currency)}
+                    </span>
+                )}
+            </div>
             {categories.length === 0 ? (
                 <p className="py-8 text-center text-sm text-muted-foreground">
                     No data for this period.
