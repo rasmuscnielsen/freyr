@@ -185,10 +185,19 @@ function periodLabel(option: string): string {
     return option === '12m' ? '12 months' : option;
 }
 
+/**
+ * Tooltip rows mirror the allocation legend: color dot, muted label, bold
+ * share of the month's outgoing total (buckets only), muted amount.
+ */
 function flowTooltip(props: unknown, currency: string | null) {
     const { active, payload, label } = props as {
         active?: boolean;
-        payload?: Array<{ name: string; value: number; color?: string }>;
+        payload?: Array<{
+            name: string;
+            value: number;
+            color?: string;
+            dataKey?: string;
+        }>;
         label?: string;
     };
 
@@ -196,28 +205,59 @@ function flowTooltip(props: unknown, currency: string | null) {
         return null;
     }
 
+    const entries = payload.filter((item) => Number(item.value) !== 0);
+    const isOutgoing = (item: { dataKey?: string }) =>
+        String(item.dataKey).endsWith('Stacked');
+    const outTotal = entries
+        .filter(isOutgoing)
+        .reduce((sum, item) => sum + Math.abs(Number(item.value)), 0);
+
     return (
         <div className="rounded-lg border bg-popover p-3 text-sm text-popover-foreground shadow-lg">
             <div className="mb-2 font-medium">{label}</div>
             <div className="space-y-1">
-                {payload
-                    .filter((item) => Number(item.value) !== 0)
-                    .map((item) => (
+                {entries.map((item) => {
+                    const outgoing = isOutgoing(item);
+                    const share =
+                        outgoing && outTotal > 0
+                            ? (Math.abs(Number(item.value)) / outTotal) * 100
+                            : null;
+
+                    return (
                         <div
                             key={item.name}
-                            className="flex items-center justify-between gap-6"
+                            className="flex items-center gap-1.5"
                         >
-                            <span style={{ color: item.color }}>
+                            <span
+                                className="size-2 shrink-0 rounded-full"
+                                style={{
+                                    backgroundColor:
+                                        item.color ?? 'var(--muted-foreground)',
+                                }}
+                                aria-hidden
+                            />
+                            <span className="text-muted-foreground">
                                 {item.name}
                             </span>
-                            <span className="font-medium">
-                                {formatMoney(
-                                    Math.abs(Number(item.value)),
-                                    currency,
-                                )}
+                            {share !== null && (
+                                <span className="font-medium tabular-nums">
+                                    {formatNumber(share, {
+                                        maximumFractionDigits: 1,
+                                    })}
+                                    %
+                                </span>
+                            )}
+                            <span className="text-muted-foreground tabular-nums">
+                                {outgoing
+                                    ? formatMoney(
+                                          Math.abs(Number(item.value)),
+                                          currency,
+                                      )
+                                    : formatMoney(Number(item.value), currency)}
                             </span>
                         </div>
-                    ))}
+                    );
+                })}
             </div>
         </div>
     );
@@ -551,9 +591,12 @@ export default function Dashboard({
                                             name={bucket.label}
                                             fill={bucket.cssVar}
                                             stackId="flow"
+                                            // Stacked values are negative, which flips
+                                            // recharts' radius corners — [4,4,0,0] rounds
+                                            // the visual bottom here.
                                             radius={
                                                 index === BUCKETS.length - 1
-                                                    ? [0, 0, 4, 4]
+                                                    ? [4, 4, 0, 0]
                                                     : undefined
                                             }
                                             onClick={onFlowBarClick}
@@ -806,8 +849,8 @@ function BreakdownSkeleton() {
 
 /**
  * Splits total spending (summary.out) into its five outgoing buckets as one
- * slim proportional bar with a wrapping legend. Zero buckets are hidden, and
- * Uncategorized is drawn muted (reduced opacity + muted legend text) to flag
+ * slim proportional bar with a wrapping legend. Zero buckets are hidden; the
+ * Uncategorized segment relies on its muted gray token to read as
  * categorization debt.
  */
 function AllocationBar({
@@ -841,7 +884,6 @@ function AllocationBar({
                         className={cn(
                             'h-full rounded-full',
                             segment.colorClass,
-                            segment.key === 'uncategorized' && 'opacity-50',
                         )}
                         style={{
                             width: `${(segment.value / out) * 100}%`,
@@ -852,8 +894,6 @@ function AllocationBar({
             </div>
             <div className="flex flex-wrap gap-x-5 gap-y-2 text-sm">
                 {segments.map((segment) => {
-                    const isDebt = segment.key === 'uncategorized';
-
                     return (
                         <span
                             key={segment.key}
@@ -863,7 +903,6 @@ function AllocationBar({
                                 className={cn(
                                     'size-2 shrink-0 rounded-full',
                                     segment.colorClass,
-                                    isDebt && 'opacity-50',
                                 )}
                                 aria-hidden
                             />
