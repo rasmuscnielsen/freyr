@@ -2,6 +2,8 @@
 
 namespace App\Finance;
 
+use App\Enums\CategoryType;
+use App\Enums\ExpenseType;
 use App\Models\BankAccount;
 use App\Models\Category;
 use App\Models\Posting;
@@ -25,11 +27,8 @@ class SpiirExportImporter
     {
         $file = $this->resolveFile($path, 'Categories.json');
         $payload = json_decode((string) file_get_contents($file), true, flags: JSON_THROW_ON_ERROR);
-        $ignoredSubcategoryIds = collect($payload['subcategoryIdsToIgnore'] ?? [])
-            ->map(fn (mixed $id): string => (string) $id)
-            ->all();
 
-        return DB::transaction(function () use ($payload, $ignoredSubcategoryIds): array {
+        return DB::transaction(function () use ($payload): array {
             $this->removeDefaultCategories();
 
             $categoryCount = 0;
@@ -39,7 +38,7 @@ class SpiirExportImporter
                     ['legacy_id' => (string) $category['id']],
                     [
                         'name' => $category['name'],
-                        'type' => $category['categoryType'],
+                        'type' => $this->categoryType($category['categoryType'] ?? null)->value,
                         'hyphenated_name' => $category['hyphenatedName'] ?? null,
                     ],
                 );
@@ -63,10 +62,8 @@ class SpiirExportImporter
                         'category_id' => $categoryId,
                         'name' => $subcategory['name'],
                         'hyphenated_name' => $subcategory['hyphenatedName'] ?? null,
-                        'expense_type' => $subcategory['expenseType'] ?? null,
-                        'type' => $subcategory['categoryType'],
+                        'expense_type' => $this->expenseType($subcategory['expenseType'] ?? null)?->value,
                         'hints' => $subcategory['hints'] ?? null,
-                        'is_ignored' => in_array((string) $subcategory['id'], $ignoredSubcategoryIds, true),
                     ],
                 );
 
@@ -238,7 +235,6 @@ class SpiirExportImporter
                     'prevent_marking_as_counter_entry' => $this->boolean($row['PreventMarkingAsCounterEntry'] ?? null),
                     'description_changed' => $this->boolean($row['DescriptionChanged'] ?? null),
                     'extra_data' => $this->json($row['ExtraData'] ?? null),
-                    'category_type_code' => $this->integer($row['CategoryType'] ?? null),
                     'posting_type' => $this->integer($row['PostingType'] ?? null),
                     'posting_sub_type' => $this->integer($row['PostingSubType'] ?? null),
                     'currency' => (string) ($row['Currency'] ?: 'DKK'),
@@ -401,5 +397,20 @@ class SpiirExportImporter
             null => null,
             default => Str::headline($bankKey),
         };
+    }
+
+    /**
+     * Maps a Spiir category type onto the app's {@see CategoryType}. Spiir's
+     * legacy 'Transfer' type, and anything the app no longer models, collapses
+     * to {@see CategoryType::Exclude}.
+     */
+    private function categoryType(mixed $value): CategoryType
+    {
+        return CategoryType::tryFrom((string) $value) ?? CategoryType::Exclude;
+    }
+
+    private function expenseType(mixed $value): ?ExpenseType
+    {
+        return ExpenseType::tryFrom((string) $value);
     }
 }

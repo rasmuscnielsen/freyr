@@ -38,14 +38,15 @@ type Period = {
 };
 
 type Summary = {
+    in: number;
+    out: number;
+    result: number;
     income: number;
     bills: number;
     consumption: number;
-    expenses: number;
+    investments: number;
     savings: number;
-    result: number;
-    average_result: number;
-    result_with_savings: number;
+    uncategorized: number;
 };
 
 type MonthlyPoint = {
@@ -54,8 +55,9 @@ type MonthlyPoint = {
     income: number;
     bills: number;
     consumption: number;
-    expenses: number;
+    investments: number;
     savings: number;
+    uncategorized: number;
     result: number;
 };
 
@@ -90,6 +92,7 @@ type DashboardProps = {
     summary: Summary;
     monthly: MonthlyPoint[];
     breakdown?: Breakdown;
+    balance: number | null;
     primaryCurrency: string | null;
 };
 
@@ -227,6 +230,7 @@ export default function Dashboard({
     summary,
     monthly,
     breakdown,
+    balance,
     primaryCurrency,
 }: DashboardProps) {
     const [selectedMonth, setSelectedMonth] = useState<string | null>(
@@ -235,10 +239,15 @@ export default function Dashboard({
 
     const lastCompletedMonth = period.end.slice(0, 7);
 
+    // Bucket totals arrive as positive magnitudes; outgoing buckets are drawn
+    // below the axis.
     const flowData = monthly.map((point) => ({
         ...point,
         billsStacked: -Math.abs(point.bills),
         consumptionStacked: -Math.abs(point.consumption),
+        investmentsStacked: -Math.abs(point.investments),
+        savingsStacked: -Math.abs(point.savings),
+        uncategorizedStacked: -Math.abs(point.uncategorized),
     }));
 
     const changePeriod = (value: string) => {
@@ -336,8 +345,18 @@ export default function Dashboard({
 
                 <div className="flex flex-col gap-5">
                     <div>
-                        <div className="text-sm text-muted-foreground">
-                            Result for period
+                        <div className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1">
+                            <div className="text-sm text-muted-foreground">
+                                Result for period
+                            </div>
+                            {balance !== null && (
+                                <div className="text-sm text-muted-foreground">
+                                    Total balance{' '}
+                                    <span className="font-medium text-foreground tabular-nums">
+                                        {formatMoney(balance, primaryCurrency)}
+                                    </span>
+                                </div>
+                            )}
                         </div>
                         <div className="mt-1 text-4xl font-semibold tracking-tight tabular-nums">
                             {formatMoney(summary.result, primaryCurrency)}
@@ -362,10 +381,22 @@ export default function Dashboard({
                                 dotClass="bg-chart-consumption"
                             />
                             <HeroStat
+                                label="Investments"
+                                value={summary.investments}
+                                currency={primaryCurrency}
+                                dotClass="bg-chart-investments"
+                            />
+                            <HeroStat
                                 label="Savings"
                                 value={summary.savings}
                                 currency={primaryCurrency}
                                 dotClass="bg-chart-savings"
+                            />
+                            <HeroStat
+                                label="Uncategorized"
+                                value={summary.uncategorized}
+                                currency={primaryCurrency}
+                                dotClass="bg-chart-uncategorized"
                             />
                         </div>
                     </div>
@@ -483,12 +514,66 @@ export default function Dashboard({
                                         name="Consumption"
                                         fill="var(--color-chart-consumption)"
                                         stackId="flow"
-                                        radius={[0, 0, 4, 4]}
                                         onClick={onFlowBarClick}
                                     >
                                         {flowData.map((entry) => (
                                             <Cell
                                                 key={`consumption-${entry.month}`}
+                                                opacity={cellOpacity(
+                                                    entry.month,
+                                                    lastCompletedMonth,
+                                                    selectedMonth,
+                                                )}
+                                            />
+                                        ))}
+                                    </Bar>
+                                    <Bar
+                                        dataKey="investmentsStacked"
+                                        name="Investments"
+                                        fill="var(--color-chart-investments)"
+                                        stackId="flow"
+                                        onClick={onFlowBarClick}
+                                    >
+                                        {flowData.map((entry) => (
+                                            <Cell
+                                                key={`investments-${entry.month}`}
+                                                opacity={cellOpacity(
+                                                    entry.month,
+                                                    lastCompletedMonth,
+                                                    selectedMonth,
+                                                )}
+                                            />
+                                        ))}
+                                    </Bar>
+                                    <Bar
+                                        dataKey="savingsStacked"
+                                        name="Savings"
+                                        fill="var(--color-chart-savings)"
+                                        stackId="flow"
+                                        onClick={onFlowBarClick}
+                                    >
+                                        {flowData.map((entry) => (
+                                            <Cell
+                                                key={`savings-${entry.month}`}
+                                                opacity={cellOpacity(
+                                                    entry.month,
+                                                    lastCompletedMonth,
+                                                    selectedMonth,
+                                                )}
+                                            />
+                                        ))}
+                                    </Bar>
+                                    <Bar
+                                        dataKey="uncategorizedStacked"
+                                        name="Uncategorized"
+                                        fill="var(--color-chart-uncategorized)"
+                                        stackId="flow"
+                                        radius={[0, 0, 4, 4]}
+                                        onClick={onFlowBarClick}
+                                    >
+                                        {flowData.map((entry) => (
+                                            <Cell
+                                                key={`uncategorized-${entry.month}`}
                                                 opacity={cellOpacity(
                                                     entry.month,
                                                     lastCompletedMonth,
@@ -736,8 +821,13 @@ function AllocationBar({
 
     const bills = Math.abs(summary.bills);
     const consumption = Math.abs(summary.consumption);
+    const investments = Math.abs(summary.investments);
     const savings = Math.max(summary.savings, 0);
-    const leftOver = Math.max(income - bills - consumption - savings, 0);
+    const uncategorized = Math.abs(summary.uncategorized);
+    const leftOver = Math.max(
+        income - bills - consumption - investments - savings - uncategorized,
+        0,
+    );
 
     const segments = [
         { label: 'Bills', value: bills, colorClass: 'bg-chart-bills' },
@@ -746,7 +836,17 @@ function AllocationBar({
             value: consumption,
             colorClass: 'bg-chart-consumption',
         },
+        {
+            label: 'Investments',
+            value: investments,
+            colorClass: 'bg-chart-investments',
+        },
         { label: 'Savings', value: savings, colorClass: 'bg-chart-savings' },
+        {
+            label: 'Uncategorized',
+            value: uncategorized,
+            colorClass: 'bg-chart-uncategorized',
+        },
         { label: 'Left over', value: leftOver, colorClass: 'bg-chart-income' },
     ].filter((segment) => segment.value > 0);
 

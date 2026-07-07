@@ -43,7 +43,7 @@ class PostingResource extends JsonResource
             'subcategory' => $this->whenLoaded('categorizedSubcategory', fn () => $this->categorizedSubcategory === null ? null : [
                 'id' => $this->categorizedSubcategory->id,
                 'name' => $this->categorizedSubcategory->name,
-                'type' => $this->categorizedSubcategory->type,
+                'type' => $this->categorizedSubcategory->category?->type,
             ]),
             'created_at' => $this->created_at?->toJSON(),
             'updated_at' => $this->updated_at?->toJSON(),

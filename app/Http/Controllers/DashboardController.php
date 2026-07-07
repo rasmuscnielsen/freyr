@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Enums\Bucket;
 use App\Models\BankAccount;
 use App\Models\Posting;
 use Carbon\CarbonImmutable;
@@ -66,73 +67,43 @@ class DashboardController extends Controller
             ->whereBetween('date', [$start->toDateString(), $chartEnd->endOfMonth()->toDateString()])
             ->get();
 
-        $overviewPostings = $postings->filter(
-            fn (Posting $posting): bool => $posting->countsAsOverviewIncome()
-                || $posting->countsAsOverviewExpense()
-                || $posting->countsAsOverviewSaving(),
-        );
+        // Every posting that lands in an overview bucket, indexed alongside its
+        // resolved bucket so the mapping is computed once.
+        $overviewPostings = $postings
+            ->map(fn (Posting $posting): array => ['posting' => $posting, 'bucket' => $posting->overviewBucket()])
+            ->filter(fn (array $entry): bool => $entry['bucket'] instanceof Bucket)
+            ->values();
 
         $monthly = collect(range(0, $chartMonths - 1))
             ->mapWithKeys(function (int $offset) use ($start): array {
                 $month = $start->addMonths($offset);
 
-                return [
-                    $month->format('Y-m') => [
-                        'month' => $month->format('Y-m'),
-                        'label' => $month->format('M y'),
-                        'income' => 0.0,
-                        'bills' => 0.0,
-                        'consumption' => 0.0,
-                        'expenses' => 0.0,
-                        'savings' => 0.0,
-                        'result' => 0.0,
-                    ],
-                ];
+                return [$month->format('Y-m') => $this->emptyMonthlyPoint($month)];
             });
 
-        foreach ($overviewPostings as $posting) {
+        foreach ($overviewPostings as $entry) {
+            $posting = $entry['posting'];
             $month = CarbonImmutable::parse($posting->date)->format('Y-m');
-            $bucket = $monthly[$month] ?? null;
 
-            if ($bucket === null) {
+            if (! isset($monthly[$month])) {
                 continue;
             }
 
-            $amount = (float) $posting->amount;
-
-            if ($posting->countsAsOverviewIncome()) {
-                $bucket['income'] += $amount;
-            } elseif ($posting->countsAsOverviewSaving()) {
-                $bucket['savings'] += abs($amount);
-            } elseif ($posting->countsAsOverviewExpense()) {
-                if ($posting->isFixedOverviewExpense()) {
-                    $bucket['bills'] += $amount;
-                } else {
-                    $bucket['consumption'] += $amount;
-                }
-            }
-
-            $bucket['expenses'] = abs(min(0, $bucket['bills'] + $bucket['consumption']));
-            $bucket['result'] = $bucket['income'] + $bucket['bills'] + $bucket['consumption'];
-            $monthly[$month] = $bucket;
+            $point = $monthly[$month];
+            $key = $entry['bucket']->value;
+            $point[$key] += $entry['bucket'] === Bucket::Income
+                ? (float) $posting->amount
+                : -(float) $posting->amount;
+            $point['result'] = $this->monthlyResult($point);
+            $monthly[$month] = $point;
         }
 
         $summaryMonthly = $monthly->filter(
-            fn (array $bucket): bool => $bucket['month'] >= $start->format('Y-m')
-                && $bucket['month'] <= $end->format('Y-m'),
+            fn (array $point): bool => $point['month'] >= $start->format('Y-m')
+                && $point['month'] <= $end->format('Y-m'),
         );
-        $bills = round($summaryMonthly->sum('bills'), 2);
-        $consumption = round($summaryMonthly->sum('consumption'), 2);
-        $summary = [
-            'income' => round($summaryMonthly->sum('income'), 2),
-            'bills' => $bills,
-            'consumption' => $consumption,
-            'expenses' => round(abs(min(0, $bills + $consumption)), 2),
-            'savings' => round($summaryMonthly->sum('savings'), 2),
-            'result' => round($summaryMonthly->sum('result'), 2),
-        ];
-        $summary['average_result'] = round($summary['result'] / max(1, $months), 2);
-        $summary['result_with_savings'] = round($summary['result'] - $summary['savings'], 2);
+
+        $summary = $this->buildSummary($summaryMonthly);
 
         $breakdownMonth = $this->resolveBreakdownMonth($request, $start, $end);
 
@@ -146,6 +117,7 @@ class DashboardController extends Controller
             ],
             'summary' => $summary,
             'monthly' => $monthly->values(),
+            'balance' => $this->totalBalance($request),
             'primaryCurrency' => $this->primaryCurrency($request),
             'breakdown' => Inertia::defer(fn (): array => $this->buildBreakdown(
                 $overviewPostings,
@@ -155,6 +127,107 @@ class DashboardController extends Controller
                 $breakdownMonth,
             )),
         ]);
+    }
+
+    /**
+     * A zeroed monthly point carrying one total per overview bucket.
+     *
+     * @return array<string, mixed>
+     */
+    private function emptyMonthlyPoint(CarbonImmutable $month): array
+    {
+        return [
+            'month' => $month->format('Y-m'),
+            'label' => $month->format('M y'),
+            'income' => 0.0,
+            'bills' => 0.0,
+            'consumption' => 0.0,
+            'investments' => 0.0,
+            'savings' => 0.0,
+            'uncategorized' => 0.0,
+            'result' => 0.0,
+        ];
+    }
+
+    /**
+     * Net result for a month: income minus every outgoing bucket.
+     *
+     * @param  array<string, mixed>  $point
+     */
+    private function monthlyResult(array $point): float
+    {
+        return round(
+            $point['income']
+            - $point['bills']
+            - $point['consumption']
+            - $point['investments']
+            - $point['savings']
+            - $point['uncategorized'],
+            2,
+        );
+    }
+
+    /**
+     * Rolls the monthly points up into the period summary. `in` is income,
+     * `out` is the net total of every outgoing bucket (outflows positive,
+     * refunds subtract), and `result` is their difference. Per-bucket totals
+     * are kept for the frontend.
+     *
+     * @param  Collection<string, array<string, mixed>>  $summaryMonthly
+     * @return array<string, float>
+     */
+    private function buildSummary(Collection $summaryMonthly): array
+    {
+        $income = round($summaryMonthly->sum('income'), 2);
+        $bills = round($summaryMonthly->sum('bills'), 2);
+        $consumption = round($summaryMonthly->sum('consumption'), 2);
+        $investments = round($summaryMonthly->sum('investments'), 2);
+        $savings = round($summaryMonthly->sum('savings'), 2);
+        $uncategorized = round($summaryMonthly->sum('uncategorized'), 2);
+
+        $out = round($bills + $consumption + $investments + $savings + $uncategorized, 2);
+
+        return [
+            'in' => $income,
+            'out' => $out,
+            'result' => round($income - $out, 2),
+            'income' => $income,
+            'bills' => $bills,
+            'consumption' => $consumption,
+            'investments' => $investments,
+            'savings' => $savings,
+            'uncategorized' => $uncategorized,
+        ];
+    }
+
+    /**
+     * Total balance across the user's active accounts in the primary currency,
+     * preferring the last booked balance and falling back to the last available
+     * one. Null when no active account matches the primary currency.
+     */
+    private function totalBalance(Request $request): ?float
+    {
+        $primaryCurrency = $this->primaryCurrency($request);
+
+        if ($primaryCurrency === null) {
+            return null;
+        }
+
+        $accounts = BankAccount::query()
+            ->whereBelongsTo($request->user())
+            ->where('is_active', true)
+            ->where('currency', $primaryCurrency)
+            ->get(['last_booked_balance', 'last_available_balance']);
+
+        if ($accounts->isEmpty()) {
+            return null;
+        }
+
+        return round($accounts->sum(function (BankAccount $account): float {
+            $balance = $account->last_booked_balance ?? $account->last_available_balance;
+
+            return $balance === null ? 0.0 : (float) $balance;
+        }), 2);
     }
 
     /**
@@ -236,7 +309,7 @@ class DashboardController extends Controller
     }
 
     /**
-     * @param  Collection<int, Posting>  $overviewPostings
+     * @param  Collection<int, array{posting: Posting, bucket: Bucket}>  $overviewPostings
      * @return array{month: ?string, months: int, categories: array<int, array<string, mixed>>}
      */
     private function buildBreakdown(
@@ -248,12 +321,11 @@ class DashboardController extends Controller
     ): array {
         $divisor = $breakdownMonth !== null ? 1 : max(1, $months);
 
-        $relevant = $overviewPostings->filter(function (Posting $posting) use ($start, $end, $breakdownMonth): bool {
-            if (! ($posting->countsAsOverviewIncome() || $posting->countsAsOverviewExpense())) {
-                return false;
-            }
-
-            $month = CarbonImmutable::parse($posting->date)->format('Y-m');
+        // Every overview bucket contributes: income sits on the income side,
+        // the outgoing buckets (bills/consumption/investments/savings and the
+        // uncategorized group) on the expense side.
+        $relevant = $overviewPostings->filter(function (array $entry) use ($start, $end, $breakdownMonth): bool {
+            $month = CarbonImmutable::parse($entry['posting']->date)->format('Y-m');
 
             if ($breakdownMonth !== null) {
                 return $month === $breakdownMonth;
@@ -263,11 +335,12 @@ class DashboardController extends Controller
         });
 
         $categories = $relevant
-            ->groupBy(fn (Posting $posting): string => $posting->countsAsOverviewIncome() ? 'income' : 'expense')
+            ->groupBy(fn (array $entry): string => $entry['bucket'] === Bucket::Income ? 'income' : 'expense')
             ->flatMap(function (Collection $group, string $type) use ($divisor): Collection {
                 return $group
-                    ->groupBy(fn (Posting $posting): string => (string) ($posting->categorizedSubcategory?->category?->id ?? 'uncategorized'))
-                    ->map(function (Collection $postings) use ($type, $divisor): array {
+                    ->groupBy(fn (array $entry): string => (string) ($entry['posting']->categorizedSubcategory?->category?->id ?? 'uncategorized'))
+                    ->map(function (Collection $entries) use ($type, $divisor): array {
+                        $postings = $entries->map(fn (array $entry): Posting => $entry['posting']);
                         $category = $postings->first()?->categorizedSubcategory?->category;
                         $total = (float) $postings->sum(fn (Posting $posting): float => (float) $posting->amount);
 
