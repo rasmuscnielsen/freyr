@@ -348,7 +348,9 @@ class DashboardController extends Controller
                             ->groupBy(fn (Posting $posting): string => $posting->categorizedSubcategory?->name ?? 'Uncategorized')
                             ->map(fn (Collection $items, string $name): array => [
                                 'name' => $name,
-                                'amount' => round(abs((float) $items->sum(fn (Posting $posting): float => (float) $posting->amount)), 2),
+                                // Averaged over the same divisor as the category total so
+                                // the tooltip's subcategory amounts sum toward it.
+                                'amount' => round(abs((float) $items->sum(fn (Posting $posting): float => (float) $posting->amount)) / $divisor, 2),
                             ])
                             ->sortByDesc('amount')
                             ->values()

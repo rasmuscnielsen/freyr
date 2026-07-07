@@ -558,48 +558,58 @@ export default function Postings({
                                             {posting.bank_account.name}
                                         </td>
                                         <td className="relative px-3 py-2">
-                                            {editingPostingId === posting.id ? (
-                                                <CategoryCombobox
-                                                    options={comboboxOptions}
-                                                    isSaving={
-                                                        savingPostingId ===
-                                                        posting.id
-                                                    }
-                                                    onSelect={(subcategoryId) =>
-                                                        applyCategory(
-                                                            posting,
+                                            {/* Reserve the trigger's height so swapping to
+                                                the (absolutely-positioned) combobox never
+                                                shifts the row. */}
+                                            <div className="flex min-h-8 items-center">
+                                                {editingPostingId ===
+                                                posting.id ? (
+                                                    <CategoryCombobox
+                                                        options={
+                                                            comboboxOptions
+                                                        }
+                                                        isSaving={
+                                                            savingPostingId ===
+                                                            posting.id
+                                                        }
+                                                        onSelect={(
                                                             subcategoryId,
-                                                            rowIndex,
-                                                        )
-                                                    }
-                                                    onClose={() => {
-                                                        setEditingPostingId(
-                                                            null,
-                                                        );
-                                                        focusRow(rowIndex);
-                                                    }}
-                                                />
-                                            ) : (
-                                                <Button
-                                                    type="button"
-                                                    variant="ghost"
-                                                    aria-haspopup="listbox"
-                                                    className={cn(
-                                                        'h-auto justify-start px-2 py-1 text-left',
-                                                        !posting.subcategory &&
-                                                            'text-muted-foreground',
-                                                    )}
-                                                    onClick={() =>
-                                                        setEditingPostingId(
-                                                            posting.id,
-                                                        )
-                                                    }
-                                                >
-                                                    {posting.subcategory
-                                                        ? `${posting.category?.name} / ${posting.subcategory.name}`
-                                                        : 'Uncategorized'}
-                                                </Button>
-                                            )}
+                                                        ) =>
+                                                            applyCategory(
+                                                                posting,
+                                                                subcategoryId,
+                                                                rowIndex,
+                                                            )
+                                                        }
+                                                        onClose={() => {
+                                                            setEditingPostingId(
+                                                                null,
+                                                            );
+                                                            focusRow(rowIndex);
+                                                        }}
+                                                    />
+                                                ) : (
+                                                    <Button
+                                                        type="button"
+                                                        variant="ghost"
+                                                        aria-haspopup="listbox"
+                                                        className={cn(
+                                                            'h-8 justify-start px-2 py-1 text-left',
+                                                            !posting.subcategory &&
+                                                                'text-muted-foreground',
+                                                        )}
+                                                        onClick={() =>
+                                                            setEditingPostingId(
+                                                                posting.id,
+                                                            )
+                                                        }
+                                                    >
+                                                        {posting.subcategory
+                                                            ? `${posting.category?.name} / ${posting.subcategory.name}`
+                                                            : 'Uncategorized'}
+                                                    </Button>
+                                                )}
+                                            </div>
                                         </td>
                                         <td
                                             className={cn(

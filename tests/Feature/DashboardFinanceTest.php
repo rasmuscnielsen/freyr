@@ -228,7 +228,10 @@ test('breakdown includes income and expense categories with top subcategories fo
         $response->assertJsonPath('props.breakdown.categories.1.name', 'Housing');
         $response->assertJsonPath('props.breakdown.categories.1.total', 333.33);
         $response->assertJsonPath('props.breakdown.categories.1.topSubcategories.0.name', 'Rent');
-        $response->assertJsonPath('props.breakdown.categories.1.topSubcategories.0.amount', 3000);
+        // Subcategory amounts are averaged over the same divisor as the total: 3000 / 12.
+        $response->assertJsonPath('props.breakdown.categories.1.topSubcategories.0.amount', 250);
+        $response->assertJsonPath('props.breakdown.categories.1.topSubcategories.1.name', 'Groceries');
+        $response->assertJsonPath('props.breakdown.categories.1.topSubcategories.1.amount', 83.33);
 
         // Largest postings across the category, ordered by absolute amount.
         $response->assertJsonCount(2, 'props.breakdown.categories.1.topPostings');

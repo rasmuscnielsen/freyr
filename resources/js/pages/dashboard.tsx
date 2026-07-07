@@ -2,11 +2,9 @@ import { Head, router } from '@inertiajs/react';
 import { Fragment, useState } from 'react';
 import {
     Bar,
-    BarChart,
     CartesianGrid,
     Cell,
     ComposedChart,
-    LabelList,
     Line,
     ReferenceLine,
     ResponsiveContainer,
@@ -16,6 +14,11 @@ import {
 } from 'recharts';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+    HoverCard,
+    HoverCardContent,
+    HoverCardTrigger,
+} from '@/components/ui/hover-card';
 import {
     Select,
     SelectContent,
@@ -265,23 +268,27 @@ function flowTooltip(props: unknown, currency: string | null) {
     );
 }
 
-function breakdownTooltip(props: unknown, currency: string | null) {
-    const { active, payload } = props as {
-        active?: boolean;
-        payload?: Array<{ payload?: BreakdownCategory }>;
-    };
-
-    const category = active ? payload?.[0]?.payload : undefined;
-
-    if (!category) {
-        return null;
-    }
-
+/**
+ * The detail card shown when hovering a breakdown row. Mirrors the old recharts
+ * tooltip (category header + total, top subcategories, largest postings) but is
+ * itself hoverable so the footer "View postings" action stays clickable.
+ */
+function BreakdownDetail({
+    category,
+    currency,
+    onSelect,
+}: {
+    category: BreakdownCategory;
+    currency: string | null;
+    onSelect: (category: BreakdownCategory) => void;
+}) {
     return (
-        <div className="min-w-56 rounded-lg border bg-popover p-3 text-sm text-popover-foreground shadow-lg">
+        <div className="text-sm">
             <div className="mb-2 flex items-center justify-between gap-6 font-medium">
                 <span>{category.name}</span>
-                <span>{formatMoney(category.total, currency)}</span>
+                <span className="tabular-nums">
+                    {formatMoney(category.total, currency)}
+                </span>
             </div>
             {category.topSubcategories.length > 0 && (
                 <div className="space-y-1 border-t pt-2 text-muted-foreground">
@@ -291,7 +298,7 @@ function breakdownTooltip(props: unknown, currency: string | null) {
                             className="flex items-center justify-between gap-6"
                         >
                             <span>{subcategory.name}</span>
-                            <span className="font-medium text-foreground">
+                            <span className="font-medium text-foreground tabular-nums">
                                 {formatMoney(subcategory.amount, currency)}
                             </span>
                         </div>
@@ -309,15 +316,10 @@ function breakdownTooltip(props: unknown, currency: string | null) {
                                 key={`${posting.date}-${posting.description}-${posting.amount}`}
                                 className="flex items-center justify-between gap-6"
                             >
-                                <span className="flex min-w-0 items-baseline gap-2">
-                                    <span className="max-w-40 truncate">
-                                        {posting.description}
-                                    </span>
-                                    <span className="shrink-0 text-xs">
-                                        {posting.date}
-                                    </span>
+                                <span className="max-w-44 min-w-0 truncate">
+                                    {posting.description}
                                 </span>
-                                <span className="font-medium text-foreground">
+                                <span className="font-medium text-foreground tabular-nums">
                                     {formatMoney(posting.amount, currency)}
                                 </span>
                             </div>
@@ -325,6 +327,13 @@ function breakdownTooltip(props: unknown, currency: string | null) {
                     </div>
                 </div>
             )}
+            <button
+                type="button"
+                onClick={() => onSelect(category)}
+                className="mt-3 w-full border-t pt-2 text-left text-sm font-medium text-brand hover:underline"
+            >
+                View postings →
+            </button>
         </div>
     );
 }
@@ -392,6 +401,7 @@ export default function Dashboard({
                 : { category: category.id };
 
         if (selectedMonth !== null) {
+            // A single month is selected: window to that month's range.
             const [year, monthPart] = selectedMonth.split('-').map(Number);
             const from = new Date(Date.UTC(year, monthPart - 1, 1));
             const to = new Date(Date.UTC(year, monthPart, 0));
@@ -399,6 +409,10 @@ export default function Dashboard({
                 from.toISOString().slice(0, 10),
                 to.toISOString().slice(0, 10),
             ].join(',');
+        } else {
+            // Averaging across the period: carry the full period range so the
+            // postings list matches the categories that fed the average.
+            filter.posted_between = [period.start, period.end].join(',');
         }
 
         router.visit(postingsIndex.url({ query: { filter } }));
@@ -675,7 +689,10 @@ export default function Dashboard({
                                 <BreakdownGroup
                                     title="Out"
                                     categories={expenseCategories}
-                                    color="var(--color-chart-bills)"
+                                    // Not the bills colour: the Out group holds every
+                                    // outgoing category. A mid neutral distinct from the
+                                    // Uncategorized gray keeps the bars calm.
+                                    color="color-mix(in oklab, var(--muted-foreground) 65%, var(--foreground))"
                                     onSelect={openCategory}
                                     currency={primaryCurrency}
                                 />
@@ -756,11 +773,16 @@ function BreakdownGroup({
     onSelect: (category: BreakdownCategory) => void;
     currency: string | null;
 }) {
-    const height = Math.max(160, categories.length * 40 + 24);
+    // Bars scale to the group's largest category. The longest bar fills nearly
+    // the whole track, leaving room for its trailing amount to sit flush.
+    const maxTotal = categories.reduce(
+        (max, category) => Math.max(max, category.total),
+        0,
+    );
 
     return (
         <div>
-            <h3 className="mb-2 text-sm font-medium text-muted-foreground">
+            <h3 className="mb-3 text-sm font-medium text-muted-foreground">
                 {title}
             </h3>
             {categories.length === 0 ? (
@@ -768,69 +790,84 @@ function BreakdownGroup({
                     No data for this period.
                 </p>
             ) : (
-                <div style={{ height }}>
-                    <ResponsiveContainer width="100%" height="100%">
-                        <BarChart
-                            data={categories}
-                            layout="vertical"
-                            margin={{ left: 8, right: 72, top: 4, bottom: 4 }}
-                        >
-                            <XAxis type="number" hide />
-                            <YAxis
-                                dataKey="name"
-                                type="category"
-                                width={130}
-                                tabIndex={-1}
-                                tickLine={false}
-                                axisLine={false}
-                                tick={mutedTick}
-                            />
-                            <Tooltip
-                                content={(props: unknown) =>
-                                    breakdownTooltip(props, currency)
-                                }
-                                cursor={{ fill: 'var(--muted)' }}
-                                position={{ y: 0 }}
-                                allowEscapeViewBox={{ x: false, y: true }}
-                                wrapperStyle={{ zIndex: 20 }}
-                            />
-                            <Bar
-                                dataKey="total"
-                                name={title}
-                                fill={color}
-                                radius={[0, 4, 4, 0]}
-                                barSize={22}
-                                cursor="pointer"
-                                onClick={(entry: unknown) => {
-                                    const payload = (
-                                        entry as {
-                                            payload?: BreakdownCategory;
-                                        }
-                                    ).payload;
-
-                                    if (payload) {
-                                        onSelect(payload);
-                                    }
-                                }}
-                            >
-                                <LabelList
-                                    dataKey="total"
-                                    position="right"
-                                    fill="var(--muted-foreground)"
-                                    fontSize={12}
-                                    formatter={(value: unknown) =>
-                                        formatMoney(
-                                            Number(value ?? 0),
-                                            currency,
-                                        )
-                                    }
-                                />
-                            </Bar>
-                        </BarChart>
-                    </ResponsiveContainer>
+                <div className="flex flex-col gap-3">
+                    {categories.map((category) => (
+                        <BreakdownRow
+                            key={category.id ?? `uncategorized-${title}`}
+                            category={category}
+                            pct={
+                                maxTotal > 0
+                                    ? (category.total / maxTotal) * 100
+                                    : 0
+                            }
+                            color={color}
+                            onSelect={onSelect}
+                            currency={currency}
+                        />
+                    ))}
                 </div>
             )}
         </div>
+    );
+}
+
+/**
+ * One Spiir-style breakdown row: the category label sits above the bar, the
+ * amount trails the bar's end. The whole row is a click target that opens the
+ * matching postings; hovering reveals a detail card whose own actions stay
+ * clickable.
+ */
+function BreakdownRow({
+    category,
+    pct,
+    color,
+    onSelect,
+    currency,
+}: {
+    category: BreakdownCategory;
+    pct: number;
+    color: string;
+    onSelect: (category: BreakdownCategory) => void;
+    currency: string | null;
+}) {
+    const barColor =
+        category.id === null ? 'var(--color-chart-uncategorized)' : color;
+
+    return (
+        <HoverCard openDelay={100} closeDelay={80}>
+            <HoverCardTrigger asChild>
+                <button
+                    type="button"
+                    onClick={() => onSelect(category)}
+                    className="group flex w-full flex-col gap-1 rounded-md py-1 text-left transition-colors"
+                >
+                    <span className="text-sm font-medium">{category.name}</span>
+                    <span className="flex items-center gap-3">
+                        <span
+                            className="h-5 min-w-0 shrink rounded-full transition-opacity group-hover:opacity-90"
+                            style={{
+                                width: `${Math.max(pct, 2)}%`,
+                                backgroundColor: barColor,
+                            }}
+                        />
+                        <span className="shrink-0 text-sm text-muted-foreground tabular-nums">
+                            {formatMoney(category.total, currency)}
+                        </span>
+                    </span>
+                </button>
+            </HoverCardTrigger>
+            <HoverCardContent
+                align="start"
+                className="w-72"
+                onClick={(event) => event.stopPropagation()}
+            >
+                <BreakdownDetail
+                    category={category}
+                    currency={currency}
+                    onSelect={onSelect}
+                />
+            </HoverCardContent>
+        </HoverCard>
     );
 }
 
