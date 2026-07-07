@@ -1,10 +1,9 @@
 import { Head, useForm } from '@inertiajs/react';
-import { Pencil, Plus, Tags, Trash2 } from 'lucide-react';
+import { CornerDownRight, Pencil, Plus, Tags, Trash2 } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import InputError from '@/components/input-error';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
 import {
     Dialog,
     DialogContent,
@@ -22,6 +21,7 @@ import {
     SelectTrigger,
     SelectValue,
 } from '@/components/ui/select';
+import { cn } from '@/lib/utils';
 import {
     destroy as destroyCategory,
     index as categoriesIndex,
@@ -58,16 +58,34 @@ const EXPENSE_TYPE = 'Expense';
 
 const typeGroupOrder = ['Income', 'Expense', 'Investment', 'Saving', 'Exclude'];
 
-const typeBadgeVariant: Record<
-    string,
-    'default' | 'secondary' | 'outline' | 'destructive'
-> = {
-    Income: 'default',
-    Expense: 'secondary',
-    Investment: 'outline',
-    Saving: 'outline',
-    Exclude: 'destructive',
+/**
+ * Soft-tinted badge styles per category type, aligned with the app's bucket
+ * color language. Colors come from the chart-* tokens at low opacity so the
+ * taxonomy stays quick to scan without saturated fills.
+ */
+const typeBadgeClasses: Record<string, string> = {
+    Income: 'border-transparent bg-chart-income/12 text-chart-income',
+    Expense:
+        'border-transparent bg-chart-consumption/12 text-chart-consumption',
+    Investment:
+        'border-transparent bg-chart-investments/12 text-chart-investments',
+    Saving: 'border-transparent bg-chart-savings/15 text-chart-savings',
+    Exclude: 'border-transparent bg-muted text-muted-foreground',
 };
+
+function TypeBadge({ type }: { type: string }) {
+    return (
+        <Badge
+            variant="outline"
+            className={cn(
+                typeBadgeClasses[type] ??
+                    'border-transparent bg-muted text-muted-foreground',
+            )}
+        >
+            {type}
+        </Badge>
+    );
+}
 
 function orderedTypes(categoryTypes: string[]): string[] {
     return [
@@ -115,21 +133,29 @@ export default function Categories({
         subcategory: Subcategory;
     } | null>(null);
 
-    const groups = useMemo(() => {
-        return orderedTypes(categoryTypes)
-            .map((type) => ({
-                type,
-                categories: categories
-                    .filter((category) => category.type === type)
-                    .sort((a, b) => a.name.localeCompare(b.name)),
-            }))
-            .filter((group) => group.categories.length > 0);
+    const orderedCategories = useMemo(() => {
+        const order = orderedTypes(categoryTypes);
+        const typeRank = (type: string) => {
+            const index = order.indexOf(type);
+
+            return index === -1 ? order.length : index;
+        };
+
+        return [...categories].sort((a, b) => {
+            const rankDiff = typeRank(a.type) - typeRank(b.type);
+
+            if (rankDiff !== 0) {
+                return rankDiff;
+            }
+
+            return a.name.localeCompare(b.name);
+        });
     }, [categories, categoryTypes]);
 
     return (
         <>
             <Head title="Categories" />
-            <div className="flex flex-col gap-6 p-4 md:p-6">
+            <div className="flex flex-col gap-4 p-4 md:p-6">
                 <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
                     <div>
                         <h1 className="text-2xl font-semibold tracking-tight">
@@ -142,12 +168,12 @@ export default function Categories({
                     </div>
                     <Button onClick={() => setIsCreatingCategory(true)}>
                         <Plus className="size-4" />
-                        Add category
+                        New category
                     </Button>
                 </div>
 
                 {categories.length === 0 ? (
-                    <div className="flex flex-col items-center gap-4 rounded-lg border border-dashed p-10 text-center">
+                    <div className="flex flex-col items-center gap-4 rounded-xl border border-dashed p-10 text-center">
                         <div className="flex size-12 items-center justify-center rounded-full bg-muted">
                             <Tags className="size-6 text-muted-foreground" />
                         </div>
@@ -162,27 +188,34 @@ export default function Categories({
                         </div>
                         <Button onClick={() => setIsCreatingCategory(true)}>
                             <Plus className="size-4" />
-                            Add category
+                            New category
                         </Button>
                     </div>
                 ) : (
-                    <div className="flex flex-col gap-8">
-                        {groups.map((group) => (
-                            <section
-                                key={group.type}
-                                className="flex flex-col gap-3"
-                            >
-                                <div className="flex items-baseline gap-2">
-                                    <h2 className="text-sm font-semibold">
-                                        {group.type}
-                                    </h2>
-                                    <span className="text-xs text-muted-foreground tabular-nums">
-                                        {group.categories.length}
-                                    </span>
-                                </div>
-                                <div className="grid gap-4 lg:grid-cols-2">
-                                    {group.categories.map((category) => (
-                                        <CategoryCard
+                    <div className="overflow-hidden rounded-xl border bg-card shadow-sm">
+                        <div className="overflow-x-auto">
+                            <table className="w-full min-w-[640px] text-sm">
+                                <thead className="text-left">
+                                    <tr>
+                                        <th className="px-3 py-2.5 text-xs font-medium text-muted-foreground">
+                                            Name
+                                        </th>
+                                        <th className="px-3 py-2.5 text-xs font-medium text-muted-foreground">
+                                            Type
+                                        </th>
+                                        <th className="px-3 py-2.5 text-right text-xs font-medium text-muted-foreground">
+                                            Postings
+                                        </th>
+                                        <th className="px-3 py-2.5 text-right text-xs font-medium text-muted-foreground">
+                                            <span className="sr-only">
+                                                Actions
+                                            </span>
+                                        </th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {orderedCategories.map((category) => (
+                                        <CategoryRows
                                             key={category.id}
                                             category={category}
                                             onEditCategory={() =>
@@ -212,9 +245,9 @@ export default function Categories({
                                             }
                                         />
                                     ))}
-                                </div>
-                            </section>
-                        ))}
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
                 )}
             </div>
@@ -268,7 +301,7 @@ export default function Categories({
     );
 }
 
-function CategoryCard({
+function CategoryRows({
     category,
     onEditCategory,
     onDeleteCategory,
@@ -283,109 +316,116 @@ function CategoryCard({
     onEditSubcategory: (subcategory: Subcategory) => void;
     onDeleteSubcategory: (subcategory: Subcategory) => void;
 }) {
+    const totalPostings = categorizedPostingsCount(category.subcategories);
+    const subcategories = useMemo(
+        () =>
+            [...category.subcategories].sort((a, b) =>
+                a.name.localeCompare(b.name),
+            ),
+        [category.subcategories],
+    );
+
     return (
-        <Card>
-            <CardContent className="flex flex-col gap-4 p-4">
-                <div className="flex items-start justify-between gap-2">
-                    <div className="flex flex-col gap-1">
-                        <div className="flex items-center gap-2">
-                            <span className="font-medium">{category.name}</span>
-                            <Badge
-                                variant={
-                                    typeBadgeVariant[category.type] ?? 'outline'
-                                }
-                            >
-                                {category.type}
-                            </Badge>
-                        </div>
-                        <span className="text-xs text-muted-foreground">
-                            {category.subcategories.length}{' '}
-                            {category.subcategories.length === 1
-                                ? 'subcategory'
-                                : 'subcategories'}
-                        </span>
-                    </div>
-                    <div className="flex items-center gap-1">
+        <>
+            <tr className="border-t transition-colors hover:bg-muted/40">
+                <td className="px-3 py-2">
+                    <span className="font-medium">{category.name}</span>
+                </td>
+                <td className="px-3 py-2">
+                    <TypeBadge type={category.type} />
+                </td>
+                <td className="px-3 py-2 text-right text-muted-foreground tabular-nums">
+                    {totalPostings}
+                </td>
+                <td className="px-3 py-2">
+                    <div className="flex items-center justify-end gap-0.5">
                         <Button
                             variant="ghost"
                             size="icon"
+                            className="size-8"
+                            onClick={onAddSubcategory}
+                            aria-label={`Add subcategory to ${category.name}`}
+                            title="Add subcategory"
+                        >
+                            <Plus className="size-4" />
+                        </Button>
+                        <Button
+                            variant="ghost"
+                            size="icon"
+                            className="size-8"
                             onClick={onEditCategory}
-                            aria-label="Edit category"
+                            aria-label={`Edit ${category.name}`}
+                            title="Edit category"
                         >
                             <Pencil className="size-4" />
                         </Button>
                         <Button
                             variant="ghost"
                             size="icon"
+                            className="size-8 text-muted-foreground hover:text-destructive"
                             onClick={onDeleteCategory}
-                            aria-label="Delete category"
+                            aria-label={`Delete ${category.name}`}
+                            title="Delete category"
                         >
                             <Trash2 className="size-4" />
                         </Button>
                     </div>
-                </div>
+                </td>
+            </tr>
 
-                {category.subcategories.length > 0 && (
-                    <ul className="flex flex-col divide-y rounded-md border">
-                        {category.subcategories.map((subcategory) => (
-                            <li
-                                key={subcategory.id}
-                                className="flex items-center justify-between gap-2 px-3 py-2"
-                            >
-                                <div className="flex items-center gap-2">
-                                    <span className="text-sm">
-                                        {subcategory.name}
-                                    </span>
-                                    {subcategory.expense_type && (
-                                        <Badge variant="outline">
-                                            {subcategory.expense_type}
-                                        </Badge>
-                                    )}
-                                </div>
-                                <div className="flex items-center gap-2">
-                                    <span className="text-xs text-muted-foreground tabular-nums">
-                                        {subcategory.postings_count}{' '}
-                                        {subcategory.postings_count === 1
-                                            ? 'posting'
-                                            : 'postings'}
-                                    </span>
-                                    <Button
-                                        variant="ghost"
-                                        size="icon"
-                                        onClick={() =>
-                                            onEditSubcategory(subcategory)
-                                        }
-                                        aria-label="Edit subcategory"
-                                    >
-                                        <Pencil className="size-4" />
-                                    </Button>
-                                    <Button
-                                        variant="ghost"
-                                        size="icon"
-                                        onClick={() =>
-                                            onDeleteSubcategory(subcategory)
-                                        }
-                                        aria-label="Delete subcategory"
-                                    >
-                                        <Trash2 className="size-4" />
-                                    </Button>
-                                </div>
-                            </li>
-                        ))}
-                    </ul>
-                )}
-
-                <Button
-                    variant="outline"
-                    size="sm"
-                    className="self-start"
-                    onClick={onAddSubcategory}
+            {subcategories.map((subcategory) => (
+                <tr
+                    key={subcategory.id}
+                    className="border-t border-border/50 transition-colors hover:bg-muted/40"
                 >
-                    <Plus className="size-4" />
-                    Add subcategory
-                </Button>
-            </CardContent>
-        </Card>
+                    <td className="py-1.5 pr-3 pl-3">
+                        <div className="flex items-center gap-1.5 text-muted-foreground">
+                            <CornerDownRight className="ml-4 size-3.5 shrink-0 text-muted-foreground/50" />
+                            <span className="text-foreground">
+                                {subcategory.name}
+                            </span>
+                        </div>
+                    </td>
+                    <td className="py-1.5 pr-3 pl-3">
+                        {subcategory.expense_type && (
+                            <Badge
+                                variant="outline"
+                                className="text-muted-foreground"
+                            >
+                                {subcategory.expense_type}
+                            </Badge>
+                        )}
+                    </td>
+                    <td className="py-1.5 pr-3 pl-3 text-right text-muted-foreground tabular-nums">
+                        {subcategory.postings_count}
+                    </td>
+                    <td className="py-1.5 pr-3 pl-3">
+                        <div className="flex items-center justify-end gap-0.5">
+                            <Button
+                                variant="ghost"
+                                size="icon"
+                                className="size-8"
+                                onClick={() => onEditSubcategory(subcategory)}
+                                aria-label={`Edit ${subcategory.name}`}
+                                title="Edit subcategory"
+                            >
+                                <Pencil className="size-4" />
+                            </Button>
+                            <Button
+                                variant="ghost"
+                                size="icon"
+                                className="size-8 text-muted-foreground hover:text-destructive"
+                                onClick={() => onDeleteSubcategory(subcategory)}
+                                aria-label={`Delete ${subcategory.name}`}
+                                title="Delete subcategory"
+                            >
+                                <Trash2 className="size-4" />
+                            </Button>
+                        </div>
+                    </td>
+                </tr>
+            ))}
+        </>
     );
 }
 
