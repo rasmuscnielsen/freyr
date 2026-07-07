@@ -437,22 +437,27 @@ export default function Dashboard({
                     </Select>
                 </div>
 
-                <div className="grid gap-4 sm:grid-cols-2">
-                    <FlowFigure
-                        label="In"
-                        value={summary.in}
+                <div className="flex flex-col gap-4">
+                    <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-sm">
+                        <FlowStat
+                            label="In"
+                            value={summary.in}
+                            currency={primaryCurrency}
+                            direction="in"
+                        />
+                        <FlowStat
+                            label="Out"
+                            value={summary.out}
+                            currency={primaryCurrency}
+                            direction="out"
+                        />
+                    </div>
+
+                    <AllocationBar
+                        summary={summary}
                         currency={primaryCurrency}
-                        direction="in"
-                    />
-                    <FlowFigure
-                        label="Out"
-                        value={summary.out}
-                        currency={primaryCurrency}
-                        direction="out"
                     />
                 </div>
-
-                <AllocationBar summary={summary} currency={primaryCurrency} />
 
                 <Card>
                     <CardHeader>
@@ -655,10 +660,10 @@ function cellOpacity(
 }
 
 /**
- * A single headline flow figure. "Out" is shown as a signed negative so the
- * page reads as In minus Out at a glance.
+ * A single inline flow stat: colour dot, muted label, and the value. "Out" is
+ * shown as a signed negative so the row reads as In minus Out at a glance.
  */
-function FlowFigure({
+function FlowStat({
     label,
     value,
     currency,
@@ -677,25 +682,19 @@ function FlowFigure({
               : formatMoney(value, currency);
 
     return (
-        <div className="rounded-xl border bg-card p-4">
-            <div className="flex items-center gap-2">
-                <span
-                    className={cn(
-                        'size-2 shrink-0 rounded-full',
-                        direction === 'in'
-                            ? 'bg-chart-income'
-                            : 'bg-muted-foreground',
-                    )}
-                    aria-hidden
-                />
-                <span className="text-sm font-medium text-muted-foreground">
-                    {label}
-                </span>
-            </div>
-            <div className="mt-1.5 text-2xl font-semibold tracking-tight tabular-nums">
-                {display}
-            </div>
-        </div>
+        <span className="flex items-center gap-2">
+            <span
+                className={cn(
+                    'size-2 shrink-0 rounded-full',
+                    direction === 'in'
+                        ? 'bg-chart-income'
+                        : 'bg-muted-foreground',
+                )}
+                aria-hidden
+            />
+            <span className="text-muted-foreground">{label}</span>
+            <span className="font-medium tabular-nums">{display}</span>
+        </span>
     );
 }
 
@@ -807,8 +806,9 @@ function BreakdownSkeleton() {
 
 /**
  * Splits total spending (summary.out) into its five outgoing buckets as one
- * proportional bar. Zero buckets are hidden from the legend, and Uncategorized
- * is drawn muted with a dashed edge to flag categorization debt.
+ * slim proportional bar with a wrapping legend. Zero buckets are hidden, and
+ * Uncategorized is drawn muted (reduced opacity + muted legend text) to flag
+ * categorization debt.
  */
 function AllocationBar({
     summary,
@@ -826,31 +826,22 @@ function AllocationBar({
 
     if (out <= 0 || segments.length === 0) {
         return (
-            <div className="rounded-xl border border-dashed p-4 text-sm text-muted-foreground">
+            <p className="text-sm text-muted-foreground">
                 Nothing went out this period.
-            </div>
+            </p>
         );
     }
 
     return (
-        <div className="flex flex-col gap-3 rounded-xl border bg-card p-4">
-            <div className="flex items-center justify-between text-sm">
-                <span className="font-medium text-muted-foreground">
-                    Where it went
-                </span>
-                <span className="text-muted-foreground tabular-nums">
-                    {formatMoney(out, currency)} out
-                </span>
-            </div>
-            <div className="flex h-3 w-full gap-[3px] overflow-hidden">
+        <div className="flex flex-col gap-3">
+            <div className="flex h-2.5 w-full gap-[3px] overflow-hidden">
                 {segments.map((segment) => (
                     <div
                         key={segment.key}
                         className={cn(
                             'h-full rounded-full',
                             segment.colorClass,
-                            segment.key === 'uncategorized' &&
-                                'opacity-60 ring-1 ring-foreground/20 ring-inset',
+                            segment.key === 'uncategorized' && 'opacity-50',
                         )}
                         style={{
                             width: `${(segment.value / out) * 100}%`,
@@ -866,25 +857,17 @@ function AllocationBar({
                     return (
                         <span
                             key={segment.key}
-                            className={cn(
-                                'flex items-center gap-1.5',
-                                isDebt && 'rounded-md bg-muted px-2 py-0.5',
-                            )}
+                            className="flex items-center gap-1.5"
                         >
                             <span
                                 className={cn(
                                     'size-2 shrink-0 rounded-full',
                                     segment.colorClass,
-                                    isDebt && 'opacity-60',
+                                    isDebt && 'opacity-50',
                                 )}
                                 aria-hidden
                             />
-                            <span
-                                className={cn(
-                                    'text-muted-foreground',
-                                    isDebt && 'font-medium text-foreground',
-                                )}
-                            >
+                            <span className="text-muted-foreground">
                                 {segment.label}
                             </span>
                             <span className="font-medium tabular-nums">

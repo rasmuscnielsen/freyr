@@ -102,7 +102,7 @@
     --chart-income: oklch(0.7 0.14 162);
     --chart-bills: oklch(0.585 0.233 277);
     --chart-consumption: oklch(0.7 0.14 235);
-    --chart-investments: oklch(0.62 0.2 305);
+    --chart-investments: oklch(0.62 0.17 148);
     --chart-savings: oklch(0.78 0.16 75);
     --chart-uncategorized: oklch(0.6 0.02 260);
     --chart-result: var(--foreground);
@@ -147,7 +147,7 @@
     --chart-income: oklch(0.77 0.15 162);
     --chart-bills: oklch(0.68 0.19 277);
     --chart-consumption: oklch(0.746 0.16 232);
-    --chart-investments: oklch(0.72 0.18 305);
+    --chart-investments: oklch(0.72 0.16 146);
     --chart-savings: oklch(0.83 0.15 80);
     --chart-uncategorized: oklch(0.7 0.03 260);
     --chart-result: var(--foreground);
