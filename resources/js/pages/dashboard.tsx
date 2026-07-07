@@ -809,9 +809,8 @@ function BreakdownGroup({
 
 /**
  * One Spiir-style breakdown row: the category label sits above the bar, the
- * amount trails the bar's end. The whole row is a click target that opens the
- * matching postings; hovering reveals a detail card whose own actions stay
- * clickable.
+ * amount trails the bar's end. Hovering reveals a detail card anchored near
+ * the cursor; navigation happens through the card's "View postings" action.
  */
 function BreakdownRow({
     category,
@@ -828,14 +827,22 @@ function BreakdownRow({
 }) {
     const barColor =
         category.id === null ? 'var(--color-chart-uncategorized)' : color;
+    // Where the pointer entered the row, so the detail card opens near the
+    // cursor instead of pinned to the row's left edge covering the bars.
+    const [anchorX, setAnchorX] = useState(0);
 
     return (
         <HoverCard openDelay={100} closeDelay={80}>
             <HoverCardTrigger asChild>
-                <button
-                    type="button"
-                    onClick={() => onSelect(category)}
-                    className="group flex w-full flex-col gap-1 rounded-md py-1 text-left transition-colors"
+                <div
+                    onMouseEnter={(event) =>
+                        setAnchorX(
+                            event.clientX -
+                                event.currentTarget.getBoundingClientRect()
+                                    .left,
+                        )
+                    }
+                    className="group flex w-full flex-col gap-1 rounded-md py-1 text-left"
                 >
                     <span className="text-sm font-medium">{category.name}</span>
                     <span className="flex items-center gap-3">
@@ -850,12 +857,12 @@ function BreakdownRow({
                             {formatMoney(category.total, currency)}
                         </span>
                     </span>
-                </button>
+                </div>
             </HoverCardTrigger>
             <HoverCardContent
                 align="start"
+                alignOffset={anchorX}
                 className="w-72"
-                onClick={(event) => event.stopPropagation()}
             >
                 <BreakdownDetail
                     category={category}
