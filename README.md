@@ -1,3 +1,8 @@
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="art/banner-dark.svg">
+  <img src="art/banner-light.svg" alt="Freyr — self-hosted, bank-connected personal budgeting">
+</picture>
+
 # Freyr
 
 Freyr is a self-hosted personal budgeting application. It connects to your bank,
@@ -29,7 +34,7 @@ data on their own server.
 
 ## Requirements
 
-- **PHP 8.4**
+- **PHP 8.5**
 - **PostgreSQL** (recommended). The app runs on other drivers, but the postings
   table stores an optional AI description embedding using the `pgvector`
   extension on PostgreSQL (it falls back to a plain JSON column on other

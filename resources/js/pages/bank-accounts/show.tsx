@@ -13,6 +13,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import { formatDate } from '@/lib/dates';
 import { formatMoney as formatSharedMoney } from '@/lib/money';
 import { cn } from '@/lib/utils';
 import { index as bankAccountsIndex } from '@/routes/bank-accounts';
@@ -124,7 +125,7 @@ function normalizeLabel(label: string): string {
 
 function statusVariant(
     status: string,
-): 'default' | 'secondary' | 'destructive' | 'outline' {
+): 'success' | 'secondary' | 'destructive' | 'outline' {
     if (['failed', 'renewal_required', 'revoked'].includes(status)) {
         return 'destructive';
     }
@@ -133,7 +134,7 @@ function statusVariant(
         return 'secondary';
     }
 
-    return 'default';
+    return 'success';
 }
 
 export default function BankAccountShow({
@@ -172,14 +173,16 @@ export default function BankAccountShow({
                                         {account.name}
                                     </h1>
                                     {account.is_favorite && (
-                                        <Star className="size-5 fill-amber-400 text-amber-400" />
+                                        <span title="Primary account">
+                                            <Star className="size-4.5 fill-brand text-brand" />
+                                        </span>
                                     )}
                                 </div>
                                 <div className="flex flex-wrap items-center gap-2">
                                     <Badge
                                         variant={
                                             account.is_active
-                                                ? 'default'
+                                                ? 'success'
                                                 : 'secondary'
                                         }
                                     >
@@ -214,7 +217,7 @@ export default function BankAccountShow({
                                     <div className="text-xs text-muted-foreground">
                                         Booked balance
                                     </div>
-                                    <div className="text-2xl font-semibold">
+                                    <div className="text-2xl font-semibold tracking-tight tabular-nums">
                                         {formatMoney(
                                             account.last_booked_balance,
                                             account.currency,
@@ -225,7 +228,7 @@ export default function BankAccountShow({
                                     <div className="text-xs text-muted-foreground">
                                         Available balance
                                     </div>
-                                    <div className="text-2xl font-semibold">
+                                    <div className="text-2xl font-semibold tracking-tight tabular-nums">
                                         {formatMoney(
                                             account.last_available_balance,
                                             account.currency,
@@ -247,7 +250,11 @@ export default function BankAccountShow({
                                 <CalendarClock className="size-4" />
                                 <span>
                                     Last posting{' '}
-                                    {account.last_known_posting_date ?? 'never'}
+                                    {account.last_known_posting_date
+                                        ? formatDate(
+                                              account.last_known_posting_date,
+                                          )
+                                        : 'never'}
                                 </span>
                             </div>
                             <div className="flex items-center gap-2">
@@ -304,24 +311,24 @@ export default function BankAccountShow({
                     </CardContent>
                 </Card>
 
-                <div className="overflow-hidden rounded-lg border bg-card">
+                <div className="overflow-hidden rounded-xl border bg-card shadow-sm">
                     <div className="overflow-x-auto">
                         <table className="w-full min-w-[720px] text-sm">
-                            <thead className="bg-muted/50 text-left">
+                            <thead className="text-left">
                                 <tr>
-                                    <th className="px-3 py-2 font-medium">
+                                    <th className="px-3 py-2.5 text-xs font-medium text-muted-foreground">
                                         Date
                                     </th>
-                                    <th className="px-3 py-2 font-medium">
+                                    <th className="px-3 py-2.5 text-xs font-medium text-muted-foreground">
                                         Description
                                     </th>
-                                    <th className="px-3 py-2 font-medium">
+                                    <th className="px-3 py-2.5 text-xs font-medium text-muted-foreground">
                                         Category
                                     </th>
-                                    <th className="px-3 py-2 text-right font-medium">
+                                    <th className="px-3 py-2.5 text-right text-xs font-medium text-muted-foreground">
                                         Amount
                                     </th>
-                                    <th className="px-3 py-2 text-right font-medium">
+                                    <th className="px-3 py-2.5 text-right text-xs font-medium text-muted-foreground">
                                         Balance
                                     </th>
                                 </tr>
@@ -340,10 +347,10 @@ export default function BankAccountShow({
                                     postings.data.map((posting) => (
                                         <tr
                                             key={posting.id}
-                                            className="border-t odd:bg-muted/25"
+                                            className="border-t transition-colors hover:bg-muted/40"
                                         >
-                                            <td className="px-3 py-2 whitespace-nowrap text-muted-foreground">
-                                                {posting.date}
+                                            <td className="px-3 py-2 whitespace-nowrap text-muted-foreground tabular-nums">
+                                                {formatDate(posting.date)}
                                             </td>
                                             <td className="px-3 py-2 font-medium">
                                                 {posting.description}
@@ -355,15 +362,14 @@ export default function BankAccountShow({
                                             </td>
                                             <td
                                                 className={cn(
-                                                    'px-3 py-2 text-right font-medium whitespace-nowrap',
-                                                    posting.amount < 0
-                                                        ? 'text-orange-600 dark:text-orange-400'
-                                                        : 'text-emerald-600 dark:text-emerald-400',
+                                                    'px-3 py-2 text-right font-medium whitespace-nowrap tabular-nums',
+                                                    posting.amount >= 0 &&
+                                                        'text-chart-income',
                                                 )}
                                             >
                                                 {money.format(posting.amount)}
                                             </td>
-                                            <td className="px-3 py-2 text-right whitespace-nowrap text-muted-foreground">
+                                            <td className="px-3 py-2 text-right whitespace-nowrap text-muted-foreground tabular-nums">
                                                 {posting.balance === null
                                                     ? '—'
                                                     : money.format(

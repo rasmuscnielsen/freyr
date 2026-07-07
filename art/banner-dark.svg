@@ -1,0 +1,33 @@
+<svg width="1200" height="280" viewBox="0 0 1200 280" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Freyr — self-hosted personal budgeting">
+    <!-- Logo tile -->
+    <g transform="translate(72, 66)">
+        <rect width="84" height="84" rx="18" fill="#5EEAD4"/>
+        <g fill="#134E4A" transform="scale(1.75)">
+            <rect x="16" y="8" width="6" height="32" rx="3"/>
+            <rect x="17" y="13" width="20" height="6" rx="3" transform="rotate(-22 17 16)"/>
+            <rect x="17" y="24" width="20" height="6" rx="3" transform="rotate(-22 17 27)"/>
+        </g>
+    </g>
+
+    <!-- Wordmark + tagline -->
+    <text x="184" y="118" font-family="ui-sans-serif, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="52" font-weight="700" letter-spacing="-1.5" fill="#F8FAFC">Freyr</text>
+    <text x="184" y="152" font-family="ui-sans-serif, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="20" fill="#94A3B8">Self-hosted, bank-connected personal budgeting</text>
+
+    <!-- Allocation bar motif -->
+    <g transform="translate(72, 208)">
+        <rect x="0" width="384" height="10" rx="5" fill="#635BFF"/>
+        <rect x="392" width="132" height="10" rx="5" fill="#38BDF8"/>
+        <rect x="532" width="176" height="10" rx="5" fill="#FBBF24"/>
+        <rect x="716" width="340" height="10" rx="5" fill="#34D399"/>
+    </g>
+    <g font-family="ui-sans-serif, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="15" fill="#94A3B8">
+        <circle cx="77" cy="243" r="4" fill="#635BFF"/>
+        <text x="88" y="248">Bills</text>
+        <circle cx="152" cy="243" r="4" fill="#38BDF8"/>
+        <text x="163" y="248">Consumption</text>
+        <circle cx="290" cy="243" r="4" fill="#FBBF24"/>
+        <text x="301" y="248">Savings</text>
+        <circle cx="384" cy="243" r="4" fill="#34D399"/>
+        <text x="395" y="248">Left over</text>
+    </g>
+</svg>

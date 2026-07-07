@@ -23,7 +23,9 @@ import {
     SelectTrigger,
     SelectValue,
 } from '@/components/ui/select';
+import { formatMonth } from '@/lib/dates';
 import { formatMoney as formatSharedMoney, formatNumber } from '@/lib/money';
+import { cn } from '@/lib/utils';
 import { dashboard } from '@/routes';
 import { index as postingsIndex } from '@/routes/postings';
 
@@ -96,18 +98,23 @@ function formatMoney(value: number, currency: string | null): string {
 }
 
 function formatAxis(value: number): string {
-    return formatNumber(value, { maximumFractionDigits: 0 });
+    return formatNumber(value, {
+        notation: 'compact',
+        maximumFractionDigits: 1,
+    });
 }
 
 function formatMonthLabel(month: string): string {
     const [year, monthPart] = month.split('-');
     const date = new Date(Number(year), Number(monthPart) - 1, 1);
 
-    return date.toLocaleDateString('en-GB', {
+    return new Intl.DateTimeFormat(undefined, {
         month: 'long',
         year: 'numeric',
-    });
+    }).format(date);
 }
+
+const mutedTick = { fill: 'var(--muted-foreground)', fontSize: 12 };
 
 function periodLabel(option: string): string {
     return option === '12m' ? '12 months' : option;
@@ -125,7 +132,7 @@ function flowTooltip(props: unknown, currency: string | null) {
     }
 
     return (
-        <div className="rounded-md border bg-background p-3 text-sm shadow-md">
+        <div className="rounded-lg border bg-popover p-3 text-sm text-popover-foreground shadow-lg">
             <div className="mb-2 font-medium">{label}</div>
             <div className="space-y-1">
                 {payload
@@ -164,7 +171,7 @@ function breakdownTooltip(props: unknown, currency: string | null) {
     }
 
     return (
-        <div className="min-w-56 rounded-md border bg-background p-3 text-sm shadow-md">
+        <div className="min-w-56 rounded-lg border bg-popover p-3 text-sm text-popover-foreground shadow-lg">
             <div className="mb-2 flex items-center justify-between gap-6 font-medium">
                 <span>{category.name}</span>
                 <span>{formatMoney(category.total, currency)}</span>
@@ -306,7 +313,8 @@ export default function Dashboard({
                             Income and expenses
                         </h1>
                         <p className="text-sm text-muted-foreground">
-                            {period.start} to {period.end}
+                            {formatMonth(period.start)} –{' '}
+                            {formatMonth(period.end)}
                         </p>
                     </div>
                     <Select
@@ -326,30 +334,43 @@ export default function Dashboard({
                     </Select>
                 </div>
 
-                <div className="grid gap-4 md:grid-cols-5">
-                    <SummaryCard
-                        label="Income"
-                        value={summary.income}
-                        currency={primaryCurrency}
-                    />
-                    <SummaryCard
-                        label="Bills"
-                        value={summary.bills}
-                        currency={primaryCurrency}
-                    />
-                    <SummaryCard
-                        label="Consumption"
-                        value={summary.consumption}
-                        currency={primaryCurrency}
-                    />
-                    <SummaryCard
-                        label="Savings"
-                        value={summary.savings}
-                        currency={primaryCurrency}
-                    />
-                    <SummaryCard
-                        label="Result"
-                        value={summary.result}
+                <div className="flex flex-col gap-5">
+                    <div>
+                        <div className="text-sm text-muted-foreground">
+                            Result for period
+                        </div>
+                        <div className="mt-1 text-4xl font-semibold tracking-tight tabular-nums">
+                            {formatMoney(summary.result, primaryCurrency)}
+                        </div>
+                        <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-1.5 text-sm">
+                            <HeroStat
+                                label="Income"
+                                value={summary.income}
+                                currency={primaryCurrency}
+                                dotClass="bg-chart-income"
+                            />
+                            <HeroStat
+                                label="Bills"
+                                value={summary.bills}
+                                currency={primaryCurrency}
+                                dotClass="bg-chart-bills"
+                            />
+                            <HeroStat
+                                label="Consumption"
+                                value={summary.consumption}
+                                currency={primaryCurrency}
+                                dotClass="bg-chart-consumption"
+                            />
+                            <HeroStat
+                                label="Savings"
+                                value={summary.savings}
+                                currency={primaryCurrency}
+                                dotClass="bg-chart-savings"
+                            />
+                        </div>
+                    </div>
+                    <AllocationBar
+                        summary={summary}
                         currency={primaryCurrency}
                     />
                 </div>
@@ -369,6 +390,7 @@ export default function Dashboard({
                                 <ComposedChart
                                     data={flowData}
                                     stackOffset="sign"
+                                    barCategoryGap="28%"
                                     onClick={(state: unknown) => {
                                         const label = (
                                             state as {
@@ -388,17 +410,30 @@ export default function Dashboard({
                                     }}
                                 >
                                     <CartesianGrid
-                                        strokeDasharray="3 3"
                                         vertical={false}
+                                        stroke="var(--border)"
                                     />
-                                    <XAxis dataKey="label" tabIndex={-1} />
+                                    <XAxis
+                                        dataKey="label"
+                                        tabIndex={-1}
+                                        tickLine={false}
+                                        axisLine={false}
+                                        tickMargin={10}
+                                        tick={mutedTick}
+                                    />
                                     <YAxis
                                         tickFormatter={formatAxis}
                                         tabIndex={-1}
+                                        tickLine={false}
+                                        axisLine={false}
+                                        width={44}
+                                        tick={mutedTick}
+                                        padding={{ top: 16, bottom: 8 }}
                                     />
                                     <ReferenceLine
                                         y={0}
-                                        stroke="var(--border)"
+                                        stroke="var(--muted-foreground)"
+                                        strokeOpacity={0.35}
                                     />
                                     <Tooltip
                                         content={(props: unknown) =>
@@ -468,7 +503,8 @@ export default function Dashboard({
                                         name="Result"
                                         stroke="var(--color-chart-result)"
                                         strokeWidth={2}
-                                        dot={{ r: 4 }}
+                                        dot={{ r: 3 }}
+                                        activeDot={{ r: 4 }}
                                     />
                                 </ComposedChart>
                             </ResponsiveContainer>
@@ -580,22 +616,17 @@ function BreakdownGroup({
                         <BarChart
                             data={categories}
                             layout="vertical"
-                            margin={{ left: 24, right: 64, top: 4, bottom: 4 }}
+                            margin={{ left: 8, right: 72, top: 4, bottom: 4 }}
                         >
-                            <CartesianGrid
-                                horizontal={false}
-                                strokeDasharray="3 3"
-                            />
-                            <XAxis
-                                type="number"
-                                tickFormatter={formatAxis}
-                                tabIndex={-1}
-                            />
+                            <XAxis type="number" hide />
                             <YAxis
                                 dataKey="name"
                                 type="category"
                                 width={130}
                                 tabIndex={-1}
+                                tickLine={false}
+                                axisLine={false}
+                                tick={mutedTick}
                             />
                             <Tooltip
                                 content={(props: unknown) =>
@@ -611,6 +642,7 @@ function BreakdownGroup({
                                 name={title}
                                 fill={color}
                                 radius={[0, 4, 4, 0]}
+                                barSize={22}
                                 cursor="pointer"
                                 onClick={(entry: unknown) => {
                                     const payload = (
@@ -627,6 +659,8 @@ function BreakdownGroup({
                                 <LabelList
                                     dataKey="total"
                                     position="right"
+                                    fill="var(--muted-foreground)"
+                                    fontSize={12}
                                     formatter={(value: unknown) =>
                                         formatMoney(
                                             Number(value ?? 0),
@@ -658,28 +692,115 @@ function BreakdownSkeleton() {
     );
 }
 
-function SummaryCard({
+function HeroStat({
     label,
     value,
     currency,
+    dotClass,
 }: {
     label: string;
     value: number;
     currency: string | null;
+    dotClass: string;
 }) {
     return (
-        <Card>
-            <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium text-muted-foreground">
-                    {label}
-                </CardTitle>
-            </CardHeader>
-            <CardContent>
-                <div className="text-2xl font-semibold">
-                    {formatMoney(value, currency)}
-                </div>
-            </CardContent>
-        </Card>
+        <span className="flex items-center gap-1.5">
+            <span
+                className={cn('size-2 shrink-0 rounded-full', dotClass)}
+                aria-hidden
+            />
+            <span className="text-muted-foreground">{label}</span>
+            <span className="font-medium tabular-nums">
+                {formatMoney(value, currency)}
+            </span>
+        </span>
+    );
+}
+
+/**
+ * Shows how the period's income was spent, as shares of income. "Left over"
+ * is what remains after bills, consumption, and savings transfers.
+ */
+function AllocationBar({
+    summary,
+    currency,
+}: {
+    summary: Summary;
+    currency: string | null;
+}) {
+    const income = summary.income;
+
+    if (income <= 0) {
+        return null;
+    }
+
+    const bills = Math.abs(summary.bills);
+    const consumption = Math.abs(summary.consumption);
+    const savings = Math.max(summary.savings, 0);
+    const leftOver = Math.max(income - bills - consumption - savings, 0);
+
+    const segments = [
+        { label: 'Bills', value: bills, colorClass: 'bg-chart-bills' },
+        {
+            label: 'Consumption',
+            value: consumption,
+            colorClass: 'bg-chart-consumption',
+        },
+        { label: 'Savings', value: savings, colorClass: 'bg-chart-savings' },
+        { label: 'Left over', value: leftOver, colorClass: 'bg-chart-income' },
+    ].filter((segment) => segment.value > 0);
+
+    const total = segments.reduce((sum, segment) => sum + segment.value, 0);
+
+    if (total <= 0) {
+        return null;
+    }
+
+    return (
+        <div className="flex flex-col gap-2.5">
+            <div className="flex h-2.5 w-full gap-[3px]">
+                {segments.map((segment) => (
+                    <div
+                        key={segment.label}
+                        className={cn(
+                            'h-full rounded-full',
+                            segment.colorClass,
+                        )}
+                        style={{
+                            width: `${(segment.value / total) * 100}%`,
+                        }}
+                    />
+                ))}
+            </div>
+            <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5 text-sm">
+                {segments.map((segment) => (
+                    <span
+                        key={segment.label}
+                        className="flex items-center gap-1.5"
+                    >
+                        <span
+                            className={cn(
+                                'size-2 shrink-0 rounded-full',
+                                segment.colorClass,
+                            )}
+                            aria-hidden
+                        />
+                        <span className="text-muted-foreground">
+                            {segment.label}
+                        </span>
+                        <span className="font-medium tabular-nums">
+                            {formatNumber((segment.value / total) * 100, {
+                                maximumFractionDigits: 1,
+                            })}
+                            %
+                        </span>
+                        <span className="text-muted-foreground tabular-nums">
+                            {formatMoney(segment.value, currency)}
+                        </span>
+                    </span>
+                ))}
+            </div>
+        </div>
     );
 }
 

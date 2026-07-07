@@ -1,6 +1,7 @@
 /.agents
 /.claude/skills
 /.cursor/skills
+/.junie/mcp
 /.junie/skills
 /.phpunit.cache
 /bootstrap/ssr

@@ -9,6 +9,7 @@ use App\Models\Posting;
 use App\Models\User;
 use Illuminate\Support\Facades\Cache;
 use Inertia\Testing\AssertableInertia as Assert;
+use Tests\Fakes\BankAccountCrudEnableBankingClient;
 
 function bankAccountPayload(array $overrides = []): array
 {
@@ -176,19 +177,3 @@ test('bank account detail page is authorized to the owner', function () {
         ->get(route('bank-accounts.show', $account))
         ->assertForbidden();
 });
-
-class BankAccountCrudEnableBankingClient extends EnableBankingClient
-{
-    /**
-     * @return array<string, mixed>
-     */
-    public function aspsps(?string $country = null, ?string $psuType = null, ?string $service = 'AIS'): array
-    {
-        return [
-            'aspsps' => [
-                ['name' => 'Nykredit Bank', 'country' => 'DK'],
-                ['name' => 'Lunar Bank', 'country' => 'DK'],
-            ],
-        ];
-    }
-}
