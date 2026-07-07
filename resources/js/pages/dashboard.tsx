@@ -96,8 +96,70 @@ type DashboardProps = {
     primaryCurrency: string | null;
 };
 
+type BucketKey =
+    | 'bills'
+    | 'consumption'
+    | 'investments'
+    | 'savings'
+    | 'uncategorized';
+
+type BucketMeta = {
+    key: BucketKey;
+    label: string;
+    colorClass: string;
+    cssVar: string;
+};
+
+/**
+ * The five outgoing buckets, in the order they stack and appear in the legend.
+ * Colours map to the `--color-chart-*` tokens defined in app.css.
+ */
+const BUCKETS: BucketMeta[] = [
+    {
+        key: 'bills',
+        label: 'Bills',
+        colorClass: 'bg-chart-bills',
+        cssVar: 'var(--color-chart-bills)',
+    },
+    {
+        key: 'consumption',
+        label: 'Consumption',
+        colorClass: 'bg-chart-consumption',
+        cssVar: 'var(--color-chart-consumption)',
+    },
+    {
+        key: 'investments',
+        label: 'Investments',
+        colorClass: 'bg-chart-investments',
+        cssVar: 'var(--color-chart-investments)',
+    },
+    {
+        key: 'savings',
+        label: 'Savings',
+        colorClass: 'bg-chart-savings',
+        cssVar: 'var(--color-chart-savings)',
+    },
+    {
+        key: 'uncategorized',
+        label: 'Uncategorized',
+        colorClass: 'bg-chart-uncategorized',
+        cssVar: 'var(--color-chart-uncategorized)',
+    },
+];
+
 function formatMoney(value: number, currency: string | null): string {
     return formatSharedMoney(value, currency, { maximumFractionDigits: 0 });
+}
+
+/**
+ * Formats a magnitude with an explicit leading sign, e.g. "+ DKK 50.123" or
+ * "− DKK 12.000". Uses a true minus sign for typographic balance.
+ */
+function formatSignedMoney(value: number, currency: string | null): string {
+    const rounded = Math.round(value);
+    const sign = rounded < 0 ? '−' : '+';
+
+    return `${sign} ${formatMoney(Math.abs(rounded), currency)}`;
 }
 
 function formatAxis(value: number): string {
@@ -312,18 +374,50 @@ export default function Dashboard({
             ? formatMonthLabel(selectedMonth)
             : 'Average per month';
 
+    const resultPositive = summary.result >= 0;
+    const hasBalance = balance !== null;
+    const heroValue = hasBalance ? balance : summary.result;
+
     return (
         <>
             <Head title="Dashboard" />
             <div className="flex flex-col gap-6 p-4 md:p-6">
-                <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
-                    <div>
-                        <h1 className="text-2xl font-semibold tracking-tight">
-                            Income and expenses
-                        </h1>
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                    <div className="flex flex-col gap-3">
+                        <div className="flex flex-col gap-1">
+                            <span className="text-sm font-medium text-muted-foreground">
+                                {hasBalance ? 'Balance' : 'Result'}
+                            </span>
+                            <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
+                                <span className="text-4xl font-semibold tracking-tight tabular-nums sm:text-5xl">
+                                    {formatMoney(heroValue, primaryCurrency)}
+                                </span>
+                                <span
+                                    className={cn(
+                                        'inline-flex items-baseline rounded-full px-2.5 py-0.5 text-sm font-medium tabular-nums',
+                                        resultPositive
+                                            ? 'bg-chart-income/12 text-chart-income'
+                                            : 'bg-destructive/12 text-destructive',
+                                    )}
+                                >
+                                    {formatSignedMoney(
+                                        summary.result,
+                                        primaryCurrency,
+                                    )}
+                                </span>
+                            </div>
+                        </div>
                         <p className="text-sm text-muted-foreground">
                             {formatMonth(period.start)} –{' '}
                             {formatMonth(period.end)}
+                            {hasBalance && (
+                                <>
+                                    {' · '}
+                                    {resultPositive
+                                        ? 'result this period'
+                                        : 'shortfall this period'}
+                                </>
+                            )}
                         </p>
                     </div>
                     <Select
@@ -343,68 +437,22 @@ export default function Dashboard({
                     </Select>
                 </div>
 
-                <div className="flex flex-col gap-5">
-                    <div>
-                        <div className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1">
-                            <div className="text-sm text-muted-foreground">
-                                Result for period
-                            </div>
-                            {balance !== null && (
-                                <div className="text-sm text-muted-foreground">
-                                    Total balance{' '}
-                                    <span className="font-medium text-foreground tabular-nums">
-                                        {formatMoney(balance, primaryCurrency)}
-                                    </span>
-                                </div>
-                            )}
-                        </div>
-                        <div className="mt-1 text-4xl font-semibold tracking-tight tabular-nums">
-                            {formatMoney(summary.result, primaryCurrency)}
-                        </div>
-                        <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-1.5 text-sm">
-                            <HeroStat
-                                label="Income"
-                                value={summary.income}
-                                currency={primaryCurrency}
-                                dotClass="bg-chart-income"
-                            />
-                            <HeroStat
-                                label="Bills"
-                                value={summary.bills}
-                                currency={primaryCurrency}
-                                dotClass="bg-chart-bills"
-                            />
-                            <HeroStat
-                                label="Consumption"
-                                value={summary.consumption}
-                                currency={primaryCurrency}
-                                dotClass="bg-chart-consumption"
-                            />
-                            <HeroStat
-                                label="Investments"
-                                value={summary.investments}
-                                currency={primaryCurrency}
-                                dotClass="bg-chart-investments"
-                            />
-                            <HeroStat
-                                label="Savings"
-                                value={summary.savings}
-                                currency={primaryCurrency}
-                                dotClass="bg-chart-savings"
-                            />
-                            <HeroStat
-                                label="Uncategorized"
-                                value={summary.uncategorized}
-                                currency={primaryCurrency}
-                                dotClass="bg-chart-uncategorized"
-                            />
-                        </div>
-                    </div>
-                    <AllocationBar
-                        summary={summary}
+                <div className="grid gap-4 sm:grid-cols-2">
+                    <FlowFigure
+                        label="In"
+                        value={summary.in}
                         currency={primaryCurrency}
+                        direction="in"
+                    />
+                    <FlowFigure
+                        label="Out"
+                        value={summary.out}
+                        currency={primaryCurrency}
+                        direction="out"
                     />
                 </div>
+
+                <AllocationBar summary={summary} currency={primaryCurrency} />
 
                 <Card>
                     <CardHeader>
@@ -491,97 +539,32 @@ export default function Dashboard({
                                             />
                                         ))}
                                     </Bar>
-                                    <Bar
-                                        dataKey="billsStacked"
-                                        name="Bills"
-                                        fill="var(--color-chart-bills)"
-                                        stackId="flow"
-                                        onClick={onFlowBarClick}
-                                    >
-                                        {flowData.map((entry) => (
-                                            <Cell
-                                                key={`bills-${entry.month}`}
-                                                opacity={cellOpacity(
-                                                    entry.month,
-                                                    lastCompletedMonth,
-                                                    selectedMonth,
-                                                )}
-                                            />
-                                        ))}
-                                    </Bar>
-                                    <Bar
-                                        dataKey="consumptionStacked"
-                                        name="Consumption"
-                                        fill="var(--color-chart-consumption)"
-                                        stackId="flow"
-                                        onClick={onFlowBarClick}
-                                    >
-                                        {flowData.map((entry) => (
-                                            <Cell
-                                                key={`consumption-${entry.month}`}
-                                                opacity={cellOpacity(
-                                                    entry.month,
-                                                    lastCompletedMonth,
-                                                    selectedMonth,
-                                                )}
-                                            />
-                                        ))}
-                                    </Bar>
-                                    <Bar
-                                        dataKey="investmentsStacked"
-                                        name="Investments"
-                                        fill="var(--color-chart-investments)"
-                                        stackId="flow"
-                                        onClick={onFlowBarClick}
-                                    >
-                                        {flowData.map((entry) => (
-                                            <Cell
-                                                key={`investments-${entry.month}`}
-                                                opacity={cellOpacity(
-                                                    entry.month,
-                                                    lastCompletedMonth,
-                                                    selectedMonth,
-                                                )}
-                                            />
-                                        ))}
-                                    </Bar>
-                                    <Bar
-                                        dataKey="savingsStacked"
-                                        name="Savings"
-                                        fill="var(--color-chart-savings)"
-                                        stackId="flow"
-                                        onClick={onFlowBarClick}
-                                    >
-                                        {flowData.map((entry) => (
-                                            <Cell
-                                                key={`savings-${entry.month}`}
-                                                opacity={cellOpacity(
-                                                    entry.month,
-                                                    lastCompletedMonth,
-                                                    selectedMonth,
-                                                )}
-                                            />
-                                        ))}
-                                    </Bar>
-                                    <Bar
-                                        dataKey="uncategorizedStacked"
-                                        name="Uncategorized"
-                                        fill="var(--color-chart-uncategorized)"
-                                        stackId="flow"
-                                        radius={[0, 0, 4, 4]}
-                                        onClick={onFlowBarClick}
-                                    >
-                                        {flowData.map((entry) => (
-                                            <Cell
-                                                key={`uncategorized-${entry.month}`}
-                                                opacity={cellOpacity(
-                                                    entry.month,
-                                                    lastCompletedMonth,
-                                                    selectedMonth,
-                                                )}
-                                            />
-                                        ))}
-                                    </Bar>
+                                    {BUCKETS.map((bucket, index) => (
+                                        <Bar
+                                            key={bucket.key}
+                                            dataKey={`${bucket.key}Stacked`}
+                                            name={bucket.label}
+                                            fill={bucket.cssVar}
+                                            stackId="flow"
+                                            radius={
+                                                index === BUCKETS.length - 1
+                                                    ? [0, 0, 4, 4]
+                                                    : undefined
+                                            }
+                                            onClick={onFlowBarClick}
+                                        >
+                                            {flowData.map((entry) => (
+                                                <Cell
+                                                    key={`${bucket.key}-${entry.month}`}
+                                                    opacity={cellOpacity(
+                                                        entry.month,
+                                                        lastCompletedMonth,
+                                                        selectedMonth,
+                                                    )}
+                                                />
+                                            ))}
+                                        </Bar>
+                                    ))}
                                     <Line
                                         type="monotone"
                                         dataKey="result"
@@ -633,14 +616,14 @@ export default function Dashboard({
                         ) : (
                             <div className="grid gap-6 md:grid-cols-2">
                                 <BreakdownGroup
-                                    title="Income"
+                                    title="In"
                                     categories={incomeCategories}
                                     color="var(--color-chart-income)"
                                     onSelect={openCategory}
                                     currency={primaryCurrency}
                                 />
                                 <BreakdownGroup
-                                    title="Expenses"
+                                    title="Out"
                                     categories={expenseCategories}
                                     color="var(--color-chart-bills)"
                                     onSelect={openCategory}
@@ -669,6 +652,51 @@ function cellOpacity(
     }
 
     return 1;
+}
+
+/**
+ * A single headline flow figure. "Out" is shown as a signed negative so the
+ * page reads as In minus Out at a glance.
+ */
+function FlowFigure({
+    label,
+    value,
+    currency,
+    direction,
+}: {
+    label: string;
+    value: number;
+    currency: string | null;
+    direction: 'in' | 'out';
+}) {
+    const display =
+        direction === 'out' && value !== 0
+            ? formatSignedMoney(-value, currency)
+            : value < 0
+              ? formatSignedMoney(value, currency)
+              : formatMoney(value, currency);
+
+    return (
+        <div className="rounded-xl border bg-card p-4">
+            <div className="flex items-center gap-2">
+                <span
+                    className={cn(
+                        'size-2 shrink-0 rounded-full',
+                        direction === 'in'
+                            ? 'bg-chart-income'
+                            : 'bg-muted-foreground',
+                    )}
+                    aria-hidden
+                />
+                <span className="text-sm font-medium text-muted-foreground">
+                    {label}
+                </span>
+            </div>
+            <div className="mt-1.5 text-2xl font-semibold tracking-tight tabular-nums">
+                {display}
+            </div>
+        </div>
+    );
 }
 
 function BreakdownGroup({
@@ -777,34 +805,10 @@ function BreakdownSkeleton() {
     );
 }
 
-function HeroStat({
-    label,
-    value,
-    currency,
-    dotClass,
-}: {
-    label: string;
-    value: number;
-    currency: string | null;
-    dotClass: string;
-}) {
-    return (
-        <span className="flex items-center gap-1.5">
-            <span
-                className={cn('size-2 shrink-0 rounded-full', dotClass)}
-                aria-hidden
-            />
-            <span className="text-muted-foreground">{label}</span>
-            <span className="font-medium tabular-nums">
-                {formatMoney(value, currency)}
-            </span>
-        </span>
-    );
-}
-
 /**
- * Shows how the period's income was spent, as shares of income. "Left over"
- * is what remains after bills, consumption, and savings transfers.
+ * Splits total spending (summary.out) into its five outgoing buckets as one
+ * proportional bar. Zero buckets are hidden from the legend, and Uncategorized
+ * is drawn muted with a dashed edge to flag categorization debt.
  */
 function AllocationBar({
     summary,
@@ -813,92 +817,88 @@ function AllocationBar({
     summary: Summary;
     currency: string | null;
 }) {
-    const income = summary.income;
+    const out = summary.out;
 
-    if (income <= 0) {
-        return null;
-    }
+    const segments = BUCKETS.map((bucket) => ({
+        ...bucket,
+        value: Math.max(summary[bucket.key], 0),
+    })).filter((segment) => segment.value > 0);
 
-    const bills = Math.abs(summary.bills);
-    const consumption = Math.abs(summary.consumption);
-    const investments = Math.abs(summary.investments);
-    const savings = Math.max(summary.savings, 0);
-    const uncategorized = Math.abs(summary.uncategorized);
-    const leftOver = Math.max(
-        income - bills - consumption - investments - savings - uncategorized,
-        0,
-    );
-
-    const segments = [
-        { label: 'Bills', value: bills, colorClass: 'bg-chart-bills' },
-        {
-            label: 'Consumption',
-            value: consumption,
-            colorClass: 'bg-chart-consumption',
-        },
-        {
-            label: 'Investments',
-            value: investments,
-            colorClass: 'bg-chart-investments',
-        },
-        { label: 'Savings', value: savings, colorClass: 'bg-chart-savings' },
-        {
-            label: 'Uncategorized',
-            value: uncategorized,
-            colorClass: 'bg-chart-uncategorized',
-        },
-        { label: 'Left over', value: leftOver, colorClass: 'bg-chart-income' },
-    ].filter((segment) => segment.value > 0);
-
-    const total = segments.reduce((sum, segment) => sum + segment.value, 0);
-
-    if (total <= 0) {
-        return null;
+    if (out <= 0 || segments.length === 0) {
+        return (
+            <div className="rounded-xl border border-dashed p-4 text-sm text-muted-foreground">
+                Nothing went out this period.
+            </div>
+        );
     }
 
     return (
-        <div className="flex flex-col gap-2.5">
-            <div className="flex h-2.5 w-full gap-[3px]">
+        <div className="flex flex-col gap-3 rounded-xl border bg-card p-4">
+            <div className="flex items-center justify-between text-sm">
+                <span className="font-medium text-muted-foreground">
+                    Where it went
+                </span>
+                <span className="text-muted-foreground tabular-nums">
+                    {formatMoney(out, currency)} out
+                </span>
+            </div>
+            <div className="flex h-3 w-full gap-[3px] overflow-hidden">
                 {segments.map((segment) => (
                     <div
-                        key={segment.label}
+                        key={segment.key}
                         className={cn(
                             'h-full rounded-full',
                             segment.colorClass,
+                            segment.key === 'uncategorized' &&
+                                'opacity-60 ring-1 ring-foreground/20 ring-inset',
                         )}
                         style={{
-                            width: `${(segment.value / total) * 100}%`,
+                            width: `${(segment.value / out) * 100}%`,
                         }}
+                        title={`${segment.label} · ${formatMoney(segment.value, currency)}`}
                     />
                 ))}
             </div>
-            <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5 text-sm">
-                {segments.map((segment) => (
-                    <span
-                        key={segment.label}
-                        className="flex items-center gap-1.5"
-                    >
+            <div className="flex flex-wrap gap-x-5 gap-y-2 text-sm">
+                {segments.map((segment) => {
+                    const isDebt = segment.key === 'uncategorized';
+
+                    return (
                         <span
+                            key={segment.key}
                             className={cn(
-                                'size-2 shrink-0 rounded-full',
-                                segment.colorClass,
+                                'flex items-center gap-1.5',
+                                isDebt && 'rounded-md bg-muted px-2 py-0.5',
                             )}
-                            aria-hidden
-                        />
-                        <span className="text-muted-foreground">
-                            {segment.label}
+                        >
+                            <span
+                                className={cn(
+                                    'size-2 shrink-0 rounded-full',
+                                    segment.colorClass,
+                                    isDebt && 'opacity-60',
+                                )}
+                                aria-hidden
+                            />
+                            <span
+                                className={cn(
+                                    'text-muted-foreground',
+                                    isDebt && 'font-medium text-foreground',
+                                )}
+                            >
+                                {segment.label}
+                            </span>
+                            <span className="font-medium tabular-nums">
+                                {formatNumber((segment.value / out) * 100, {
+                                    maximumFractionDigits: 1,
+                                })}
+                                %
+                            </span>
+                            <span className="text-muted-foreground tabular-nums">
+                                {formatMoney(segment.value, currency)}
+                            </span>
                         </span>
-                        <span className="font-medium tabular-nums">
-                            {formatNumber((segment.value / total) * 100, {
-                                maximumFractionDigits: 1,
-                            })}
-                            %
-                        </span>
-                        <span className="text-muted-foreground tabular-nums">
-                            {formatMoney(segment.value, currency)}
-                        </span>
-                    </span>
-                ))}
+                    );
+                })}
             </div>
         </div>
     );
