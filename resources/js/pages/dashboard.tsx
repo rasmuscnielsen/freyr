@@ -433,6 +433,9 @@ export default function Dashboard({
     const resultPositive = summary.result >= 0;
     const hasBalance = balance !== null;
     const heroValue = hasBalance ? balance : summary.result;
+    // The headline metrics read as per-month averages; the hero delta stays
+    // the period total.
+    const monthsInPeriod = Math.max(period.months, 1);
 
     return (
         <>
@@ -465,15 +468,7 @@ export default function Dashboard({
                         </div>
                         <p className="text-sm text-muted-foreground">
                             {formatMonth(period.start)} –{' '}
-                            {formatMonth(period.end)}
-                            {hasBalance && (
-                                <>
-                                    {' · '}
-                                    {resultPositive
-                                        ? 'result this period'
-                                        : 'shortfall this period'}
-                                </>
-                            )}
+                            {formatMonth(period.end)} averages
                         </p>
                     </div>
                     <Select
@@ -497,13 +492,13 @@ export default function Dashboard({
                     <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-sm">
                         <FlowStat
                             label="In"
-                            value={summary.in}
+                            value={summary.in / monthsInPeriod}
                             currency={primaryCurrency}
                             direction="in"
                         />
                         <FlowStat
                             label="Out"
-                            value={summary.out}
+                            value={summary.out / monthsInPeriod}
                             currency={primaryCurrency}
                             direction="out"
                         />
@@ -511,6 +506,7 @@ export default function Dashboard({
 
                     <AllocationBar
                         summary={summary}
+                        months={monthsInPeriod}
                         currency={primaryCurrency}
                     />
                 </div>
@@ -673,12 +669,12 @@ export default function Dashboard({
                     </CardHeader>
                     <CardContent>
                         {breakdown === undefined ? (
-                            <div className="grid gap-6 md:grid-cols-2">
+                            <div className="flex flex-col gap-8">
                                 <BreakdownSkeleton />
                                 <BreakdownSkeleton />
                             </div>
                         ) : (
-                            <div className="grid gap-6 md:grid-cols-2">
+                            <div className="flex flex-col gap-8">
                                 <BreakdownGroup
                                     title="In"
                                     categories={incomeCategories}
@@ -888,15 +884,18 @@ function BreakdownSkeleton() {
 
 /**
  * Splits total spending (summary.out) into its five outgoing buckets as one
- * slim proportional bar with a wrapping legend. Zero buckets are hidden; the
- * Uncategorized segment relies on its muted gray token to read as
- * categorization debt.
+ * slim proportional bar with a wrapping legend. Legend amounts are per-month
+ * averages (shares stay ratios of the period totals). Zero buckets are
+ * hidden; the Uncategorized segment relies on its muted gray token to read
+ * as categorization debt.
  */
 function AllocationBar({
     summary,
+    months,
     currency,
 }: {
     summary: Summary;
+    months: number;
     currency: string | null;
 }) {
     const out = summary.out;
@@ -927,7 +926,7 @@ function AllocationBar({
                         style={{
                             width: `${(segment.value / out) * 100}%`,
                         }}
-                        title={`${segment.label} · ${formatMoney(segment.value, currency)}`}
+                        title={`${segment.label} · ${formatMoney(segment.value / months, currency)}`}
                     />
                 ))}
             </div>
@@ -955,7 +954,7 @@ function AllocationBar({
                                 %
                             </span>
                             <span className="text-muted-foreground tabular-nums">
-                                {formatMoney(segment.value, currency)}
+                                {formatMoney(segment.value / months, currency)}
                             </span>
                         </span>
                     );
