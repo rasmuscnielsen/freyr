@@ -1,5 +1,5 @@
 import { Head, router } from '@inertiajs/react';
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
 import {
     Bar,
     BarChart,
@@ -215,7 +215,7 @@ function flowTooltip(props: unknown, currency: string | null) {
     return (
         <div className="rounded-lg border bg-popover p-3 text-sm text-popover-foreground shadow-lg">
             <div className="mb-2 font-medium">{label}</div>
-            <div className="space-y-1">
+            <div className="grid grid-cols-[1fr_auto_auto] items-center gap-x-4 gap-y-1">
                 {entries.map((item) => {
                     const outgoing = isOutgoing(item);
                     const share =
@@ -224,30 +224,32 @@ function flowTooltip(props: unknown, currency: string | null) {
                             : null;
 
                     return (
-                        <div
-                            key={item.name}
-                            className="flex items-center gap-1.5"
-                        >
-                            <span
-                                className="size-2 shrink-0 rounded-full"
-                                style={{
-                                    backgroundColor:
-                                        item.color ?? 'var(--muted-foreground)',
-                                }}
-                                aria-hidden
-                            />
-                            <span className="text-muted-foreground">
-                                {item.name}
-                            </span>
-                            {share !== null && (
-                                <span className="font-medium tabular-nums">
-                                    {formatNumber(share, {
-                                        maximumFractionDigits: 1,
-                                    })}
-                                    %
+                        <Fragment key={item.name}>
+                            <span className="flex items-center gap-1.5">
+                                <span
+                                    className="size-2 shrink-0 rounded-full"
+                                    style={{
+                                        backgroundColor:
+                                            item.color ??
+                                            'var(--muted-foreground)',
+                                    }}
+                                    aria-hidden
+                                />
+                                <span className="text-muted-foreground">
+                                    {item.name}
                                 </span>
-                            )}
-                            <span className="text-muted-foreground tabular-nums">
+                            </span>
+                            <span className="text-right font-medium tabular-nums">
+                                {share !== null && (
+                                    <>
+                                        {formatNumber(share, {
+                                            maximumFractionDigits: 1,
+                                        })}
+                                        %
+                                    </>
+                                )}
+                            </span>
+                            <span className="text-right text-muted-foreground tabular-nums">
                                 {outgoing
                                     ? formatMoney(
                                           Math.abs(Number(item.value)),
@@ -255,7 +257,7 @@ function flowTooltip(props: unknown, currency: string | null) {
                                       )
                                     : formatMoney(Number(item.value), currency)}
                             </span>
-                        </div>
+                        </Fragment>
                     );
                 })}
             </div>
