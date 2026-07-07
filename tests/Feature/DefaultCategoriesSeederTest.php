@@ -1,5 +1,6 @@
 <?php
 
+use App\Enums\CategoryType;
 use App\Models\BankAccount;
 use App\Models\Category;
 use App\Models\Posting;
@@ -16,18 +17,32 @@ test('it seeds the default category tree idempotently', function () {
         ->and($subcategoryCount)->toBeGreaterThan($categoryCount)
         ->and(Subcategory::query()->whereNull('category_id')->count())->toBe(0);
 
-    expect(Category::query()->pluck('type')->unique()->sort()->values()->all())
-        ->toBe(['Expense', 'Income', 'Saving', 'Transfer']);
+    expect(Category::query()->pluck('type')->map(fn ($type) => $type->value)->unique()->sort()->values()->all())
+        ->toBe(['Exclude', 'Expense', 'Income', 'Investment', 'Saving']);
 
-    $internalTransfer = Subcategory::query()
-        ->where('legacy_id', DefaultCategoriesSeeder::SUBCATEGORY_LEGACY_ID_PREFIX.'internal_transfer')
+    // The former Transfers category now excludes its postings from the overview.
+    $transfers = Category::query()
+        ->where('legacy_id', DefaultCategoriesSeeder::CATEGORY_LEGACY_ID_PREFIX.'transfer')
         ->firstOrFail();
-    expect($internalTransfer->is_ignored)->toBeTrue();
+    expect($transfers->type)->toBe(CategoryType::Exclude);
 
     $this->seed(DefaultCategoriesSeeder::class);
 
     expect(Category::query()->count())->toBe($categoryCount)
         ->and(Subcategory::query()->count())->toBe($subcategoryCount);
+});
+
+test('re-seeding never overwrites an admin-edited category name', function () {
+    $this->seed(DefaultCategoriesSeeder::class);
+
+    $income = Category::query()
+        ->where('legacy_id', DefaultCategoriesSeeder::CATEGORY_LEGACY_ID_PREFIX.'income')
+        ->firstOrFail();
+    $income->update(['name' => 'Renamed income']);
+
+    $this->seed(DefaultCategoriesSeeder::class);
+
+    expect($income->refresh()->name)->toBe('Renamed income');
 });
 
 test('a spiir import replaces the default categories after confirmation', function () {

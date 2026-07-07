@@ -3,7 +3,6 @@
 namespace App\Finance\EnableBanking;
 
 use App\Models\BankConnectionAccount;
-use App\Models\Posting;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Arr;
 
@@ -32,7 +31,6 @@ class EnableBankingTransactionMapper
             'balance' => $this->decimal(data_get($transaction, 'balance_after_transaction.amount')),
             'external_posting_id' => $transactionId,
             'external_account_uid_hash' => $account->external_account_uid_hash,
-            'category_type_code' => $amount < 0 ? Posting::CATEGORY_TYPE_EXPENSE : Posting::CATEGORY_TYPE_INCOME,
             'currency' => $currency,
             'original_currency' => $currency,
             'state' => $this->nullableString($transaction['status'] ?? null),

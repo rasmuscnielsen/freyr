@@ -22,10 +22,9 @@ class CategoryResource extends JsonResource
             'subcategories' => $this->whenLoaded('subcategories', fn () => $this->subcategories->map(fn ($subcategory): array => [
                 'id' => $subcategory->id,
                 'name' => $subcategory->name,
-                'type' => $subcategory->type,
+                'type' => $this->type,
                 'hyphenated_name' => $subcategory->hyphenated_name,
                 'expense_type' => $subcategory->expense_type,
-                'is_ignored' => $subcategory->is_ignored,
             ])->values()),
             'created_at' => $this->created_at?->toJSON(),
             'updated_at' => $this->updated_at?->toJSON(),

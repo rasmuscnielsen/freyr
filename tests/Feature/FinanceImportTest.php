@@ -1,5 +1,6 @@
 <?php
 
+use App\Enums\CategoryType;
 use App\Models\BankAccount;
 use App\Models\Category;
 use App\Models\Posting;
@@ -37,7 +38,8 @@ test('it imports a spiir export idempotently', function () {
     expect($transferOut->counter_entry_posting_id)->toBe($transferIn->id)
         ->and($transferIn->counter_entry_posting_id)->toBe($transferOut->id);
 
-    expect(Subcategory::query()->where('legacy_id', '310')->firstOrFail()->is_ignored)->toBeTrue();
+    // Spiir's legacy 'Transfer' category type collapses onto Exclude.
+    expect(Category::query()->where('legacy_id', '300')->firstOrFail()->type)->toBe(CategoryType::Exclude);
 
     $this->artisan('app:spiir:import', ['path' => $path])
         ->assertSuccessful();

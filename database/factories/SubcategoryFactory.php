@@ -26,9 +26,7 @@ class SubcategoryFactory extends Factory
             'name' => fake()->words(2, true),
             'hyphenated_name' => null,
             'expense_type' => 'Variable',
-            'type' => 'Expense',
             'hints' => null,
-            'is_ignored' => false,
         ];
     }
 
@@ -36,7 +34,6 @@ class SubcategoryFactory extends Factory
     {
         return $this->state(fn (array $attributes) => [
             'category_id' => $category->id,
-            'type' => $category->type,
         ]);
     }
 }

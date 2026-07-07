@@ -9,9 +9,10 @@ use Carbon\CarbonImmutable;
 use Inertia\Testing\AssertableInertia as Assert;
 
 /**
- * Build a small budget with income, a fixed bill, a variable expense and a saving.
+ * Build a small budget with income, a fixed bill, a variable expense, a saving,
+ * an investment and an excluded transfer subcategory.
  *
- * @return array{user: User, account: BankAccount, salary: Subcategory, rent: Subcategory, groceries: Subcategory, savings: Subcategory}
+ * @return array{user: User, account: BankAccount, salary: Subcategory, rent: Subcategory, groceries: Subcategory, savings: Subcategory, investment: Subcategory, transfer: Subcategory}
  */
 function seedBudget(): array
 {
@@ -19,7 +20,9 @@ function seedBudget(): array
     $account = BankAccount::factory()->for($user)->create();
     $incomeCategory = Category::factory()->income()->create(['name' => 'Income']);
     $expenseCategory = Category::factory()->create(['name' => 'Housing']);
-    $savingsCategory = Category::factory()->create(['name' => 'Savings', 'type' => 'Saving']);
+    $savingsCategory = Category::factory()->saving()->create(['name' => 'Savings']);
+    $investmentCategory = Category::factory()->investment()->create(['name' => 'Investments']);
+    $transferCategory = Category::factory()->exclude()->create(['name' => 'Transfers']);
     $salary = Subcategory::factory()->forCategory($incomeCategory)->create(['name' => 'Salary']);
     $rent = Subcategory::factory()->forCategory($expenseCategory)->create([
         'name' => 'Rent',
@@ -29,9 +32,20 @@ function seedBudget(): array
         'name' => 'Groceries',
         'expense_type' => 'Variable',
     ]);
-    $savings = Subcategory::factory()->forCategory($savingsCategory)->create(['name' => 'Pension']);
+    $savings = Subcategory::factory()->forCategory($savingsCategory)->create([
+        'name' => 'Pension',
+        'expense_type' => null,
+    ]);
+    $investment = Subcategory::factory()->forCategory($investmentCategory)->create([
+        'name' => 'Index funds',
+        'expense_type' => null,
+    ]);
+    $transfer = Subcategory::factory()->forCategory($transferCategory)->create([
+        'name' => 'Internal transfer',
+        'expense_type' => null,
+    ]);
 
-    return compact('user', 'account', 'salary', 'rent', 'groceries', 'savings');
+    return compact('user', 'account', 'salary', 'rent', 'groceries', 'savings', 'investment', 'transfer');
 }
 
 /**
@@ -53,7 +67,7 @@ function breakdownPartialHeaders(): array
 }
 
 test('dashboard aggregates income expenses using the months param for back-compat', function () {
-    ['user' => $user, 'account' => $account, 'salary' => $salary, 'rent' => $rent, 'groceries' => $groceries, 'savings' => $savings] = seedBudget();
+    ['user' => $user, 'account' => $account, 'salary' => $salary, 'rent' => $rent, 'groceries' => $groceries, 'savings' => $savings, 'transfer' => $transfer] = seedBudget();
 
     Posting::factory()->forAccount($account)->categorizedAs($salary)->income()
         ->create(['date' => '2026-01-05', 'amount' => 10000]);
@@ -61,10 +75,12 @@ test('dashboard aggregates income expenses using the months param for back-compa
         ->create(['date' => '2026-01-10', 'amount' => -1500]);
     Posting::factory()->forAccount($account)->categorizedAs($groceries)
         ->create(['date' => '2026-01-12', 'amount' => -1000]);
-    Posting::factory()->forAccount($account)->categorizedAs($salary)->income()
-        ->create(['date' => '2026-01-13', 'amount' => 500000, 'category_type_code' => Posting::CATEGORY_TYPE_TRANSFER]);
+    // Excluded transfer: categorized under an Exclude category, omitted entirely.
+    Posting::factory()->forAccount($account)->categorizedAs($transfer)
+        ->create(['date' => '2026-01-13', 'amount' => 500000]);
     Posting::factory()->forAccount($account)->categorizedAs($savings)
-        ->create(['date' => '2026-01-14', 'amount' => -3000, 'category_type_code' => Posting::CATEGORY_TYPE_SAVING]);
+        ->create(['date' => '2026-01-14', 'amount' => -3000]);
+    // Extraordinary income is excluded from the overview.
     Posting::factory()->forAccount($account)->categorizedAs($salary)->income()
         ->create(['date' => '2026-01-15', 'amount' => 20000, 'is_extraordinary' => true]);
 
@@ -76,12 +92,32 @@ test('dashboard aggregates income expenses using the months param for back-compa
             ->where('period.selected', '12m')
             ->where('period.months', 3)
             ->where('summary.income', 10000)
-            ->where('summary.bills', -1500)
-            ->where('summary.consumption', -1000)
-            ->where('summary.expenses', 2500)
+            ->where('summary.bills', 1500)
+            ->where('summary.consumption', 1000)
             ->where('summary.savings', 3000)
-            ->where('summary.result', 7500)
-            ->where('summary.result_with_savings', 4500));
+            ->where('summary.investments', 0)
+            ->where('summary.uncategorized', 0)
+            ->where('summary.in', 10000)
+            ->where('summary.out', 5500)
+            ->where('summary.result', 4500));
+});
+
+test('a refund categorized under an expense category nets against the bucket instead of inflating it', function () {
+    ['user' => $user, 'account' => $account, 'groceries' => $groceries] = seedBudget();
+
+    Posting::factory()->forAccount($account)->categorizedAs($groceries)
+        ->create(['date' => '2026-01-10', 'amount' => -500]);
+    // The purchase is returned: a positive posting in the same expense subcategory.
+    Posting::factory()->forAccount($account)->categorizedAs($groceries)
+        ->create(['date' => '2026-01-20', 'amount' => 300]);
+
+    $this->actingAs($user)
+        ->get(route('dashboard', ['months' => 3]))
+        ->assertOk()
+        ->assertInertia(fn (Assert $page) => $page
+            ->where('summary.consumption', 200)
+            ->where('summary.out', 200)
+            ->where('summary.result', -200));
 });
 
 test('period options include 12m and the years from earliest posting to now', function () {
@@ -192,7 +228,10 @@ test('breakdown includes income and expense categories with top subcategories fo
         $response->assertJsonPath('props.breakdown.categories.1.name', 'Housing');
         $response->assertJsonPath('props.breakdown.categories.1.total', 333.33);
         $response->assertJsonPath('props.breakdown.categories.1.topSubcategories.0.name', 'Rent');
-        $response->assertJsonPath('props.breakdown.categories.1.topSubcategories.0.amount', 3000);
+        // Subcategory amounts are averaged over the same divisor as the total: 3000 / 12.
+        $response->assertJsonPath('props.breakdown.categories.1.topSubcategories.0.amount', 250);
+        $response->assertJsonPath('props.breakdown.categories.1.topSubcategories.1.name', 'Groceries');
+        $response->assertJsonPath('props.breakdown.categories.1.topSubcategories.1.amount', 83.33);
 
         // Largest postings across the category, ordered by absolute amount.
         $response->assertJsonCount(2, 'props.breakdown.categories.1.topPostings');
@@ -249,4 +288,131 @@ test('breakdown month outside the selected period is ignored', function () {
         )
         ->assertOk()
         ->assertJsonPath('props.breakdown.month', null);
+});
+
+test('recategorizing a posting moves it between buckets', function () {
+    ['user' => $user, 'account' => $account, 'rent' => $rent, 'groceries' => $groceries] = seedBudget();
+
+    // A fixed bill lands in the bills bucket.
+    $posting = Posting::factory()->forAccount($account)->categorizedAs($rent)
+        ->create(['date' => '2026-01-10', 'amount' => -900]);
+
+    $this->actingAs($user)
+        ->get(route('dashboard', ['months' => 3]))
+        ->assertInertia(fn (Assert $page) => $page
+            ->where('summary.bills', 900)
+            ->where('summary.consumption', 0));
+
+    // Recategorizing under a variable subcategory moves it to consumption,
+    // without touching any denormalized type snapshot.
+    $posting->update(['categorized_subcategory_id' => $groceries->id]);
+
+    $this->actingAs($user)
+        ->get(route('dashboard', ['months' => 3]))
+        ->assertInertia(fn (Assert $page) => $page
+            ->where('summary.bills', 0)
+            ->where('summary.consumption', 900));
+});
+
+test('savings and investment categories land in their own buckets', function () {
+    ['user' => $user, 'account' => $account, 'savings' => $savings, 'investment' => $investment] = seedBudget();
+
+    Posting::factory()->forAccount($account)->categorizedAs($savings)
+        ->create(['date' => '2026-01-10', 'amount' => -400]);
+    Posting::factory()->forAccount($account)->categorizedAs($investment)
+        ->create(['date' => '2026-01-11', 'amount' => -250]);
+
+    $this->actingAs($user)
+        ->get(route('dashboard', ['months' => 3]))
+        ->assertInertia(fn (Assert $page) => $page
+            ->where('summary.savings', 400)
+            ->where('summary.investments', 250)
+            ->where('summary.out', 650)
+            ->where('summary.result', -650));
+});
+
+test('excluded categories are omitted from the overview', function () {
+    ['user' => $user, 'account' => $account, 'salary' => $salary, 'transfer' => $transfer] = seedBudget();
+
+    Posting::factory()->forAccount($account)->categorizedAs($salary)->income()
+        ->create(['date' => '2026-01-05', 'amount' => 5000]);
+    Posting::factory()->forAccount($account)->categorizedAs($transfer)
+        ->create(['date' => '2026-01-06', 'amount' => -5000]);
+    Posting::factory()->forAccount($account)->categorizedAs($transfer)
+        ->create(['date' => '2026-01-07', 'amount' => 5000]);
+
+    $this->actingAs($user)
+        ->get(route('dashboard', ['months' => 3]))
+        ->assertInertia(fn (Assert $page) => $page
+            ->where('summary.income', 5000)
+            ->where('summary.out', 0)
+            ->where('summary.result', 5000));
+});
+
+test('uncategorized postings bucket by sign', function () {
+    ['user' => $user, 'account' => $account] = seedBudget();
+
+    // Negative uncategorized spending goes to the uncategorized bucket.
+    Posting::factory()->forAccount($account)->uncategorized()
+        ->create(['date' => '2026-01-10', 'amount' => -320]);
+    // Positive uncategorized inflow reads as income.
+    Posting::factory()->forAccount($account)->uncategorized()
+        ->create(['date' => '2026-01-11', 'amount' => 180]);
+
+    $this->actingAs($user)
+        ->get(route('dashboard', ['months' => 3]))
+        ->assertInertia(fn (Assert $page) => $page
+            ->where('summary.uncategorized', 320)
+            ->where('summary.income', 180)
+            ->where('summary.out', 320)
+            ->where('summary.result', -140));
+});
+
+test('extraordinary postings are excluded from every bucket', function () {
+    ['user' => $user, 'account' => $account, 'groceries' => $groceries] = seedBudget();
+
+    Posting::factory()->forAccount($account)->categorizedAs($groceries)
+        ->create(['date' => '2026-01-10', 'amount' => -500]);
+    Posting::factory()->forAccount($account)->categorizedAs($groceries)
+        ->create(['date' => '2026-01-11', 'amount' => -9999, 'is_extraordinary' => true]);
+
+    $this->actingAs($user)
+        ->get(route('dashboard', ['months' => 3]))
+        ->assertInertia(fn (Assert $page) => $page
+            ->where('summary.consumption', 500)
+            ->where('summary.out', 500));
+});
+
+test('the balance prop sums active accounts in the primary currency', function () {
+    $user = User::factory()->create();
+    BankAccount::factory()->for($user)->create([
+        'currency' => 'EUR',
+        'is_active' => true,
+        'last_booked_balance' => 1000,
+        'last_available_balance' => 900,
+    ]);
+    // Falls back to the available balance when the booked one is missing.
+    BankAccount::factory()->for($user)->create([
+        'currency' => 'EUR',
+        'is_active' => true,
+        'last_booked_balance' => null,
+        'last_available_balance' => 250,
+    ]);
+    // Inactive and non-primary-currency accounts are ignored.
+    BankAccount::factory()->for($user)->inactive()->create([
+        'currency' => 'EUR',
+        'last_booked_balance' => 5000,
+    ]);
+    BankAccount::factory()->for($user)->create([
+        'currency' => 'USD',
+        'is_active' => true,
+        'last_booked_balance' => 7000,
+    ]);
+
+    $this->actingAs($user)
+        ->get(route('dashboard'))
+        ->assertOk()
+        ->assertInertia(fn (Assert $page) => $page
+            ->where('primaryCurrency', 'EUR')
+            ->where('balance', 1250));
 });

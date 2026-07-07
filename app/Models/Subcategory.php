@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\ExpenseType;
 use Database\Factories\SubcategoryFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -22,9 +23,7 @@ class Subcategory extends Model
         'name',
         'hyphenated_name',
         'expense_type',
-        'type',
         'hints',
-        'is_ignored',
     ];
 
     /**
@@ -51,7 +50,7 @@ class Subcategory extends Model
     protected function casts(): array
     {
         return [
-            'is_ignored' => 'boolean',
+            'expense_type' => ExpenseType::class,
         ];
     }
 }

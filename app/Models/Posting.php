@@ -2,6 +2,8 @@
 
 namespace App\Models;
 
+use App\Enums\Bucket;
+use App\Enums\CategoryType;
 use Database\Factories\PostingFactory;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -12,14 +14,6 @@ class Posting extends Model
 {
     /** @use HasFactory<PostingFactory> */
     use HasFactory;
-
-    public const int CATEGORY_TYPE_INCOME = 1;
-
-    public const int CATEGORY_TYPE_EXPENSE = 2;
-
-    public const int CATEGORY_TYPE_TRANSFER = 3;
-
-    public const int CATEGORY_TYPE_SAVING = 4;
 
     /**
      * @var list<string>
@@ -53,7 +47,6 @@ class Posting extends Model
         'prevent_marking_as_counter_entry',
         'description_changed',
         'extra_data',
-        'category_type_code',
         'posting_type',
         'posting_sub_type',
         'currency',
@@ -127,27 +120,27 @@ class Posting extends Model
         return $query->where('user_id', $user->id);
     }
 
-    public function countsAsOverviewIncome(): bool
+    /**
+     * The overview bucket this posting contributes to, or null when it is
+     * excluded from the overview (extraordinary postings, or postings
+     * categorized under an {@see CategoryType::Exclude} category).
+     *
+     * Uncategorized postings fall back to their sign: a positive amount reads
+     * as income, a negative amount as uncategorized spending.
+     */
+    public function overviewBucket(): ?Bucket
     {
-        return ! $this->is_extraordinary
-            && $this->category_type_code === self::CATEGORY_TYPE_INCOME;
-    }
+        if ($this->is_extraordinary) {
+            return null;
+        }
 
-    public function countsAsOverviewExpense(): bool
-    {
-        return ! $this->is_extraordinary
-            && $this->category_type_code === self::CATEGORY_TYPE_EXPENSE;
-    }
+        $category = $this->categorizedSubcategory?->category;
 
-    public function countsAsOverviewSaving(): bool
-    {
-        return ! $this->is_extraordinary
-            && $this->category_type_code === self::CATEGORY_TYPE_SAVING;
-    }
+        if ($category === null) {
+            return (float) $this->amount >= 0 ? Bucket::Income : Bucket::Uncategorized;
+        }
 
-    public function isFixedOverviewExpense(): bool
-    {
-        return $this->categorizedSubcategory?->expense_type === 'Fixed';
+        return Bucket::forCategory($category->type, $this->categorizedSubcategory?->expense_type);
     }
 
     /**

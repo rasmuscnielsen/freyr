@@ -4,6 +4,8 @@ use App\Http\Controllers\BankAccountController;
 use App\Http\Controllers\BankConnectionAccountController;
 use App\Http\Controllers\BankConnectionController;
 use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\Platform\CategoryController;
+use App\Http\Controllers\Platform\SubcategoryController;
 use App\Http\Controllers\PostingController;
 use Illuminate\Support\Facades\Route;
 
@@ -21,6 +23,17 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::post('bank-connection-accounts/{bankConnectionAccount}/sync', [BankConnectionAccountController::class, 'sync'])->name('bank-connection-accounts.sync');
     Route::resource('postings', PostingController::class)->only(['index', 'update']);
     Route::resource('bank-accounts', BankAccountController::class)->only(['index', 'show', 'store', 'update', 'destroy']);
+});
+
+Route::middleware(['auth', 'verified', 'platform-admin'])->prefix('platform')->name('platform.')->group(function () {
+    Route::get('categories', [CategoryController::class, 'index'])->name('categories.index');
+    Route::post('categories', [CategoryController::class, 'store'])->name('categories.store');
+    Route::patch('categories/{category}', [CategoryController::class, 'update'])->name('categories.update');
+    Route::delete('categories/{category}', [CategoryController::class, 'destroy'])->name('categories.destroy');
+
+    Route::post('subcategories', [SubcategoryController::class, 'store'])->name('subcategories.store');
+    Route::patch('subcategories/{subcategory}', [SubcategoryController::class, 'update'])->name('subcategories.update');
+    Route::delete('subcategories/{subcategory}', [SubcategoryController::class, 'destroy'])->name('subcategories.destroy');
 });
 
 require __DIR__.'/settings.php';

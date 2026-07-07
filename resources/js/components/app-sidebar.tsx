@@ -1,5 +1,5 @@
-import { Link } from '@inertiajs/react';
-import { BarChart3, ListChecks, WalletCards } from 'lucide-react';
+import { Link, usePage } from '@inertiajs/react';
+import { BarChart3, ListChecks, Tags, WalletCards } from 'lucide-react';
 import AppLogo from '@/components/app-logo';
 import { NavFooter } from '@/components/nav-footer';
 import { NavMain } from '@/components/nav-main';
@@ -15,10 +15,11 @@ import {
 } from '@/components/ui/sidebar';
 import { dashboard } from '@/routes';
 import { index as bankAccountsIndex } from '@/routes/bank-accounts';
+import { index as categoriesIndex } from '@/routes/platform/categories';
 import { index as postingsIndex } from '@/routes/postings';
 import type { NavItem } from '@/types';
 
-const mainNavItems: NavItem[] = [
+const accountNavItems: NavItem[] = [
     {
         title: 'Dashboard',
         href: dashboard(),
@@ -36,9 +37,19 @@ const mainNavItems: NavItem[] = [
     },
 ];
 
+const platformNavItems: NavItem[] = [
+    {
+        title: 'Categories',
+        href: categoriesIndex(),
+        icon: Tags,
+    },
+];
+
 const footerNavItems: NavItem[] = [];
 
 export function AppSidebar() {
+    const { auth } = usePage().props;
+
     return (
         <Sidebar collapsible="icon" variant="inset">
             <SidebarHeader>
@@ -54,7 +65,10 @@ export function AppSidebar() {
             </SidebarHeader>
 
             <SidebarContent>
-                <NavMain items={mainNavItems} />
+                <NavMain label="Account" items={accountNavItems} />
+                {auth.isPlatformAdmin && (
+                    <NavMain label="Platform" items={platformNavItems} />
+                )}
             </SidebarContent>
 
             <SidebarFooter>

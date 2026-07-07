@@ -45,7 +45,6 @@ class PostingFactory extends Factory
             'prevent_marking_as_counter_entry' => false,
             'description_changed' => false,
             'extra_data' => null,
-            'category_type_code' => 2,
             'posting_type' => 0,
             'posting_sub_type' => null,
             'currency' => 'DKK',
@@ -77,9 +76,8 @@ class PostingFactory extends Factory
 
     public function income(): static
     {
-        return $this->state(fn (array $attributes) => [
+        return $this->state(fn (array $attributes): array => [
             'amount' => fake()->randomFloat(2, 1000, 50000),
-            'category_type_code' => Posting::CATEGORY_TYPE_INCOME,
         ]);
     }
 
@@ -87,7 +85,6 @@ class PostingFactory extends Factory
     {
         return $this->state(fn (array $attributes): array => [
             'amount' => fake()->randomFloat(2, -1000, -10),
-            'category_type_code' => Posting::CATEGORY_TYPE_EXPENSE,
         ]);
     }
 
@@ -95,14 +92,6 @@ class PostingFactory extends Factory
     {
         return $this->state(fn (array $attributes): array => [
             'amount' => fake()->randomFloat(2, -10000, -500),
-            'category_type_code' => Posting::CATEGORY_TYPE_SAVING,
-        ]);
-    }
-
-    public function transfer(): static
-    {
-        return $this->state(fn (array $attributes): array => [
-            'category_type_code' => Posting::CATEGORY_TYPE_TRANSFER,
         ]);
     }
 

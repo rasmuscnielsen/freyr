@@ -57,7 +57,9 @@
     --color-chart-income: var(--chart-income);
     --color-chart-bills: var(--chart-bills);
     --color-chart-consumption: var(--chart-consumption);
+    --color-chart-investments: var(--chart-investments);
     --color-chart-savings: var(--chart-savings);
+    --color-chart-uncategorized: var(--chart-uncategorized);
     --color-chart-result: var(--chart-result);
 
     --color-sidebar: var(--sidebar);
@@ -98,9 +100,11 @@
     --chart-4: oklch(0.828 0.189 84.429);
     --chart-5: oklch(0.769 0.188 70.08);
     --chart-income: oklch(0.7 0.14 162);
-    --chart-bills: oklch(0.585 0.233 277);
-    --chart-consumption: oklch(0.7 0.14 235);
-    --chart-savings: oklch(0.78 0.16 75);
+    --chart-bills: oklch(71.2% 0.194 13.428);
+    --chart-consumption: oklch(82.8% 0.189 84.429);
+    --chart-investments: oklch(74.6% 0.16 232.661);
+    --chart-savings: oklch(67.3% 0.182 276.935);
+    --chart-uncategorized: oklch(86.9% 0.022 252.894);
     --chart-result: var(--foreground);
     --radius: 0.625rem;
     --sidebar: oklch(0.972 0.002 286);
@@ -141,9 +145,11 @@
     --chart-4: oklch(0.627 0.265 303.9);
     --chart-5: oklch(0.645 0.246 16.439);
     --chart-income: oklch(0.77 0.15 162);
-    --chart-bills: oklch(0.68 0.19 277);
-    --chart-consumption: oklch(0.746 0.16 232);
-    --chart-savings: oklch(0.83 0.15 80);
+    --chart-bills: oklch(71.2% 0.194 13.428);
+    --chart-consumption: oklch(82.8% 0.189 84.429);
+    --chart-investments: oklch(74.6% 0.16 232.661);
+    --chart-savings: oklch(67.3% 0.182 276.935);
+    --chart-uncategorized: oklch(86.9% 0.022 252.894);
     --chart-result: var(--foreground);
     --sidebar: oklch(0.105 0 0);
     --sidebar-foreground: oklch(0.78 0 0);

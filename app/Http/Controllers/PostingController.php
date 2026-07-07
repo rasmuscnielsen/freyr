@@ -96,7 +96,7 @@ class PostingController extends Controller
                     'subcategories' => $category->subcategories->map(fn ($subcategory): array => [
                         'id' => $subcategory->id,
                         'name' => $subcategory->name,
-                        'type' => $subcategory->type,
+                        'type' => $category->type,
                     ]),
                 ]),
         ]);
@@ -136,7 +136,7 @@ class PostingController extends Controller
             'subcategory' => $posting->categorizedSubcategory === null ? null : [
                 'id' => $posting->categorizedSubcategory->id,
                 'name' => $posting->categorizedSubcategory->name,
-                'type' => $posting->categorizedSubcategory->type,
+                'type' => $posting->categorizedSubcategory->category?->type,
             ],
         ];
     }
