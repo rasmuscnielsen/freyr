@@ -824,8 +824,9 @@ function BreakdownGroup({
 
 /**
  * One Spiir-style breakdown row: the category label sits above the bar, the
- * amount trails the bar's end. Hovering reveals a detail card anchored near
- * the cursor; navigation happens through the card's "View postings" action.
+ * amount trails the bar's end. The whole row clicks through to the filtered
+ * postings list; hovering the bar reveals a detail card anchored near the
+ * cursor with subcategories and largest postings.
  */
 function BreakdownRow({
     category,
@@ -845,8 +846,28 @@ function BreakdownRow({
     const [anchorX, setAnchorX] = useState(0);
 
     return (
-        <div className="flex w-full flex-col gap-1 py-1 text-left">
-            <span className="text-sm font-medium">{category.name}</span>
+        <div
+            className="group flex w-full cursor-pointer flex-col gap-1 py-1 text-left"
+            onClick={() => onSelect(category)}
+        >
+            <button
+                type="button"
+                className="flex cursor-pointer items-center gap-1 self-start text-sm font-medium underline-offset-2 group-hover:underline"
+                onClick={(event) => {
+                    // The row's own handler covers pointer clicks; this button
+                    // exists for keyboard and screen-reader access.
+                    event.stopPropagation();
+                    onSelect(category);
+                }}
+            >
+                {category.name}
+                <span
+                    className="text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100"
+                    aria-hidden
+                >
+                    →
+                </span>
+            </button>
             <span className="flex items-center gap-3">
                 <HoverCard openDelay={100} closeDelay={80}>
                     <HoverCardTrigger asChild>
