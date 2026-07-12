@@ -292,6 +292,32 @@ function stopCardNavigation(event: MouseEvent) {
     event.stopPropagation();
 }
 
+/**
+ * Sums account balances per currency, since aggregating across currencies is
+ * not supported. Accounts without a known balance are skipped. Currencies are
+ * ordered by how many accounts use them, so the primary one leads.
+ */
+function balancesByCurrency(
+    accounts: Account[],
+): Array<{ currency: string; total: number }> {
+    const totals = new Map<string, { total: number; count: number }>();
+
+    for (const account of accounts) {
+        if (account.current_balance === null) {
+            continue;
+        }
+
+        const entry = totals.get(account.currency) ?? { total: 0, count: 0 };
+        entry.total += account.current_balance;
+        entry.count += 1;
+        totals.set(account.currency, entry);
+    }
+
+    return [...totals.entries()]
+        .sort((a, b) => b[1].count - a[1].count)
+        .map(([currency, entry]) => ({ currency, total: entry.total }));
+}
+
 export default function BankAccounts({
     accounts,
     linkableConnectionAccounts,
@@ -313,6 +339,7 @@ export default function BankAccounts({
     const activeAccounts = accounts.filter((account) => account.is_active);
     const closedAccounts = accounts.filter((account) => !account.is_active);
     const accountGroups = groupAccountsByType(activeAccounts);
+    const totalBalances = balancesByCurrency(activeAccounts);
     const hasNothing = accounts.length === 0 && connections.length === 0;
 
     const linkableAccounts = accounts.filter(
@@ -334,10 +361,29 @@ export default function BankAccounts({
                             one place.
                         </p>
                     </div>
-                    <Button onClick={() => setIsCreating(true)}>
-                        <Plus className="size-4" />
-                        Add account
-                    </Button>
+                    <div className="flex flex-wrap items-end gap-x-6 gap-y-3">
+                        {totalBalances.length > 0 && (
+                            <div className="md:text-right">
+                                <div className="text-xs text-muted-foreground">
+                                    Total balance
+                                </div>
+                                <div className="flex flex-wrap items-baseline gap-x-3 font-semibold tabular-nums md:justify-end">
+                                    {totalBalances.map((entry) => (
+                                        <span key={entry.currency}>
+                                            {formatMoney(
+                                                entry.total,
+                                                entry.currency,
+                                            )}
+                                        </span>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+                        <Button onClick={() => setIsCreating(true)}>
+                            <Plus className="size-4" />
+                            Add account
+                        </Button>
+                    </div>
                 </div>
 
                 {hasNothing ? (
@@ -729,13 +775,26 @@ function AccountList({
     onEdit: (account: Account) => void;
     onConnect: (account: Account) => void;
 }) {
+    const subtotals = muted ? [] : balancesByCurrency(accounts);
+
     return (
         <section className="flex flex-col gap-2">
-            <div className="flex items-baseline gap-2">
-                <h2 className="text-sm font-semibold">{label}</h2>
-                <span className="text-xs text-muted-foreground tabular-nums">
-                    {accounts.length}
-                </span>
+            <div className="flex items-baseline justify-between gap-2">
+                <div className="flex items-baseline gap-2">
+                    <h2 className="text-sm font-semibold">{label}</h2>
+                    <span className="text-xs text-muted-foreground tabular-nums">
+                        {accounts.length}
+                    </span>
+                </div>
+                {subtotals.length > 0 && (
+                    <span className="flex flex-wrap items-baseline gap-x-3 text-sm font-medium text-muted-foreground tabular-nums">
+                        {subtotals.map((entry) => (
+                            <span key={entry.currency}>
+                                {formatMoney(entry.total, entry.currency)}
+                            </span>
+                        ))}
+                    </span>
+                )}
             </div>
             <Card className="rounded-lg py-0">
                 <CardContent className="divide-y p-0">
