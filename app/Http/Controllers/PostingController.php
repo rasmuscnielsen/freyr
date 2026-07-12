@@ -86,9 +86,10 @@ class PostingController extends Controller
                 ->get(['id', 'name', 'bank_name', 'currency', 'is_active']),
             'categories' => Category::query()
                 ->with(['subcategories' => fn ($query) => $query->orderBy('name')])
-                ->orderBy('type')
                 ->orderBy('name')
                 ->get()
+                ->sortBy(fn (Category $category): int => $category->type->displayOrder())
+                ->values()
                 ->map(fn (Category $category): array => [
                     'id' => $category->id,
                     'name' => $category->name,

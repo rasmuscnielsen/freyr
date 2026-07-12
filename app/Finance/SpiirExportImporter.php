@@ -20,6 +20,8 @@ use SplFileObject;
 
 class SpiirExportImporter
 {
+    public function __construct(private AccountBalanceRecalculator $balanceRecalculator) {}
+
     /**
      * @return array{categories:int, subcategories:int}
      */
@@ -109,6 +111,7 @@ class SpiirExportImporter
             $accounts = $this->importAccounts($path, $user);
             $postings = $this->importPostings($path, $user, $accounts);
             $counterEntries = $this->resolveCounterEntryPostings();
+            $this->recalculateImportedBalances($accounts);
 
             return [
                 'user_id' => $user->id,
@@ -117,6 +120,25 @@ class SpiirExportImporter
                 'counter_entries' => $counterEntries,
             ];
         });
+    }
+
+    /**
+     * Imported accounts have no bank connection yet, so their balances are
+     * derived: seed each account's opening balance from the imported chain
+     * while the imported per-posting balances are still authoritative, then
+     * rewrite the chain so it is consistent by construction.
+     *
+     * @param  Collection<string, int>  $accountIds
+     */
+    private function recalculateImportedBalances(Collection $accountIds): void
+    {
+        BankAccount::query()
+            ->whereIn('id', $accountIds->values())
+            ->get()
+            ->each(function (BankAccount $account): void {
+                $this->balanceRecalculator->seedOpeningBalanceFromImportedChain($account);
+                $this->balanceRecalculator->recalculate($account);
+            });
     }
 
     private function resolveUser(string $path): User
@@ -161,8 +183,7 @@ class SpiirExportImporter
                     'bank_key' => $this->nullableString($row['BankId'] ?? null),
                     'bank_name' => $this->bankName($this->nullableString($row['BankId'] ?? null)),
                     'currency' => (string) ($row['Currency'] ?: 'DKK'),
-                    'last_booked_balance' => $this->decimal($row['LastBookedBalance'] ?? null),
-                    'last_available_balance' => $this->decimal($row['LastAvailableBalance'] ?? null),
+                    'current_balance' => $this->decimal($row['LastBookedBalance'] ?? null),
                     'account_type' => $this->nullableString($row['AccountType'] ?? null),
                     'account_subcategory_key' => $this->nullableString($row['AccountSubcategoryId'] ?? null),
                     'account_group_legacy_id' => $this->nullableString($row['AccountGroupId'] ?? null),

@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Finance\AccountBalanceRecalculator;
 use App\Http\Requests\LinkBankConnectionAccountRequest;
 use App\Jobs\SyncBankConnectionAccountJob;
 use App\Models\BankAccount;
@@ -13,7 +14,7 @@ use Illuminate\Support\Str;
 
 class BankConnectionAccountController extends Controller
 {
-    public function update(LinkBankConnectionAccountRequest $request, BankConnectionAccount $bankConnectionAccount): RedirectResponse
+    public function update(LinkBankConnectionAccountRequest $request, BankConnectionAccount $bankConnectionAccount, AccountBalanceRecalculator $balanceRecalculator): RedirectResponse
     {
         $bankConnectionAccount->loadMissing('bankConnection');
         abort_unless($request->user()?->is($bankConnectionAccount->bankConnection->user), 403);
@@ -21,10 +22,20 @@ class BankConnectionAccountController extends Controller
         $validated = $request->validated();
 
         if ($validated['mode'] === 'ignore') {
+            $detachedAccount = $bankConnectionAccount->bankAccount;
+
             $bankConnectionAccount->update([
                 'status' => BankConnectionAccount::STATUS_IGNORED,
                 'bank_account_id' => null,
             ]);
+
+            // A detached account without any remaining connection is manual
+            // from here on: anchor its opening balance while the synced
+            // running balances are still authoritative, then derive its chain.
+            if ($detachedAccount !== null && ! $detachedAccount->hasBankConnection()) {
+                $balanceRecalculator->seedOpeningBalanceFromImportedChain($detachedAccount);
+                $balanceRecalculator->recalculate($detachedAccount);
+            }
 
             return back();
         }

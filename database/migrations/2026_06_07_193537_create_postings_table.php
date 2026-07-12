@@ -18,7 +18,7 @@ return new class extends Migration
             $table->foreignId('subcategory_id')->nullable()->constrained()->nullOnDelete();
             $table->foreignId('categorized_subcategory_id')->nullable()->constrained('subcategories')->nullOnDelete();
             $table->foreignId('counter_entry_posting_id')->nullable()->constrained('postings')->nullOnDelete();
-            $table->string('legacy_id')->unique();
+            $table->string('legacy_id')->nullable()->unique();
             $table->string('counter_entry_legacy_id')->nullable();
             $table->string('split_group_legacy_id')->nullable();
             $table->date('date');

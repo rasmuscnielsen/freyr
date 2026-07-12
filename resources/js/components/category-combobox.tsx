@@ -30,7 +30,7 @@ type CategoryComboboxProps = {
     onClose: () => void;
     /** When true the input is disabled and a spinner is shown (PATCH in flight). */
     isSaving?: boolean;
-    /** Number of results to render at once. */
+    /** Number of results to render at once. Defaults to all — the list scrolls. */
     maxResults?: number;
     /** Debounce delay (ms) applied to the filter input. */
     debounceMs?: number;
@@ -46,7 +46,7 @@ export function CategoryCombobox({
     onSelect,
     onClose,
     isSaving = false,
-    maxResults = 20,
+    maxResults = Number.POSITIVE_INFINITY,
     debounceMs = 100,
 }: CategoryComboboxProps) {
     const listboxId = useId();

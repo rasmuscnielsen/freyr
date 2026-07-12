@@ -18,4 +18,19 @@ enum CategoryType: string
     case Saving = 'Saving';
 
     case Exclude = 'Exclude';
+
+    /**
+     * Display order for category pickers: everyday money flows first,
+     * Exclude last. The enum's alphabetical order is meaningless to users.
+     */
+    public function displayOrder(): int
+    {
+        return match ($this) {
+            self::Income => 0,
+            self::Expense => 1,
+            self::Saving => 2,
+            self::Investment => 3,
+            self::Exclude => 4,
+        };
+    }
 }

@@ -306,11 +306,9 @@ class EnableBankingConnectionManager
         }
 
         $booked = collect($balances)->firstWhere('balance_type', 'CLBD') ?? $balances[0] ?? null;
-        $available = collect($balances)->firstWhere('balance_type', 'XPCD') ?? $booked;
 
         $bankAccount->update([
-            'last_booked_balance' => data_get($booked, 'balance_amount.amount'),
-            'last_available_balance' => data_get($available, 'balance_amount.amount'),
+            'current_balance' => data_get($booked, 'balance_amount.amount'),
             'last_updated_at' => now(),
             'last_known_posting_date' => $lastTransactionDate?->toDateString() ?? $account->last_transaction_date,
         ]);

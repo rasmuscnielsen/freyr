@@ -313,8 +313,7 @@ class DemoSeeder extends Seeder
             }
 
             $account->update([
-                'last_booked_balance' => $latestPosting->balance,
-                'last_available_balance' => $latestPosting->balance,
+                'current_balance' => $latestPosting->balance,
                 'last_known_posting_date' => $latestPosting->date,
                 'last_updated_at' => now(),
             ]);
