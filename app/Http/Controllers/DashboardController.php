@@ -340,6 +340,18 @@ class DashboardController extends Controller
                         $category = $postings->first()?->categorizedSubcategory?->category;
                         $total = (float) $postings->sum(fn (Posting $posting): float => (float) $posting->amount);
 
+                        // A category can span buckets (fixed and variable
+                        // subcategories); the row is colored by wherever most
+                        // of its money lands.
+                        $dominantBucket = $entries
+                            ->groupBy(fn (array $entry): string => $entry['bucket']->value)
+                            ->map(fn (Collection $items): float => abs((float) $items->sum(
+                                fn (array $item): float => (float) $item['posting']->amount,
+                            )))
+                            ->sortDesc()
+                            ->keys()
+                            ->first();
+
                         $topSubcategories = $postings
                             ->groupBy(fn (Posting $posting): string => $posting->categorizedSubcategory?->name ?? 'Uncategorized')
                             ->map(fn (Collection $items, string $name): array => [
@@ -366,6 +378,7 @@ class DashboardController extends Controller
                             'id' => $category?->id,
                             'name' => $category?->name ?? 'Uncategorized',
                             'type' => $type,
+                            'bucket' => $dominantBucket,
                             'total' => round(abs($total) / $divisor, 2),
                             'topSubcategories' => $topSubcategories->all(),
                             'topPostings' => $topPostings->all(),

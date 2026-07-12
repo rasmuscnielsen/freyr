@@ -79,6 +79,7 @@ type BreakdownCategory = {
     id: number | null;
     name: string;
     type: 'income' | 'expense';
+    bucket: 'income' | BucketKey;
     total: number;
     topSubcategories: TopSubcategory[];
     topPostings: TopPosting[];
@@ -149,6 +150,17 @@ const BUCKETS: BucketMeta[] = [
         cssVar: 'var(--color-chart-uncategorized)',
     },
 ];
+
+/**
+ * Bar color per overview bucket, so the breakdown rows reuse the color
+ * language established by the allocation bar and the monthly flow chart.
+ */
+const BUCKET_COLORS: Record<'income' | BucketKey, string> = {
+    income: 'var(--color-chart-income)',
+    ...(Object.fromEntries(
+        BUCKETS.map((bucket) => [bucket.key, bucket.cssVar]),
+    ) as Record<BucketKey, string>),
+};
 
 function formatMoney(value: number, currency: string | null): string {
     return formatSharedMoney(value, currency, { maximumFractionDigits: 0 });
@@ -678,17 +690,12 @@ export default function Dashboard({
                                 <BreakdownGroup
                                     title="In"
                                     categories={incomeCategories}
-                                    color="var(--color-chart-income)"
                                     onSelect={openCategory}
                                     currency={primaryCurrency}
                                 />
                                 <BreakdownGroup
                                     title="Out"
                                     categories={expenseCategories}
-                                    // Not the bills colour: the Out group holds every
-                                    // outgoing category. A mid neutral distinct from the
-                                    // Uncategorized gray keeps the bars calm.
-                                    color="color-mix(in oklab, var(--muted-foreground) 65%, var(--foreground))"
                                     onSelect={openCategory}
                                     currency={primaryCurrency}
                                 />
@@ -759,13 +766,11 @@ function FlowStat({
 function BreakdownGroup({
     title,
     categories,
-    color,
     onSelect,
     currency,
 }: {
     title: string;
     categories: BreakdownCategory[];
-    color: string;
     onSelect: (category: BreakdownCategory) => void;
     currency: string | null;
 }) {
@@ -807,7 +812,6 @@ function BreakdownGroup({
                                     ? (category.total / maxTotal) * 100
                                     : 0
                             }
-                            color={color}
                             onSelect={onSelect}
                             currency={currency}
                         />
@@ -826,18 +830,16 @@ function BreakdownGroup({
 function BreakdownRow({
     category,
     pct,
-    color,
     onSelect,
     currency,
 }: {
     category: BreakdownCategory;
     pct: number;
-    color: string;
     onSelect: (category: BreakdownCategory) => void;
     currency: string | null;
 }) {
     const barColor =
-        category.id === null ? 'var(--color-chart-uncategorized)' : color;
+        BUCKET_COLORS[category.bucket] ?? 'var(--color-chart-uncategorized)';
     // Where the pointer entered the row, so the detail card opens near the
     // cursor instead of pinned to the row's left edge covering the bars.
     const [anchorX, setAnchorX] = useState(0);
