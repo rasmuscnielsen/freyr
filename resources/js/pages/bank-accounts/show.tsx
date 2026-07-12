@@ -5,6 +5,7 @@ import {
     CalendarClock,
     ChevronLeft,
     ChevronRight,
+    PencilLine,
     Plus,
     RefreshCw,
     Sparkles,
@@ -339,11 +340,25 @@ export default function BankAccountShow({
 
                         <div className="grid gap-3 text-sm text-muted-foreground sm:grid-cols-3">
                             <div className="flex items-center gap-2">
-                                <RefreshCw className="size-4" />
-                                <span>
-                                    Last sync{' '}
-                                    {formatDateTime(account.last_synced_at)}
-                                </span>
+                                {account.is_manual ? (
+                                    <>
+                                        <PencilLine className="size-4" />
+                                        <span>
+                                            Manual account — postings are added
+                                            by hand
+                                        </span>
+                                    </>
+                                ) : (
+                                    <>
+                                        <RefreshCw className="size-4" />
+                                        <span>
+                                            Last sync{' '}
+                                            {formatDateTime(
+                                                account.last_synced_at,
+                                            )}
+                                        </span>
+                                    </>
+                                )}
                             </div>
                             <div className="flex items-center gap-2">
                                 <CalendarClock className="size-4" />
