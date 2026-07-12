@@ -1,4 +1,4 @@
-import { Head, router } from '@inertiajs/react';
+import { Head, Link, router } from '@inertiajs/react';
 import { Fragment, useState } from 'react';
 import {
     Bar,
@@ -567,6 +567,7 @@ export default function Dashboard({
                         summary={summary}
                         months={monthsInPeriod}
                         currency={primaryCurrency}
+                        period={period}
                     />
                 </div>
 
@@ -974,17 +975,19 @@ function BreakdownSkeleton() {
  * Splits total spending (summary.out) into its five outgoing buckets as one
  * slim proportional bar with a wrapping legend. Legend amounts are per-month
  * averages (shares stay ratios of the period totals). Zero buckets are
- * hidden; the Uncategorized segment relies on its muted gray token to read
- * as categorization debt.
+ * hidden; the Uncategorized entry links to the postings that need
+ * categorizing so the debt is actionable, not just visible.
  */
 function AllocationBar({
     summary,
     months,
     currency,
+    period,
 }: {
     summary: Summary;
     months: number;
     currency: string | null;
+    period: Period;
 }) {
     const out = summary.out;
 
@@ -1020,11 +1023,8 @@ function AllocationBar({
             </div>
             <div className="flex flex-wrap gap-x-5 gap-y-2 text-sm">
                 {segments.map((segment) => {
-                    return (
-                        <span
-                            key={segment.key}
-                            className="flex items-center gap-1.5"
-                        >
+                    const content = (
+                        <>
                             <span
                                 className={cn(
                                     'size-2 shrink-0 rounded-full',
@@ -1044,6 +1044,41 @@ function AllocationBar({
                             <span className="text-muted-foreground tabular-nums">
                                 {formatMoney(segment.value / months, currency)}
                             </span>
+                        </>
+                    );
+
+                    if (segment.key === 'uncategorized') {
+                        return (
+                            <Link
+                                key={segment.key}
+                                href={postingsIndex.url({
+                                    query: {
+                                        filter: {
+                                            uncategorized: true,
+                                            posted_between: `${period.start},${period.end}`,
+                                        },
+                                    },
+                                })}
+                                title="Review uncategorized postings"
+                                className="flex items-center gap-1.5 underline-offset-2 hover:underline"
+                            >
+                                {content}
+                                <span
+                                    className="text-muted-foreground"
+                                    aria-hidden
+                                >
+                                    →
+                                </span>
+                            </Link>
+                        );
+                    }
+
+                    return (
+                        <span
+                            key={segment.key}
+                            className="flex items-center gap-1.5"
+                        >
+                            {content}
                         </span>
                     );
                 })}
