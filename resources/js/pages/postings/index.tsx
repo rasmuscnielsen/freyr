@@ -4,7 +4,6 @@ import { useEffect, useMemo, useState } from 'react';
 import { CategoryCombobox } from '@/components/category-combobox';
 import type { CategoryComboboxOption } from '@/components/category-combobox';
 import { PostingFormDialog } from '@/components/posting-form-dialog';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -547,7 +546,7 @@ export default function Postings({
                                         <td className="px-3 py-2 whitespace-nowrap text-muted-foreground tabular-nums">
                                             {formatDate(posting.date)}
                                         </td>
-                                        <td className="px-3 py-2 flex gap-2 items-center">
+                                        <td className="flex items-center gap-2 px-3 py-2">
                                             <div className="font-medium">
                                                 {posting.description}
                                             </div>
@@ -636,31 +635,17 @@ export default function Postings({
                     </div>
                 </div>
 
-                <div className="flex flex-wrap items-center gap-2">
-                    {postings.links.map((link, index) =>
-                        link.url === null ? (
-                            <Button
-                                key={`${link.label}-${index}`}
-                                variant="outline"
-                                size="sm"
-                                disabled
-                            >
-                                {index === 0 ? (
-                                    <ChevronLeft className="size-4" />
-                                ) : index === postings.links.length - 1 ? (
-                                    <ChevronRight className="size-4" />
-                                ) : (
-                                    normalizeLabel(link.label)
-                                )}
-                            </Button>
-                        ) : (
-                            <Button
-                                key={`${link.label}-${index}`}
-                                asChild
-                                variant={link.active ? 'default' : 'outline'}
-                                size="sm"
-                            >
-                                <Link href={link.url} preserveScroll>
+                {/* Prev + one page + next means there is nothing to paginate. */}
+                {postings.links.length > 3 && (
+                    <div className="flex flex-wrap items-center gap-2">
+                        {postings.links.map((link, index) =>
+                            link.url === null ? (
+                                <Button
+                                    key={`${link.label}-${index}`}
+                                    variant="outline"
+                                    size="sm"
+                                    disabled
+                                >
                                     {index === 0 ? (
                                         <ChevronLeft className="size-4" />
                                     ) : index === postings.links.length - 1 ? (
@@ -668,11 +653,31 @@ export default function Postings({
                                     ) : (
                                         normalizeLabel(link.label)
                                     )}
-                                </Link>
-                            </Button>
-                        ),
-                    )}
-                </div>
+                                </Button>
+                            ) : (
+                                <Button
+                                    key={`${link.label}-${index}`}
+                                    asChild
+                                    variant={
+                                        link.active ? 'default' : 'outline'
+                                    }
+                                    size="sm"
+                                >
+                                    <Link href={link.url} preserveScroll>
+                                        {index === 0 ? (
+                                            <ChevronLeft className="size-4" />
+                                        ) : index ===
+                                          postings.links.length - 1 ? (
+                                            <ChevronRight className="size-4" />
+                                        ) : (
+                                            normalizeLabel(link.label)
+                                        )}
+                                    </Link>
+                                </Button>
+                            ),
+                        )}
+                    </div>
+                )}
             </div>
 
             <PostingFormDialog
