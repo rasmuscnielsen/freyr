@@ -8,6 +8,7 @@ import {
     PencilLine,
     Plus,
     RefreshCw,
+    ShieldCheck,
     Sparkles,
     Star,
     Trash2,
@@ -374,6 +375,22 @@ export default function BankAccountShow({
                             <div className="flex items-center gap-2">
                                 <span>{account.postings_count} postings</span>
                             </div>
+                            {/* The audit itself runs lazily inside the dialog;
+                                this is a neutral entry point so the check is
+                                discoverable even when nothing looks wrong. */}
+                            {!account.is_manual &&
+                                account.current_balance !== null && (
+                                    <div className="flex items-center gap-2">
+                                        <ShieldCheck className="size-4" />
+                                        <button
+                                            type="button"
+                                            className="cursor-pointer underline-offset-2 hover:underline"
+                                            onClick={() => setIsAuditOpen(true)}
+                                        >
+                                            Balance check
+                                        </button>
+                                    </div>
+                                )}
                         </div>
 
                         {account.connection?.needs_renewal && (
