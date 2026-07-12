@@ -16,6 +16,8 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { formatDate } from '@/lib/dates';
+import { formatMoney } from '@/lib/money';
 import { cn } from '@/lib/utils';
 
 export type PostingFormValues = {
@@ -101,52 +103,81 @@ export function PostingFormDialog({
                 </DialogHeader>
 
                 <div className="grid gap-4">
-                    <div className="grid gap-4 sm:grid-cols-2">
-                        <div className="grid gap-2">
-                            <Label htmlFor="posting-date">Date</Label>
-                            <Input
-                                id="posting-date"
-                                type="date"
-                                disabled={!coreFieldsEditable}
-                                value={form.data.date}
-                                onChange={(event) =>
-                                    form.setData('date', event.target.value)
-                                }
-                            />
-                            <InputError message={form.errors.date} />
-                        </div>
+                    {coreFieldsEditable ? (
+                        <>
+                            <div className="grid gap-4 sm:grid-cols-2">
+                                <div className="grid gap-2">
+                                    <Label htmlFor="posting-date">Date</Label>
+                                    <Input
+                                        id="posting-date"
+                                        type="date"
+                                        value={form.data.date}
+                                        onChange={(event) =>
+                                            form.setData(
+                                                'date',
+                                                event.target.value,
+                                            )
+                                        }
+                                    />
+                                    <InputError message={form.errors.date} />
+                                </div>
 
-                        <div className="grid gap-2">
-                            <Label htmlFor="posting-amount">
-                                Amount ({currency})
-                            </Label>
-                            <Input
-                                id="posting-amount"
-                                type="number"
-                                step="0.01"
-                                placeholder="-125.00"
-                                disabled={!coreFieldsEditable}
-                                value={form.data.amount}
-                                onChange={(event) =>
-                                    form.setData('amount', event.target.value)
-                                }
-                            />
-                            <InputError message={form.errors.amount} />
-                        </div>
-                    </div>
+                                <div className="grid gap-2">
+                                    <Label htmlFor="posting-amount">
+                                        Amount ({currency})
+                                    </Label>
+                                    <Input
+                                        id="posting-amount"
+                                        type="number"
+                                        step="0.01"
+                                        placeholder="-125.00"
+                                        value={form.data.amount}
+                                        onChange={(event) =>
+                                            form.setData(
+                                                'amount',
+                                                event.target.value,
+                                            )
+                                        }
+                                    />
+                                    <InputError message={form.errors.amount} />
+                                </div>
+                            </div>
 
-                    <div className="grid gap-2">
-                        <Label htmlFor="posting-description">Description</Label>
-                        <Input
-                            id="posting-description"
-                            disabled={!coreFieldsEditable}
-                            value={form.data.description}
-                            onChange={(event) =>
-                                form.setData('description', event.target.value)
-                            }
-                        />
-                        <InputError message={form.errors.description} />
-                    </div>
+                            <div className="grid gap-2">
+                                <Label htmlFor="posting-description">
+                                    Description
+                                </Label>
+                                <Input
+                                    id="posting-description"
+                                    value={form.data.description}
+                                    onChange={(event) =>
+                                        form.setData(
+                                            'description',
+                                            event.target.value,
+                                        )
+                                    }
+                                />
+                                <InputError message={form.errors.description} />
+                            </div>
+                        </>
+                    ) : (
+                        <div className="grid gap-1 rounded-md border bg-muted/50 p-3 text-sm">
+                            <div className="flex items-baseline justify-between gap-6">
+                                <span className="min-w-0 truncate font-medium">
+                                    {form.data.description}
+                                </span>
+                                <span className="shrink-0 font-medium tabular-nums">
+                                    {formatMoney(
+                                        Number(form.data.amount),
+                                        currency,
+                                    )}
+                                </span>
+                            </div>
+                            <span className="text-muted-foreground">
+                                {formatDate(form.data.date)}
+                            </span>
+                        </div>
+                    )}
 
                     <div className="grid gap-2">
                         <Label>Category</Label>

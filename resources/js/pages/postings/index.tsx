@@ -690,7 +690,7 @@ export default function Postings({
                 initial={{
                     date: modalPosting?.date ?? '',
                     description: modalPosting?.description ?? '',
-                    amount: String(modalPosting?.amount ?? ''),
+                    amount: modalPosting?.amount.toFixed(2) ?? '',
                     categorized_subcategory_id:
                         modalPosting?.subcategory?.id ?? null,
                     comment: modalPosting?.comment ?? '',

@@ -165,7 +165,7 @@ function postingToForm(posting: Posting): PostingFormValues {
     return {
         date: posting.date ?? '',
         description: posting.description,
-        amount: String(posting.amount),
+        amount: posting.amount.toFixed(2),
         categorized_subcategory_id: posting.categorized_subcategory_id,
         comment: posting.comment ?? '',
         is_extraordinary: posting.is_extraordinary,
