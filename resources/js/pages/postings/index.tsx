@@ -511,7 +511,7 @@ export default function Postings({
 
                 <div className="overflow-hidden rounded-xl border bg-card shadow-sm">
                     <div className="overflow-x-auto">
-                        <table className="w-full min-w-[720px] text-sm">
+                        <table className="w-full text-sm md:min-w-[720px]">
                             <thead className="text-left">
                                 <tr>
                                     <th className="px-3 py-2.5 text-xs font-medium text-muted-foreground">
@@ -523,7 +523,7 @@ export default function Postings({
                                     <th className="hidden px-3 py-2.5 text-xs font-medium text-muted-foreground lg:table-cell">
                                         Account
                                     </th>
-                                    <th className="px-3 py-2.5 text-xs font-medium text-muted-foreground">
+                                    <th className="hidden px-3 py-2.5 text-xs font-medium text-muted-foreground md:table-cell">
                                         Category
                                     </th>
                                     <th className="px-3 py-2.5 text-right text-xs font-medium text-muted-foreground">
@@ -546,19 +546,36 @@ export default function Postings({
                                         <td className="px-3 py-2 whitespace-nowrap text-muted-foreground tabular-nums">
                                             {formatDate(posting.date)}
                                         </td>
-                                        <td className="flex items-center gap-2 px-3 py-2">
-                                            <div className="font-medium">
-                                                {posting.description}
+                                        <td className="px-3 py-2">
+                                            <div className="flex items-center gap-2">
+                                                <div className="font-medium">
+                                                    {posting.description}
+                                                </div>
+                                                {posting.is_extraordinary && (
+                                                    <StarIcon className="size-4 shrink-0 fill-current" />
+                                                )}
                                             </div>
-                                            {posting.is_extraordinary && (
-                                                <StarIcon className="size-4 fill-current" />
-                                            )}
+                                            {/* The category column is hidden on
+                                                small screens so the amount stays
+                                                in view; surface it here instead. */}
+                                            <div
+                                                className={cn(
+                                                    'text-xs md:hidden',
+                                                    posting.subcategory
+                                                        ? 'text-muted-foreground'
+                                                        : 'text-muted-foreground/70 italic',
+                                                )}
+                                            >
+                                                {posting.subcategory
+                                                    ? `${posting.category?.name} / ${posting.subcategory.name}`
+                                                    : 'Uncategorized'}
+                                            </div>
                                         </td>
                                         <td className="hidden px-3 py-2 text-muted-foreground lg:table-cell">
                                             {posting.bank_account.name}
                                         </td>
                                         <td
-                                            className="relative px-3 py-2"
+                                            className="relative hidden px-3 py-2 md:table-cell"
                                             onClick={(event) =>
                                                 event.stopPropagation()
                                             }

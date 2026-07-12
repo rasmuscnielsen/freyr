@@ -450,7 +450,7 @@ export default function BankAccountShow({
 
                 <div className="overflow-hidden rounded-xl border bg-card shadow-sm">
                     <div className="overflow-x-auto">
-                        <table className="w-full min-w-[720px] text-sm">
+                        <table className="w-full text-sm md:min-w-[720px]">
                             <thead className="text-left">
                                 <tr>
                                     <th className="px-3 py-2.5 text-xs font-medium text-muted-foreground">
@@ -459,13 +459,13 @@ export default function BankAccountShow({
                                     <th className="px-3 py-2.5 text-xs font-medium text-muted-foreground">
                                         Description
                                     </th>
-                                    <th className="px-3 py-2.5 text-xs font-medium text-muted-foreground">
+                                    <th className="hidden px-3 py-2.5 text-xs font-medium text-muted-foreground md:table-cell">
                                         Category
                                     </th>
                                     <th className="px-3 py-2.5 text-right text-xs font-medium text-muted-foreground">
                                         Amount
                                     </th>
-                                    <th className="px-3 py-2.5 text-right text-xs font-medium text-muted-foreground">
+                                    <th className="hidden px-3 py-2.5 text-right text-xs font-medium text-muted-foreground md:table-cell">
                                         Balance
                                     </th>
                                     {account.is_manual && (
@@ -508,8 +508,16 @@ export default function BankAccountShow({
                                                         </span>
                                                     )}
                                                 </span>
+                                                {/* The category column is hidden
+                                                    on small screens so the amount
+                                                    stays in view. */}
+                                                <span className="block text-xs font-normal text-muted-foreground md:hidden">
+                                                    {posting.category
+                                                        ? `${posting.category.name} / ${posting.category.subcategory}`
+                                                        : 'Uncategorized'}
+                                                </span>
                                             </td>
-                                            <td className="px-3 py-2 text-muted-foreground">
+                                            <td className="hidden px-3 py-2 text-muted-foreground md:table-cell">
                                                 {posting.category
                                                     ? `${posting.category.name} / ${posting.category.subcategory}`
                                                     : 'Uncategorized'}
@@ -523,7 +531,7 @@ export default function BankAccountShow({
                                             >
                                                 {money.format(posting.amount)}
                                             </td>
-                                            <td className="px-3 py-2 text-right whitespace-nowrap text-muted-foreground tabular-nums">
+                                            <td className="hidden px-3 py-2 text-right whitespace-nowrap text-muted-foreground tabular-nums md:table-cell">
                                                 {posting.balance === null
                                                     ? '—'
                                                     : money.format(
