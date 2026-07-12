@@ -22,6 +22,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::delete('bank-connections/{bankConnection}', [BankConnectionController::class, 'destroy'])->name('bank-connections.destroy');
     Route::patch('bank-connection-accounts/{bankConnectionAccount}', [BankConnectionAccountController::class, 'update'])->name('bank-connection-accounts.update');
     Route::post('bank-connection-accounts/{bankConnectionAccount}/sync', [BankConnectionAccountController::class, 'sync'])->name('bank-connection-accounts.sync');
+    Route::patch('postings', [PostingController::class, 'bulkUpdate'])->name('postings.bulk-update');
     Route::resource('postings', PostingController::class)->only(['index', 'update']);
     Route::resource('bank-accounts', BankAccountController::class)->only(['index', 'show', 'store', 'update', 'destroy']);
     Route::resource('bank-accounts.postings', BankAccountPostingController::class)->only(['store', 'update', 'destroy'])->scoped();

@@ -1,10 +1,11 @@
 import { Head, Link, router } from '@inertiajs/react';
 import { ChevronLeft, ChevronRight, Search, StarIcon } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { CategoryCombobox } from '@/components/category-combobox';
 import type { CategoryComboboxOption } from '@/components/category-combobox';
 import { PostingFormDialog } from '@/components/posting-form-dialog';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import {
     Select,
@@ -17,6 +18,7 @@ import { formatDate } from '@/lib/dates';
 import { formatMoney } from '@/lib/money';
 import { cn } from '@/lib/utils';
 import {
+    bulkUpdate as bulkUpdatePostings,
     index as postingsIndex,
     update as updatePosting,
 } from '@/routes/postings';
@@ -180,6 +182,21 @@ export default function Postings({
     );
     const [savingPostingId, setSavingPostingId] = useState<number | null>(null);
     const [modalPosting, setModalPosting] = useState<Posting | null>(null);
+    const [rawSelectedIds, setRawSelectedIds] = useState<Set<number>>(
+        new Set(),
+    );
+    const [isPickingBulkCategory, setIsPickingBulkCategory] = useState(false);
+    const [isBulkSaving, setIsBulkSaving] = useState(false);
+    // Anchor for shift-click range selection.
+    const lastToggledIndex = useRef<number | null>(null);
+
+    // Selection is scoped to the visible rows: ids that left the result set
+    // (filtering, pagination, or a reload after saving) drop out on their own.
+    const selectedIds = useMemo(() => {
+        const visible = new Set(postings.data.map((posting) => posting.id));
+
+        return new Set([...rawSelectedIds].filter((id) => visible.has(id)));
+    }, [rawSelectedIds, postings.data]);
 
     const subcategoryOptions = useMemo<SubcategoryOption[]>(
         () =>
@@ -323,6 +340,79 @@ export default function Postings({
                 onFinish: () => {
                     setSavingPostingId(null);
                 },
+            },
+        );
+    };
+
+    const toggleRowSelection = (rowIndex: number, shiftKey: boolean) => {
+        const posting = postings.data[rowIndex];
+
+        if (!posting) {
+            return;
+        }
+
+        setRawSelectedIds((previous) => {
+            const next = new Set(previous);
+            const selecting = !previous.has(posting.id);
+            const anchor =
+                shiftKey && lastToggledIndex.current !== null
+                    ? lastToggledIndex.current
+                    : rowIndex;
+            const start = Math.min(anchor, rowIndex);
+            const end = Math.max(anchor, rowIndex);
+
+            for (let index = start; index <= end; index += 1) {
+                const id = postings.data[index]?.id;
+
+                if (id === undefined) {
+                    continue;
+                }
+
+                if (selecting) {
+                    next.add(id);
+                } else {
+                    next.delete(id);
+                }
+            }
+
+            return next;
+        });
+
+        lastToggledIndex.current = rowIndex;
+    };
+
+    const allRowsSelected =
+        postings.data.length > 0 &&
+        postings.data.every((posting) => selectedIds.has(posting.id));
+
+    const toggleSelectAll = () => {
+        setRawSelectedIds(
+            allRowsSelected
+                ? new Set()
+                : new Set(postings.data.map((posting) => posting.id)),
+        );
+        lastToggledIndex.current = null;
+    };
+
+    const clearSelection = () => {
+        setRawSelectedIds(new Set());
+        setIsPickingBulkCategory(false);
+        lastToggledIndex.current = null;
+    };
+
+    const applyBulkCategory = (subcategoryId: number | null) => {
+        setIsBulkSaving(true);
+
+        router.patch(
+            bulkUpdatePostings.url(),
+            {
+                ids: [...selectedIds],
+                categorized_subcategory_id: subcategoryId,
+            },
+            {
+                preserveScroll: true,
+                onSuccess: () => clearSelection(),
+                onFinish: () => setIsBulkSaving(false),
             },
         );
     };
@@ -514,6 +604,19 @@ export default function Postings({
                         <table className="w-full text-sm md:min-w-[720px]">
                             <thead className="text-left">
                                 <tr>
+                                    <th className="w-10 py-2.5 pl-3">
+                                        <Checkbox
+                                            aria-label="Select all postings on this page"
+                                            checked={
+                                                allRowsSelected
+                                                    ? true
+                                                    : selectedIds.size > 0
+                                                      ? 'indeterminate'
+                                                      : false
+                                            }
+                                            onCheckedChange={toggleSelectAll}
+                                        />
+                                    </th>
                                     <th className="px-3 py-2.5 text-xs font-medium text-muted-foreground">
                                         Date
                                     </th>
@@ -541,8 +644,38 @@ export default function Postings({
                                             rowKeyDown(event, posting, rowIndex)
                                         }
                                         onClick={() => setModalPosting(posting)}
-                                        className="cursor-pointer border-t transition-colors outline-none hover:bg-muted/40 focus:bg-accent"
+                                        className={cn(
+                                            'cursor-pointer border-t transition-colors outline-none hover:bg-muted/40 focus:bg-accent',
+                                            selectedIds.has(posting.id) &&
+                                                'bg-brand/5',
+                                        )}
                                     >
+                                        <td
+                                            className="w-10 py-2 pl-3"
+                                            onClick={(event) =>
+                                                event.stopPropagation()
+                                            }
+                                        >
+                                            <Checkbox
+                                                aria-label={`Select ${posting.description}`}
+                                                checked={selectedIds.has(
+                                                    posting.id,
+                                                )}
+                                                // Shift-click selects the range
+                                                // from the last toggled row.
+                                                onClick={(event) =>
+                                                    toggleRowSelection(
+                                                        rowIndex,
+                                                        event.shiftKey,
+                                                    )
+                                                }
+                                                onMouseDown={(event) => {
+                                                    if (event.shiftKey) {
+                                                        event.preventDefault();
+                                                    }
+                                                }}
+                                            />
+                                        </td>
                                         <td className="px-3 py-2 whitespace-nowrap text-muted-foreground tabular-nums">
                                             {formatDate(posting.date)}
                                         </td>
@@ -651,6 +784,43 @@ export default function Postings({
                         </table>
                     </div>
                 </div>
+
+                {selectedIds.size > 0 && (
+                    <div className="sticky bottom-4 z-10 flex flex-wrap items-center gap-2 self-start rounded-lg border bg-card py-2 pr-2 pl-4 shadow-lg">
+                        <span className="text-sm font-medium tabular-nums">
+                            {selectedIds.size} selected
+                        </span>
+                        <div className="relative">
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                aria-haspopup="listbox"
+                                disabled={isBulkSaving}
+                                onClick={() => setIsPickingBulkCategory(true)}
+                            >
+                                {isBulkSaving ? 'Saving…' : 'Set category'}
+                            </Button>
+                            {isPickingBulkCategory && (
+                                <CategoryCombobox
+                                    options={comboboxOptions}
+                                    isSaving={isBulkSaving}
+                                    onSelect={applyBulkCategory}
+                                    onClose={() =>
+                                        setIsPickingBulkCategory(false)
+                                    }
+                                />
+                            )}
+                        </div>
+                        <Button
+                            variant="ghost"
+                            size="sm"
+                            disabled={isBulkSaving}
+                            onClick={clearSelection}
+                        >
+                            Clear
+                        </Button>
+                    </div>
+                )}
 
                 {/* Prev + one page + next means there is nothing to paginate. */}
                 {postings.links.length > 3 && (
