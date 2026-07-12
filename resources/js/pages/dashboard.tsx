@@ -184,6 +184,23 @@ function formatAxis(value: number): string {
     });
 }
 
+/**
+ * Rounds a magnitude up to a "nice" axis bound (1 / 2 / 2.5 / 5 × 10ⁿ), so a
+ * hand-picked Y domain still produces round tick values.
+ */
+function niceCeiling(value: number): number {
+    if (value <= 0) {
+        return 0;
+    }
+
+    const magnitude = 10 ** Math.floor(Math.log10(value));
+    const nice = [1, 2, 2.5, 5, 10].find(
+        (factor) => value <= factor * magnitude,
+    );
+
+    return (nice ?? 10) * magnitude;
+}
+
 function formatMonthLabel(month: string): string {
     const [year, monthPart] = month.split('-');
     const date = new Date(Number(year), Number(monthPart) - 1, 1);
@@ -374,6 +391,36 @@ export default function Dashboard({
         savingsStacked: -Math.abs(point.savings),
         uncategorizedStacked: -Math.abs(point.uncategorized),
     }));
+
+    // The Y scale fits the completed months only. The incomplete current
+    // month is a preview (dimmed, unclickable) and a single early-month
+    // outlier would otherwise flatten a whole year of real data; its bars
+    // clip at the top of the chart instead.
+    const completedFlow = flowData.filter(
+        (point) => point.month <= lastCompletedMonth,
+    );
+    const domainSource = completedFlow.length > 0 ? completedFlow : flowData;
+    const flowMax = Math.max(
+        ...domainSource.map((point) => Math.max(point.income, point.result)),
+        0,
+    );
+    const flowMin = Math.min(
+        ...domainSource.map((point) =>
+            Math.min(
+                point.billsStacked +
+                    point.consumptionStacked +
+                    point.investmentsStacked +
+                    point.savingsStacked +
+                    point.uncategorizedStacked,
+                point.result,
+            ),
+        ),
+        0,
+    );
+    const flowDomain: [number, number] = [
+        -niceCeiling(-flowMin),
+        niceCeiling(flowMax),
+    ];
 
     const changePeriod = (value: string) => {
         setSelectedMonth(null);
@@ -577,6 +624,8 @@ export default function Dashboard({
                                         width={44}
                                         tick={mutedTick}
                                         padding={{ top: 16, bottom: 8 }}
+                                        domain={flowDomain}
+                                        allowDataOverflow
                                     />
                                     <ReferenceLine
                                         y={0}
