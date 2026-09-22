@@ -30,8 +30,6 @@ class UpdateBankAccountRequest extends FormRequest
             'bank_key' => ['sometimes', 'nullable', 'string', 'max:255'],
             'bank_name' => ['sometimes', 'nullable', 'string', 'max:255'],
             'currency' => ['sometimes', 'required', 'string', 'size:3'],
-            'last_booked_balance' => ['sometimes', 'nullable', 'numeric'],
-            'last_available_balance' => ['sometimes', 'nullable', 'numeric'],
             'account_type' => ['sometimes', 'nullable', 'string', 'max:255'],
             'account_subcategory_key' => ['sometimes', 'nullable', 'string', 'max:255'],
             'last_known_posting_date' => ['sometimes', 'nullable', 'date'],

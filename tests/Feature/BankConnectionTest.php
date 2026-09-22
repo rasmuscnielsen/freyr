@@ -409,7 +409,7 @@ test('sync imports past transactions idempotently and skips future scheduled tra
     expect($posting->amount)->toBe('-128.00')
         ->and($posting->source)->toBe(BankConnectionAccount::SOURCE_ENABLE_BANKING)
         ->and($posting->external_posting_id)->toBe('stable-enable-banking-transaction-id')
-        ->and($localAccount->refresh()->last_booked_balance)->toBe('51339.66')
+        ->and($localAccount->refresh()->current_balance)->toBe('51339.66')
         ->and($remoteAccount->refresh()->last_transaction_date->toDateString())->toBe('2026-06-19');
 
     (new SyncBankConnectionAccountJob($remoteAccount))->handle(app(EnableBankingConnectionManager::class));
@@ -630,6 +630,39 @@ test('removing a connection keeps local accounts and postings but deletes remote
         ->and(BankSyncRun::query()->count())->toBe(0)
         ->and(BankAccount::query()->whereKey($localAccount->id)->exists())->toBeTrue()
         ->and(Posting::query()->where('bank_account_id', $localAccount->id)->count())->toBe(1);
+});
+
+test('removing a connection anchors the detached accounts as manual and derives their balances', function () {
+    $user = User::factory()->create();
+    $connection = BankConnection::factory()->for($user)->create();
+    $localAccount = BankAccount::factory()->for($user)->create(['current_balance' => null, 'opening_balance' => 0]);
+    BankConnectionAccount::factory()->for($connection)->linkedTo($localAccount)->create();
+    // Synced chain that opened at 500: +100 => 600, -50 => 550.
+    Posting::factory()->forAccount($localAccount)->create(['date' => '2026-01-01', 'amount' => '100.00', 'balance' => '600.00']);
+    Posting::factory()->forAccount($localAccount)->create(['date' => '2026-01-10', 'amount' => '-50.00', 'balance' => '550.00']);
+
+    $this->actingAs($user)
+        ->delete(route('bank-connections.destroy', $connection))
+        ->assertRedirect();
+
+    expect((float) $localAccount->refresh()->opening_balance)->toBe(500.00)
+        ->and((float) $localAccount->current_balance)->toBe(550.00);
+});
+
+test('ignoring a linked remote account anchors the detached account as manual', function () {
+    $user = User::factory()->create();
+    $connection = BankConnection::factory()->for($user)->create();
+    $localAccount = BankAccount::factory()->for($user)->create(['current_balance' => null, 'opening_balance' => 0]);
+    $remoteAccount = BankConnectionAccount::factory()->for($connection)->linkedTo($localAccount)->create();
+    Posting::factory()->forAccount($localAccount)->create(['date' => '2026-01-01', 'amount' => '100.00', 'balance' => '600.00']);
+
+    $this->actingAs($user)
+        ->patch(route('bank-connection-accounts.update', $remoteAccount), ['mode' => 'ignore'])
+        ->assertRedirect();
+
+    expect($remoteAccount->refresh()->status)->toBe(BankConnectionAccount::STATUS_IGNORED)
+        ->and((float) $localAccount->refresh()->opening_balance)->toBe(500.00)
+        ->and((float) $localAccount->current_balance)->toBe(600.00);
 });
 
 test('removing a connection is authorized to the owner', function () {

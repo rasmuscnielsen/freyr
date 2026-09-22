@@ -1,5 +1,11 @@
 import { Link, usePage } from '@inertiajs/react';
-import { BarChart3, ListChecks, Tags, WalletCards } from 'lucide-react';
+import {
+    BarChart3,
+    ListChecks,
+    Settings,
+    Tags,
+    WalletCards,
+} from 'lucide-react';
 import AppLogo from '@/components/app-logo';
 import { NavFooter } from '@/components/nav-footer';
 import { NavMain } from '@/components/nav-main';
@@ -17,6 +23,7 @@ import { dashboard } from '@/routes';
 import { index as bankAccountsIndex } from '@/routes/bank-accounts';
 import { index as categoriesIndex } from '@/routes/platform/categories';
 import { index as postingsIndex } from '@/routes/postings';
+import { edit as profileEdit } from '@/routes/profile';
 import type { NavItem } from '@/types';
 
 const accountNavItems: NavItem[] = [
@@ -49,6 +56,7 @@ const footerNavItems: NavItem[] = [];
 
 export function AppSidebar() {
     const { auth } = usePage().props;
+    const { url } = usePage();
 
     return (
         <Sidebar collapsible="icon" variant="inset">
@@ -73,6 +81,20 @@ export function AppSidebar() {
 
             <SidebarFooter>
                 <NavFooter items={footerNavItems} className="mt-auto" />
+                <SidebarMenu>
+                    <SidebarMenuItem>
+                        <SidebarMenuButton
+                            asChild
+                            isActive={url.startsWith('/settings')}
+                            tooltip={{ children: 'Settings' }}
+                        >
+                            <Link href={profileEdit()} prefetch>
+                                <Settings />
+                                <span>Settings</span>
+                            </Link>
+                        </SidebarMenuButton>
+                    </SidebarMenuItem>
+                </SidebarMenu>
                 <NavUser />
             </SidebarFooter>
         </Sidebar>

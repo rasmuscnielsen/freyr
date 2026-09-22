@@ -23,8 +23,8 @@ class BankAccount extends Model
         'bank_key',
         'bank_name',
         'currency',
-        'last_booked_balance',
-        'last_available_balance',
+        'current_balance',
+        'opening_balance',
         'account_type',
         'account_subcategory_key',
         'account_group_legacy_id',
@@ -77,6 +77,17 @@ class BankAccount extends Model
     }
 
     /**
+     * Whether the account is fed by a bank connection. Accounts without one
+     * are maintained manually and allow posting create/edit/delete.
+     */
+    public function hasBankConnection(): bool
+    {
+        return $this->relationLoaded('bankConnectionAccounts')
+            ? $this->bankConnectionAccounts->isNotEmpty()
+            : $this->bankConnectionAccounts()->exists();
+    }
+
+    /**
      * Get the attributes that should be cast.
      *
      * @return array<string, string>
@@ -92,8 +103,8 @@ class BankAccount extends Model
             'supports_payment_from' => 'boolean',
             'supports_payment_to' => 'boolean',
             'is_favorite' => 'boolean',
-            'last_booked_balance' => 'decimal:2',
-            'last_available_balance' => 'decimal:2',
+            'current_balance' => 'decimal:2',
+            'opening_balance' => 'decimal:2',
             'legacy_created_at' => 'datetime',
         ];
     }

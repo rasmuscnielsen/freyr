@@ -26,8 +26,6 @@ class StoreBankAccountRequest extends FormRequest
             'bank_key' => ['nullable', 'string', 'max:255'],
             'bank_name' => ['nullable', 'string', 'max:255'],
             'currency' => ['required', 'string', 'size:3'],
-            'last_booked_balance' => ['nullable', 'numeric'],
-            'last_available_balance' => ['nullable', 'numeric'],
             'account_type' => ['nullable', 'string', 'max:255'],
             'account_subcategory_key' => ['nullable', 'string', 'max:255'],
             'last_known_posting_date' => ['nullable', 'date'],

@@ -19,8 +19,8 @@ return new class extends Migration
             $table->string('bank_key')->nullable();
             $table->string('bank_name')->nullable();
             $table->char('currency', 3);
-            $table->decimal('last_booked_balance', 15, 2)->nullable();
-            $table->decimal('last_available_balance', 15, 2)->nullable();
+            $table->decimal('current_balance', 15, 2)->nullable();
+            $table->decimal('opening_balance', 15, 2)->default(0);
             $table->string('account_type')->nullable();
             $table->string('account_subcategory_key')->nullable();
             $table->string('account_group_legacy_id')->nullable();

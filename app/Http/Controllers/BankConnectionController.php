@@ -2,9 +2,11 @@
 
 namespace App\Http\Controllers;
 
+use App\Finance\AccountBalanceRecalculator;
 use App\Finance\EnableBanking\EnableBankingConnectionManager;
 use App\Http\Requests\StartBankConnectionRequest;
 use App\Jobs\SyncBankConnectionAccountJob;
+use App\Models\BankAccount;
 use App\Models\BankConnection;
 use App\Models\BankConnectionAccount;
 use Illuminate\Http\RedirectResponse;
@@ -84,15 +86,29 @@ class BankConnectionController extends Controller
      * manual accounts. Sync run history cascades away with the connection at the database
      * level (bank_sync_runs.bank_connection_id is ON DELETE CASCADE).
      */
-    public function destroy(Request $request, BankConnection $bankConnection): RedirectResponse
+    public function destroy(Request $request, BankConnection $bankConnection, AccountBalanceRecalculator $balanceRecalculator): RedirectResponse
     {
         abort_unless($request->user()?->is($bankConnection->user), 403);
+
+        $detachedAccountIds = $bankConnection->accounts()->whereNotNull('bank_account_id')->pluck('bank_account_id');
 
         DB::transaction(function () use ($bankConnection): void {
             $bankConnection->accounts()->update(['bank_account_id' => null]);
             $bankConnection->accounts()->delete();
             $bankConnection->delete();
         });
+
+        // Detached accounts are manual from here on: anchor their opening
+        // balance while the synced running balances are still authoritative,
+        // then derive their chain and current balance from postings.
+        BankAccount::query()
+            ->whereIn('id', $detachedAccountIds)
+            ->whereDoesntHave('bankConnectionAccounts')
+            ->get()
+            ->each(function (BankAccount $account) use ($balanceRecalculator): void {
+                $balanceRecalculator->seedOpeningBalanceFromImportedChain($account);
+                $balanceRecalculator->recalculate($account);
+            });
 
         return back()->with('status', 'Bank connection removed. Your accounts and postings were kept.');
     }

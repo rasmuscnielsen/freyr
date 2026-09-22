@@ -1,5 +1,5 @@
-import { Head, router } from '@inertiajs/react';
-import { Fragment, useState } from 'react';
+import { Head, Link, router } from '@inertiajs/react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import {
     Bar,
     CartesianGrid,
@@ -79,6 +79,7 @@ type BreakdownCategory = {
     id: number | null;
     name: string;
     type: 'income' | 'expense';
+    bucket: 'income' | BucketKey;
     total: number;
     topSubcategories: TopSubcategory[];
     topPostings: TopPosting[];
@@ -150,6 +151,17 @@ const BUCKETS: BucketMeta[] = [
     },
 ];
 
+/**
+ * Bar color per overview bucket, so the breakdown rows reuse the color
+ * language established by the allocation bar and the monthly flow chart.
+ */
+const BUCKET_COLORS: Record<'income' | BucketKey, string> = {
+    income: 'var(--color-chart-income)',
+    ...(Object.fromEntries(
+        BUCKETS.map((bucket) => [bucket.key, bucket.cssVar]),
+    ) as Record<BucketKey, string>),
+};
+
 function formatMoney(value: number, currency: string | null): string {
     return formatSharedMoney(value, currency, { maximumFractionDigits: 0 });
 }
@@ -172,6 +184,23 @@ function formatAxis(value: number): string {
     });
 }
 
+/**
+ * Rounds a magnitude up to a "nice" axis bound (1 / 2 / 2.5 / 5 × 10ⁿ), so a
+ * hand-picked Y domain still produces round tick values.
+ */
+function niceCeiling(value: number): number {
+    if (value <= 0) {
+        return 0;
+    }
+
+    const magnitude = 10 ** Math.floor(Math.log10(value));
+    const nice = [1, 2, 2.5, 5, 10].find(
+        (factor) => value <= factor * magnitude,
+    );
+
+    return (nice ?? 10) * magnitude;
+}
+
 function formatMonthLabel(month: string): string {
     const [year, monthPart] = month.split('-');
     const date = new Date(Number(year), Number(monthPart) - 1, 1);
@@ -183,6 +212,13 @@ function formatMonthLabel(month: string): string {
 }
 
 const mutedTick = { fill: 'var(--muted-foreground)', fontSize: 12 };
+
+// Coarse pointers (touch) can't hover, so the breakdown rows become a
+// two-tap interaction instead of hover-reveal + click-through.
+const coarsePointerMql =
+    typeof window === 'undefined'
+        ? undefined
+        : window.matchMedia('(hover: none)');
 
 function periodLabel(option: string): string {
     return option === '12m' ? '12 months' : option;
@@ -363,6 +399,36 @@ export default function Dashboard({
         uncategorizedStacked: -Math.abs(point.uncategorized),
     }));
 
+    // The Y scale fits the completed months only. The incomplete current
+    // month is a preview (dimmed, unclickable) and a single early-month
+    // outlier would otherwise flatten a whole year of real data; its bars
+    // clip at the top of the chart instead.
+    const completedFlow = flowData.filter(
+        (point) => point.month <= lastCompletedMonth,
+    );
+    const domainSource = completedFlow.length > 0 ? completedFlow : flowData;
+    const flowMax = Math.max(
+        ...domainSource.map((point) => Math.max(point.income, point.result)),
+        0,
+    );
+    const flowMin = Math.min(
+        ...domainSource.map((point) =>
+            Math.min(
+                point.billsStacked +
+                    point.consumptionStacked +
+                    point.investmentsStacked +
+                    point.savingsStacked +
+                    point.uncategorizedStacked,
+                point.result,
+            ),
+        ),
+        0,
+    );
+    const flowDomain: [number, number] = [
+        -niceCeiling(-flowMin),
+        niceCeiling(flowMax),
+    ];
+
     const changePeriod = (value: string) => {
         setSelectedMonth(null);
         router.get(
@@ -508,6 +574,7 @@ export default function Dashboard({
                         summary={summary}
                         months={monthsInPeriod}
                         currency={primaryCurrency}
+                        period={period}
                     />
                 </div>
 
@@ -565,6 +632,8 @@ export default function Dashboard({
                                         width={44}
                                         tick={mutedTick}
                                         padding={{ top: 16, bottom: 8 }}
+                                        domain={flowDomain}
+                                        allowDataOverflow
                                     />
                                     <ReferenceLine
                                         y={0}
@@ -678,17 +747,12 @@ export default function Dashboard({
                                 <BreakdownGroup
                                     title="In"
                                     categories={incomeCategories}
-                                    color="var(--color-chart-income)"
                                     onSelect={openCategory}
                                     currency={primaryCurrency}
                                 />
                                 <BreakdownGroup
                                     title="Out"
                                     categories={expenseCategories}
-                                    // Not the bills colour: the Out group holds every
-                                    // outgoing category. A mid neutral distinct from the
-                                    // Uncategorized gray keeps the bars calm.
-                                    color="color-mix(in oklab, var(--muted-foreground) 65%, var(--foreground))"
                                     onSelect={openCategory}
                                     currency={primaryCurrency}
                                 />
@@ -759,13 +823,11 @@ function FlowStat({
 function BreakdownGroup({
     title,
     categories,
-    color,
     onSelect,
     currency,
 }: {
     title: string;
     categories: BreakdownCategory[];
-    color: string;
     onSelect: (category: BreakdownCategory) => void;
     currency: string | null;
 }) {
@@ -807,7 +869,6 @@ function BreakdownGroup({
                                     ? (category.total / maxTotal) * 100
                                     : 0
                             }
-                            color={color}
                             onSelect={onSelect}
                             currency={currency}
                         />
@@ -820,33 +881,121 @@ function BreakdownGroup({
 
 /**
  * One Spiir-style breakdown row: the category label sits above the bar, the
- * amount trails the bar's end. Hovering reveals a detail card anchored near
- * the cursor; navigation happens through the card's "View postings" action.
+ * amount trails the bar's end. The whole row clicks through to the filtered
+ * postings list; hovering the bar reveals a detail card anchored near the
+ * cursor with subcategories and largest postings.
  */
 function BreakdownRow({
     category,
     pct,
-    color,
     onSelect,
     currency,
 }: {
     category: BreakdownCategory;
     pct: number;
-    color: string;
     onSelect: (category: BreakdownCategory) => void;
     currency: string | null;
 }) {
     const barColor =
-        category.id === null ? 'var(--color-chart-uncategorized)' : color;
+        BUCKET_COLORS[category.bucket] ?? 'var(--color-chart-uncategorized)';
     // Where the pointer entered the row, so the detail card opens near the
     // cursor instead of pinned to the row's left edge covering the bars.
     const [anchorX, setAnchorX] = useState(0);
+    const [open, setOpen] = useState(false);
+    const rowRef = useRef<HTMLDivElement>(null);
+    const lastTapAt = useRef(0);
+
+    // Radix suppresses the trigger's emulated click on touch, so taps are
+    // handled on pointerup: the first opens the detail card, the second (or
+    // "View postings" inside it) navigates.
+    const tap = () => {
+        if (open) {
+            onSelect(category);
+        } else {
+            setOpen(true);
+        }
+    };
+
+    // A tap already handled on pointerup may still produce an emulated
+    // click; ignore clicks arriving right after a touch so one tap isn't
+    // read as two.
+    const selectFromClick = () => {
+        if (Date.now() - lastTapAt.current < 400) {
+            return;
+        }
+
+        if (coarsePointerMql?.matches) {
+            tap();
+
+            return;
+        }
+
+        onSelect(category);
+    };
+
+    // Touch never fires pointerleave, so an open card dismisses on the next
+    // tap outside the row or its portaled content.
+    useEffect(() => {
+        if (!open || !coarsePointerMql?.matches) {
+            return;
+        }
+
+        const dismiss = (event: PointerEvent) => {
+            const target = event.target;
+
+            if (
+                !(target instanceof Element) ||
+                rowRef.current?.contains(target) ||
+                target.closest('[data-slot="hover-card-content"]')
+            ) {
+                return;
+            }
+
+            setOpen(false);
+        };
+
+        document.addEventListener('pointerdown', dismiss, true);
+
+        return () => document.removeEventListener('pointerdown', dismiss, true);
+    }, [open]);
 
     return (
-        <div className="flex w-full flex-col gap-1 py-1 text-left">
-            <span className="text-sm font-medium">{category.name}</span>
+        <div
+            ref={rowRef}
+            className="group flex w-full cursor-pointer flex-col gap-1 py-1 text-left"
+            onClick={selectFromClick}
+            onPointerUp={(event) => {
+                if (event.pointerType === 'touch') {
+                    lastTapAt.current = Date.now();
+                    tap();
+                }
+            }}
+        >
+            <button
+                type="button"
+                className="flex cursor-pointer items-center gap-1 self-start text-sm font-medium underline-offset-2 group-hover:underline"
+                onClick={(event) => {
+                    // The row's own handler covers pointer clicks; this button
+                    // exists for keyboard and screen-reader access.
+                    event.stopPropagation();
+                    selectFromClick();
+                }}
+            >
+                {category.name}
+                <span
+                    className="text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100"
+                    aria-hidden
+                >
+                    →
+                </span>
+            </button>
             <span className="flex items-center gap-3">
-                <HoverCard openDelay={100} closeDelay={80}>
+                <HoverCard
+                    open={open}
+                    onOpenChange={setOpen}
+                    openDelay={100}
+                    closeDelay={80}
+                >
                     <HoverCardTrigger asChild>
                         <span
                             onMouseEnter={(event) =>
@@ -902,17 +1051,19 @@ function BreakdownSkeleton() {
  * Splits total spending (summary.out) into its five outgoing buckets as one
  * slim proportional bar with a wrapping legend. Legend amounts are per-month
  * averages (shares stay ratios of the period totals). Zero buckets are
- * hidden; the Uncategorized segment relies on its muted gray token to read
- * as categorization debt.
+ * hidden; the Uncategorized entry links to the postings that need
+ * categorizing so the debt is actionable, not just visible.
  */
 function AllocationBar({
     summary,
     months,
     currency,
+    period,
 }: {
     summary: Summary;
     months: number;
     currency: string | null;
+    period: Period;
 }) {
     const out = summary.out;
 
@@ -948,11 +1099,8 @@ function AllocationBar({
             </div>
             <div className="flex flex-wrap gap-x-5 gap-y-2 text-sm">
                 {segments.map((segment) => {
-                    return (
-                        <span
-                            key={segment.key}
-                            className="flex items-center gap-1.5"
-                        >
+                    const content = (
+                        <>
                             <span
                                 className={cn(
                                     'size-2 shrink-0 rounded-full',
@@ -972,6 +1120,41 @@ function AllocationBar({
                             <span className="text-muted-foreground tabular-nums">
                                 {formatMoney(segment.value / months, currency)}
                             </span>
+                        </>
+                    );
+
+                    if (segment.key === 'uncategorized') {
+                        return (
+                            <Link
+                                key={segment.key}
+                                href={postingsIndex.url({
+                                    query: {
+                                        filter: {
+                                            uncategorized: true,
+                                            posted_between: `${period.start},${period.end}`,
+                                        },
+                                    },
+                                })}
+                                title="Review uncategorized postings"
+                                className="flex items-center gap-1.5 underline-offset-2 hover:underline"
+                            >
+                                {content}
+                                <span
+                                    className="text-muted-foreground"
+                                    aria-hidden
+                                >
+                                    →
+                                </span>
+                            </Link>
+                        );
+                    }
+
+                    return (
+                        <span
+                            key={segment.key}
+                            className="flex items-center gap-1.5"
+                        >
+                            {content}
                         </span>
                     );
                 })}

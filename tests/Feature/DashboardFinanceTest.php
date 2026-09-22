@@ -223,9 +223,13 @@ test('breakdown includes income and expense categories with top subcategories fo
         $response->assertJsonCount(2, 'props.breakdown.categories');
         $response->assertJsonPath('props.breakdown.categories.0.type', 'income');
         $response->assertJsonPath('props.breakdown.categories.0.name', 'Income');
+        $response->assertJsonPath('props.breakdown.categories.0.bucket', 'income');
         $response->assertJsonPath('props.breakdown.categories.0.total', 833.33);
         $response->assertJsonPath('props.breakdown.categories.1.type', 'expense');
         $response->assertJsonPath('props.breakdown.categories.1.name', 'Housing');
+        // Rent (fixed, 3000) outweighs groceries (variable, 1000), so the
+        // category's dominant bucket is bills.
+        $response->assertJsonPath('props.breakdown.categories.1.bucket', 'bills');
         $response->assertJsonPath('props.breakdown.categories.1.total', 333.33);
         $response->assertJsonPath('props.breakdown.categories.1.topSubcategories.0.name', 'Rent');
         // Subcategory amounts are averaged over the same divisor as the total: 3000 / 12.
@@ -238,6 +242,28 @@ test('breakdown includes income and expense categories with top subcategories fo
         $response->assertJsonPath('props.breakdown.categories.1.topPostings.0.amount', 3000);
         $response->assertJsonPath('props.breakdown.categories.1.topPostings.0.date', '2026-01-10');
         $response->assertJsonPath('props.breakdown.categories.1.topPostings.1.amount', 1000);
+    } finally {
+        CarbonImmutable::setTestNow();
+    }
+});
+
+test('breakdown category bucket follows where most of its money lands', function () {
+    CarbonImmutable::setTestNow('2026-02-15 12:00:00');
+
+    try {
+        ['user' => $user, 'account' => $account, 'rent' => $rent, 'groceries' => $groceries] = seedBudget();
+
+        // Variable spending outweighs the fixed bill within the same category.
+        Posting::factory()->forAccount($account)->categorizedAs($rent)
+            ->create(['date' => '2026-01-10', 'amount' => -500]);
+        Posting::factory()->forAccount($account)->categorizedAs($groceries)
+            ->create(['date' => '2026-01-12', 'amount' => -1500]);
+
+        $this->actingAs($user)
+            ->get(route('dashboard', ['months' => 12]), breakdownPartialHeaders())
+            ->assertOk()
+            ->assertJsonPath('props.breakdown.categories.0.name', 'Housing')
+            ->assertJsonPath('props.breakdown.categories.0.bucket', 'consumption');
     } finally {
         CarbonImmutable::setTestNow();
     }
@@ -388,25 +414,28 @@ test('the balance prop sums active accounts in the primary currency', function (
     BankAccount::factory()->for($user)->create([
         'currency' => 'EUR',
         'is_active' => true,
-        'last_booked_balance' => 1000,
-        'last_available_balance' => 900,
+        'current_balance' => 1000,
     ]);
-    // Falls back to the available balance when the booked one is missing.
+    // Accounts without a known balance contribute nothing.
     BankAccount::factory()->for($user)->create([
         'currency' => 'EUR',
         'is_active' => true,
-        'last_booked_balance' => null,
-        'last_available_balance' => 250,
+        'current_balance' => null,
+    ]);
+    BankAccount::factory()->for($user)->create([
+        'currency' => 'EUR',
+        'is_active' => true,
+        'current_balance' => 250,
     ]);
     // Inactive and non-primary-currency accounts are ignored.
     BankAccount::factory()->for($user)->inactive()->create([
         'currency' => 'EUR',
-        'last_booked_balance' => 5000,
+        'current_balance' => 5000,
     ]);
     BankAccount::factory()->for($user)->create([
         'currency' => 'USD',
         'is_active' => true,
-        'last_booked_balance' => 7000,
+        'current_balance' => 7000,
     ]);
 
     $this->actingAs($user)

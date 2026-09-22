@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Requests\BulkUpdatePostingCategoriesRequest;
 use App\Http\Requests\UpdatePostingCategoryRequest;
 use App\Models\BankAccount;
 use App\Models\Category;
@@ -86,9 +87,10 @@ class PostingController extends Controller
                 ->get(['id', 'name', 'bank_name', 'currency', 'is_active']),
             'categories' => Category::query()
                 ->with(['subcategories' => fn ($query) => $query->orderBy('name')])
-                ->orderBy('type')
                 ->orderBy('name')
                 ->get()
+                ->sortBy(fn (Category $category): int => $category->type->displayOrder())
+                ->values()
                 ->map(fn (Category $category): array => [
                     'id' => $category->id,
                     'name' => $category->name,
@@ -105,6 +107,22 @@ class PostingController extends Controller
     public function update(UpdatePostingCategoryRequest $request, Posting $posting): RedirectResponse
     {
         $posting->update($request->validated());
+
+        return back();
+    }
+
+    /**
+     * Recategorize a batch of postings in one go. Ids not owned by the
+     * authenticated user are ignored by the ownership scope.
+     */
+    public function bulkUpdate(BulkUpdatePostingCategoriesRequest $request): RedirectResponse
+    {
+        $validated = $request->validated();
+
+        Posting::query()
+            ->forUser($request->user())
+            ->whereIn('id', $validated['ids'])
+            ->update(['categorized_subcategory_id' => $validated['categorized_subcategory_id']]);
 
         return back();
     }

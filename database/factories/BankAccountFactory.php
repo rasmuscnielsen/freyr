@@ -25,8 +25,7 @@ class BankAccountFactory extends Factory
             'bank_key' => fake()->randomElement(['Nykredit', 'DK_Wise', 'OtherBank']),
             'bank_name' => fake()->randomElement(['Nykredit', 'Wise', 'Other Bank']),
             'currency' => 'DKK',
-            'last_booked_balance' => fake()->randomFloat(2, 0, 100000),
-            'last_available_balance' => fake()->randomFloat(2, 0, 100000),
+            'current_balance' => fake()->randomFloat(2, 0, 100000),
             'account_type' => 'Consumption',
             'account_subcategory_key' => 'consumption',
             'account_group_legacy_id' => null,
@@ -65,8 +64,7 @@ class BankAccountFactory extends Factory
     public function withBalance(float $balance): static
     {
         return $this->state(fn (array $attributes): array => [
-            'last_booked_balance' => $balance,
-            'last_available_balance' => $balance,
+            'current_balance' => $balance,
         ]);
     }
 }

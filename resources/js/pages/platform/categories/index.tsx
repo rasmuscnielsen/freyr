@@ -73,6 +73,16 @@ const typeBadgeClasses: Record<string, string> = {
     Exclude: 'border-transparent bg-muted text-muted-foreground',
 };
 
+/**
+ * Fixed expenses land in the bills bucket, variable ones in consumption, so
+ * the expense-type badges borrow those bucket colors.
+ */
+const expenseTypeBadgeClasses: Record<string, string> = {
+    Fixed: 'border-transparent bg-chart-bills/12 text-chart-bills',
+    Variable:
+        'border-transparent bg-chart-consumption/12 text-chart-consumption',
+};
+
 function TypeBadge({ type }: { type: string }) {
     return (
         <Badge
@@ -390,7 +400,11 @@ function CategoryRows({
                         {subcategory.expense_type && (
                             <Badge
                                 variant="outline"
-                                className="text-muted-foreground"
+                                className={cn(
+                                    expenseTypeBadgeClasses[
+                                        subcategory.expense_type
+                                    ] ?? 'text-muted-foreground',
+                                )}
                             >
                                 {subcategory.expense_type}
                             </Badge>
