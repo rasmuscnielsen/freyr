@@ -28,7 +28,8 @@ data on their own server.
 - **Manual categorization** with a full category tree (categories and
   subcategories, income / expense / saving / transfer types).
 - **Dashboard** with an income and expense overview.
-- **Read-only REST API** protected by Laravel Sanctum personal access tokens.
+- **Read-only REST API** protected by Laravel Passport personal access tokens.
+- **MCP server** (`/mcp`) that lets AI agents (Claude, ChatGPT, etc.) query and manage your budgeting data — e.g. categorizing transactions.
 - **Horizon queue dashboard** for monitoring background jobs.
 - **Dark mode** (follows your system preference, with a manual toggle).
 
@@ -62,10 +63,15 @@ php artisan key:generate
 #    runs migrations and seeds the default category tree.
 php artisan app:install
 
-# 5. Build the frontend assets
+# 5. Create OAuth signing keys and a personal access client
+#    (required for API tokens and MCP OAuth logins)
+php artisan passport:keys
+php artisan passport:client --personal
+
+# 6. Build the frontend assets
 pnpm run build
 
-# 6. Open the app in your browser and follow the setup wizard —
+# 7. Open the app in your browser and follow the setup wizard —
 #    it creates the first (administrator) account and walks you
 #    through registration, Enable Banking and Spiir import.
 ```
@@ -229,11 +235,13 @@ is a first-class flow. The recommended order:
 
 ## API
 
-Freyr exposes a **read-only** REST API secured by Sanctum personal access tokens.
+Freyr exposes a **read-only** REST API secured by Laravel Passport personal
+access tokens.
 
 **Create a token:** in the app, go to **Settings → Security** and create a
-personal access token. The token is shown once; copy it immediately. Tokens are
-granted read-only (`read`) ability.
+personal access token. The token is shown once; copy it immediately. Tokens
+are granted `read`, `write`, and `mcp:use` scopes — the API endpoints only
+honor `read`.
 
 **Authenticate** by sending the token as a Bearer token:
 
@@ -254,10 +262,43 @@ curl https://your-freyr-host/api/postings \
 | `GET`  | `/api/categories`         | List categories and their subcategories. |
 | `GET`  | `/api/categories/{id}`    | Show a single category.                  |
 
+## MCP server
+
+Freyr ships an [MCP](https://modelcontextprotocol.io) server so AI agents can
+query and help manage your budgeting data — the flagship use case is letting
+an agent review and categorize your transactions.
+
+**HTTP transport** lives at `POST /mcp` behind OAuth bearer tokens
+(`auth:api`). Two ways to authenticate:
+
+- **OAuth** — MCP clients that support OAuth discovery (e.g. Claude) can
+  register themselves via Dynamic Client Registration (`POST /oauth/register`)
+  and complete an authorization-code + PKCE consent flow in your browser.
+  Consent grants the `mcp:use` scope, which unlocks the full tool surface.
+- **Personal access token** — a token from Settings → Security works as a
+  bearer token too; its `read`/`write` scopes gate which tools register.
+
+**Stdio transport** (same-machine agents, no auth — acts as your instance's
+sole user):
+
+```bash
+php artisan mcp:start freyr
+```
+
+To limit context bloat, only `list-postings` is advertised in `tools/list`;
+the remaining tools (`get-posting`, `list-categories`, `list-bank-accounts`,
+`categorize-postings`, `edit-posting`) are discoverable via the built-in
+`search_tools` and invoked via `execute_tools`.
+
+**Categorization workflow for agents:** list uncategorized postings
+(`list-postings` with `uncategorized`), load the taxonomy (`list-categories`,
+including each subcategory's `hints`), then confirm categories in bulk with
+`categorize-postings`. Writes mark `categorized_by: 'mcp'` as provenance.
+
 ## Tech stack
 
 Laravel 13 · Inertia.js v3 · React 19 · Tailwind CSS v4 · PostgreSQL · Redis ·
-Laravel Horizon · Laravel Sanctum · Laravel Fortify · Enable Banking.
+Laravel Horizon · Laravel Passport · Laravel MCP · Laravel Fortify · Enable Banking.
 
 ## License
 
