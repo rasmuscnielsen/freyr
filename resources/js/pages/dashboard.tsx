@@ -1,5 +1,5 @@
 import { Head, Link, router } from '@inertiajs/react';
-import { Fragment, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import {
     Bar,
     CartesianGrid,
@@ -212,6 +212,13 @@ function formatMonthLabel(month: string): string {
 }
 
 const mutedTick = { fill: 'var(--muted-foreground)', fontSize: 12 };
+
+// Coarse pointers (touch) can't hover, so the breakdown rows become a
+// two-tap interaction instead of hover-reveal + click-through.
+const coarsePointerMql =
+    typeof window === 'undefined'
+        ? undefined
+        : window.matchMedia('(hover: none)');
 
 function periodLabel(option: string): string {
     return option === '12m' ? '12 months' : option;
@@ -894,11 +901,75 @@ function BreakdownRow({
     // Where the pointer entered the row, so the detail card opens near the
     // cursor instead of pinned to the row's left edge covering the bars.
     const [anchorX, setAnchorX] = useState(0);
+    const [open, setOpen] = useState(false);
+    const rowRef = useRef<HTMLDivElement>(null);
+    const lastTapAt = useRef(0);
+
+    // Radix suppresses the trigger's emulated click on touch, so taps are
+    // handled on pointerup: the first opens the detail card, the second (or
+    // "View postings" inside it) navigates.
+    const tap = () => {
+        if (open) {
+            onSelect(category);
+        } else {
+            setOpen(true);
+        }
+    };
+
+    // A tap already handled on pointerup may still produce an emulated
+    // click; ignore clicks arriving right after a touch so one tap isn't
+    // read as two.
+    const selectFromClick = () => {
+        if (Date.now() - lastTapAt.current < 400) {
+            return;
+        }
+
+        if (coarsePointerMql?.matches) {
+            tap();
+
+            return;
+        }
+
+        onSelect(category);
+    };
+
+    // Touch never fires pointerleave, so an open card dismisses on the next
+    // tap outside the row or its portaled content.
+    useEffect(() => {
+        if (!open || !coarsePointerMql?.matches) {
+            return;
+        }
+
+        const dismiss = (event: PointerEvent) => {
+            const target = event.target;
+
+            if (
+                !(target instanceof Element) ||
+                rowRef.current?.contains(target) ||
+                target.closest('[data-slot="hover-card-content"]')
+            ) {
+                return;
+            }
+
+            setOpen(false);
+        };
+
+        document.addEventListener('pointerdown', dismiss, true);
+
+        return () => document.removeEventListener('pointerdown', dismiss, true);
+    }, [open]);
 
     return (
         <div
+            ref={rowRef}
             className="group flex w-full cursor-pointer flex-col gap-1 py-1 text-left"
-            onClick={() => onSelect(category)}
+            onClick={selectFromClick}
+            onPointerUp={(event) => {
+                if (event.pointerType === 'touch') {
+                    lastTapAt.current = Date.now();
+                    tap();
+                }
+            }}
         >
             <button
                 type="button"
@@ -907,7 +978,7 @@ function BreakdownRow({
                     // The row's own handler covers pointer clicks; this button
                     // exists for keyboard and screen-reader access.
                     event.stopPropagation();
-                    onSelect(category);
+                    selectFromClick();
                 }}
             >
                 {category.name}
@@ -919,7 +990,12 @@ function BreakdownRow({
                 </span>
             </button>
             <span className="flex items-center gap-3">
-                <HoverCard openDelay={100} closeDelay={80}>
+                <HoverCard
+                    open={open}
+                    onOpenChange={setOpen}
+                    openDelay={100}
+                    closeDelay={80}
+                >
                     <HoverCardTrigger asChild>
                         <span
                             onMouseEnter={(event) =>
