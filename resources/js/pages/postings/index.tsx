@@ -1,5 +1,12 @@
 import { Head, Link, router } from '@inertiajs/react';
-import { ChevronLeft, ChevronRight, Search, StarIcon } from 'lucide-react';
+import {
+    ChevronLeft,
+    ChevronRight,
+    ChevronsUpDown,
+    Search,
+    StarIcon,
+    X,
+} from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { CategoryCombobox } from '@/components/category-combobox';
 import type { CategoryComboboxOption } from '@/components/category-combobox';
@@ -14,7 +21,7 @@ import {
     SelectTrigger,
     SelectValue,
 } from '@/components/ui/select';
-import { formatDate } from '@/lib/dates';
+import { formatDate, formatDayMonth } from '@/lib/dates';
 import { formatMoney } from '@/lib/money';
 import { cn } from '@/lib/utils';
 import {
@@ -447,7 +454,14 @@ export default function Postings({
     return (
         <>
             <Head title="Postings" />
-            <div className="flex flex-col gap-4 p-4 md:p-6">
+            <div
+                className={cn(
+                    'flex flex-col gap-4 p-4 md:p-6',
+                    // Room for the floating selection bar so it never covers
+                    // the pagination while a selection is active.
+                    selectedIds.size > 0 && 'pb-20',
+                )}
+            >
                 <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
                     <div>
                         <h1 className="text-2xl font-semibold tracking-tight">
@@ -617,7 +631,7 @@ export default function Postings({
                                             onCheckedChange={toggleSelectAll}
                                         />
                                     </th>
-                                    <th className="px-3 py-2.5 text-xs font-medium text-muted-foreground">
+                                    <th className="hidden px-3 py-2.5 text-xs font-medium text-muted-foreground md:table-cell">
                                         Date
                                     </th>
                                     <th className="px-3 py-2.5 text-xs font-medium text-muted-foreground">
@@ -676,10 +690,16 @@ export default function Postings({
                                                 }}
                                             />
                                         </td>
-                                        <td className="px-3 py-2 whitespace-nowrap text-muted-foreground tabular-nums">
+                                        <td className="hidden px-3 py-2 whitespace-nowrap text-muted-foreground tabular-nums md:table-cell">
                                             {formatDate(posting.date)}
                                         </td>
                                         <td className="px-3 py-2">
+                                            {/* The date column is hidden on
+                                                small screens so the amount stays
+                                                in view; surface it here instead. */}
+                                            <div className="text-xs text-muted-foreground md:hidden">
+                                                {formatDayMonth(posting.date)}
+                                            </div>
                                             <div className="flex items-center gap-2">
                                                 <div className="font-medium">
                                                     {posting.description}
@@ -786,19 +806,20 @@ export default function Postings({
                 </div>
 
                 {selectedIds.size > 0 && (
-                    <div className="sticky bottom-4 z-10 flex flex-wrap items-center gap-2 self-start rounded-lg border bg-card py-2 pr-2 pl-4 shadow-lg">
-                        <span className="text-sm font-medium tabular-nums">
+                    <div className="fixed bottom-4 max-sm:inset-x-2 md:left-1/2 md:-translate-x-1/2 min-w-xs z-40 flex items-center gap-1.5 rounded-full border bg-card py-3 pr-1.5 pl-4 whitespace-nowrap shadow-lg">
+                        <span className="pr-1 text-sm font-medium tabular-nums flex-1">
                             {selectedIds.size} selected
                         </span>
                         <div className="relative">
                             <Button
-                                variant="outline"
                                 size="sm"
                                 aria-haspopup="listbox"
+                                className="rounded-full"
                                 disabled={isBulkSaving}
                                 onClick={() => setIsPickingBulkCategory(true)}
                             >
                                 {isBulkSaving ? 'Saving…' : 'Set category'}
+                                <ChevronsUpDown className="pacity-50" />
                             </Button>
                             {isPickingBulkCategory && (
                                 <CategoryCombobox
@@ -813,11 +834,13 @@ export default function Postings({
                         </div>
                         <Button
                             variant="ghost"
-                            size="sm"
+                            size="icon"
+                            aria-label="Clear selection"
+                            className="size-7 rounded-full"
                             disabled={isBulkSaving}
                             onClick={clearSelection}
                         >
-                            Clear
+                            <X className="size-3.5" />
                         </Button>
                     </div>
                 )}

@@ -3,7 +3,10 @@
  * formatted in `money.ts`. Accepts the `Y-m-d` / ISO strings the backend
  * sends and renders them in a human-readable form.
  */
-export function formatDate(value: string | null | undefined): string {
+function format(
+    value: string | null | undefined,
+    options: Intl.DateTimeFormatOptions,
+): string {
     if (!value) {
         return '—';
     }
@@ -14,11 +17,19 @@ export function formatDate(value: string | null | undefined): string {
         return value;
     }
 
-    return new Intl.DateTimeFormat(undefined, {
-        day: 'numeric',
-        month: 'short',
-        year: 'numeric',
-    }).format(date);
+    return new Intl.DateTimeFormat(undefined, options).format(date);
+}
+
+export function formatDate(value: string | null | undefined): string {
+    return format(value, { day: 'numeric', month: 'short', year: 'numeric' });
+}
+
+/**
+ * Day + month without the year, e.g. "Jun 27" — for tight columns where the
+ * year is implied by context.
+ */
+export function formatDayMonth(value: string | null | undefined): string {
+    return format(value, { day: 'numeric', month: 'short' });
 }
 
 /**

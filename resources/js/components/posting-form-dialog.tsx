@@ -102,7 +102,7 @@ export function PostingFormDialog({
                     <DialogDescription>{description}</DialogDescription>
                 </DialogHeader>
 
-                <div className="grid gap-4">
+                <div className="grid min-w-0 gap-4">
                     {coreFieldsEditable ? (
                         <>
                             <div className="grid gap-4 sm:grid-cols-2">
@@ -161,9 +161,9 @@ export function PostingFormDialog({
                             </div>
                         </>
                     ) : (
-                        <div className="grid gap-1 rounded-md border bg-muted/50 p-3 text-sm">
-                            <div className="flex items-baseline justify-between gap-6">
-                                <span className="min-w-0 truncate font-medium">
+                        <div className="grid min-w-0 gap-1 rounded-md border bg-muted/50 p-3 text-sm">
+                            <div className="flex min-w-0 items-baseline justify-between gap-6">
+                                <span className="min-w-0 font-medium wrap-anywhere">
                                     {form.data.description}
                                 </span>
                                 <span className="shrink-0 font-medium tabular-nums">
