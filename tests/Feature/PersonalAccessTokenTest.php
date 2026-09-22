@@ -4,6 +4,8 @@ use App\Models\User;
 use Inertia\Testing\AssertableInertia as Assert;
 
 test('personal access tokens are listed on the security page', function () {
+    providePersonalAccessClient();
+
     $user = User::factory()->create();
     $user->createToken('Local reports', ['read']);
 
@@ -13,12 +15,13 @@ test('personal access tokens are listed on the security page', function () {
         ->assertInertia(fn (Assert $page) => $page
             ->component('settings/security')
             ->has('personalAccessTokens', 1)
-            ->where('personalAccessTokens.0.name', 'Local reports')
-            ->where('personalAccessTokens.0.last_used_at_diff', null),
+            ->where('personalAccessTokens.0.name', 'Local reports'),
         );
 });
 
 test('personal access tokens can be created', function () {
+    providePersonalAccessClient();
+
     $user = User::factory()->create();
 
     $response = $this
@@ -36,12 +39,16 @@ test('personal access tokens can be created', function () {
     $token = $user->tokens()->sole();
 
     expect($token->name)->toBe('Local scripts')
-        ->and($token->can('read'))->toBeTrue();
+        ->and($token->can('read'))->toBeTrue()
+        ->and($token->can('write'))->toBeTrue()
+        ->and($token->can('mcp:use'))->toBeTrue();
 });
 
 test('personal access tokens can be revoked', function () {
+    providePersonalAccessClient();
+
     $user = User::factory()->create();
-    $token = $user->createToken('Old token', ['read'])->accessToken;
+    $token = $user->createToken('Old token', ['read'])->token;
 
     $this
         ->actingAs($user)
@@ -54,9 +61,11 @@ test('personal access tokens can be revoked', function () {
 });
 
 test('users cannot revoke another users personal access token', function () {
+    providePersonalAccessClient();
+
     $user = User::factory()->create();
     $otherUser = User::factory()->create();
-    $token = $otherUser->createToken('Other token', ['read'])->accessToken;
+    $token = $otherUser->createToken('Other token', ['read'])->token;
 
     $this
         ->actingAs($user)

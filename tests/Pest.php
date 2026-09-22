@@ -1,6 +1,8 @@
 <?php
 
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Artisan;
+use Laravel\Passport\ClientRepository;
 use Tests\TestCase;
 
 /*
@@ -44,7 +46,14 @@ expect()->extend('toBeOne', function () {
 |
 */
 
-function something()
+/**
+ * Provision OAuth signing keys and a personal access client so that
+ * `User::createToken()` (Passport) can mint real tokens in tests.
+ */
+function providePersonalAccessClient(): void
 {
-    // ..
+    Artisan::call('passport:keys', ['--force' => true]);
+
+    app(ClientRepository::class)
+        ->createPersonalAccessGrantClient('Personal access', 'users');
 }

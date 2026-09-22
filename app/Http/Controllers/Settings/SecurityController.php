@@ -39,14 +39,15 @@ class SecurityController extends Controller
                 : [],
             'personalAccessTokens' => $request->user()
                 ->tokens()
-                ->select(['id', 'name', 'created_at', 'last_used_at'])
+                ->with('client:id,name')
+                ->select(['id', 'client_id', 'name', 'created_at', 'expires_at'])
                 ->latest()
                 ->get()
                 ->map(fn ($token) => [
                     'id' => $token->id,
-                    'name' => $token->name,
+                    'name' => $token->name ?? "{$token->client?->name} (OAuth)",
                     'created_at_diff' => $token->created_at->diffForHumans(),
-                    'last_used_at_diff' => $token->last_used_at?->diffForHumans(),
+                    'expires_at_diff' => $token->expires_at?->diffForHumans(),
                 ])
                 ->values()
                 ->all(),

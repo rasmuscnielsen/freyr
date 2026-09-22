@@ -10,10 +10,10 @@ import { Label } from '@/components/ui/label';
 import { useClipboard } from '@/hooks/use-clipboard';
 
 type PersonalAccessToken = {
-    id: number;
+    id: string;
     name: string;
     created_at_diff: string;
-    last_used_at_diff: string | null;
+    expires_at_diff: string | null;
 };
 
 export type Props = {
@@ -29,7 +29,7 @@ const EmptyState = () => {
             </div>
             <p className="font-medium">No personal access tokens yet</p>
             <p className="mt-1 text-sm text-muted-foreground">
-                Create a token to access the read-only API.
+                Create a token to access the API or connect an MCP client.
             </p>
         </div>
     );
@@ -44,7 +44,7 @@ export default function ManagePersonalAccessTokens(props: Props) {
             <Heading
                 variant="small"
                 title="Personal access tokens"
-                description="Manage read-only API tokens for your account"
+                description="Manage API tokens for your account"
             />
 
             {props.plainTextPersonalAccessToken ? (
@@ -95,9 +95,9 @@ export default function ManagePersonalAccessTokens(props: Props) {
                                 </p>
                                 <p className="mt-1 text-sm text-muted-foreground">
                                     Created {token.created_at_diff}
-                                    {token.last_used_at_diff
-                                        ? ` · Last used ${token.last_used_at_diff}`
-                                        : ' · Never used'}
+                                    {token.expires_at_diff
+                                        ? ` · Expires ${token.expires_at_diff}`
+                                        : ''}
                                 </p>
                             </div>
 

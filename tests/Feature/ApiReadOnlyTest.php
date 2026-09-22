@@ -5,14 +5,14 @@ use App\Models\Category;
 use App\Models\Posting;
 use App\Models\Subcategory;
 use App\Models\User;
-use Laravel\Sanctum\Sanctum;
+use Laravel\Passport\Passport;
 
 test('api routes require authentication', function () {
     $this->getJson('/api/bank-accounts')->assertUnauthorized();
 });
 
 test('api routes require a read token ability', function () {
-    Sanctum::actingAs(User::factory()->create(), ['write']);
+    Passport::actingAs(User::factory()->create(), ['write']);
 
     $this->getJson('/api/bank-accounts')->assertForbidden();
 });
@@ -24,7 +24,7 @@ test('bank accounts can be read by their owner', function () {
     ]);
     BankAccount::factory()->create(['name' => 'Other account']);
 
-    Sanctum::actingAs($user, ['read']);
+    Passport::actingAs($user, ['read']);
 
     $this->getJson('/api/bank-accounts')
         ->assertOk()
@@ -37,7 +37,7 @@ test('bank accounts can be read by their owner', function () {
 });
 
 test('bank accounts cannot be read across users', function () {
-    Sanctum::actingAs(User::factory()->create(), ['read']);
+    Passport::actingAs(User::factory()->create(), ['read']);
 
     $account = BankAccount::factory()->create();
 
@@ -62,7 +62,7 @@ test('postings can be read by their owner', function () {
         ]);
     Posting::factory()->create(['description' => 'Other posting']);
 
-    Sanctum::actingAs($user, ['read']);
+    Passport::actingAs($user, ['read']);
 
     $this->getJson('/api/postings')
         ->assertOk()
@@ -77,7 +77,7 @@ test('postings can be read by their owner', function () {
 });
 
 test('postings cannot be read across users', function () {
-    Sanctum::actingAs(User::factory()->create(), ['read']);
+    Passport::actingAs(User::factory()->create(), ['read']);
 
     $posting = Posting::factory()->create();
 
@@ -88,7 +88,7 @@ test('categories can be read', function () {
     $category = Category::factory()->create(['name' => 'Food']);
     Subcategory::factory()->forCategory($category)->create(['name' => 'Groceries']);
 
-    Sanctum::actingAs(User::factory()->create(), ['read']);
+    Passport::actingAs(User::factory()->create(), ['read']);
 
     $this->getJson('/api/categories')
         ->assertOk()
@@ -101,7 +101,7 @@ test('categories can be read', function () {
 });
 
 test('api resource routes are read only', function () {
-    Sanctum::actingAs(User::factory()->create(), ['read']);
+    Passport::actingAs(User::factory()->create(), ['read']);
 
     $this->postJson('/api/bank-accounts', [])->assertMethodNotAllowed();
     $this->patchJson('/api/postings/1', [])->assertMethodNotAllowed();
