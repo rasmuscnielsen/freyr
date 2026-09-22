@@ -57,6 +57,7 @@ class SpiirImportController extends Controller
         abort_if($status === null, 404);
 
         return response()->json([
+            'id' => $import,
             'status' => $status['status'] ?? 'pending',
             'summary' => $status['summary'] ?? null,
             'error' => $status['error'] ?? null,
@@ -77,6 +78,8 @@ class SpiirImportController extends Controller
             return null;
         }
 
-        return Cache::get(ImportSpiirExport::cacheKey($importId));
+        $status = Cache::get(ImportSpiirExport::cacheKey($importId));
+
+        return $status === null ? null : ['id' => $importId] + $status;
     }
 }

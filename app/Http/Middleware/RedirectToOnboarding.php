@@ -30,7 +30,7 @@ class RedirectToOnboarding
             return $next($request);
         }
 
-        if ($request->routeIs('onboarding.*') || $request->routeIs('logout')) {
+        if ($request->routeIs('onboarding.*') || $request->routeIs('spiir-import.*') || $request->routeIs('logout')) {
             return $next($request);
         }
 

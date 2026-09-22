@@ -143,8 +143,6 @@ test('the spiir step dispatches the import job and exposes its status', function
     $importId = session('spiir_import_id');
     expect($importId)->not->toBeNull();
 
-    app(PlatformSettings::class)->markOnboardingCompleted();
-
     $this->actingAs($admin)
         ->get(route('spiir-import.show', $importId))
         ->assertOk()
@@ -164,8 +162,6 @@ test('the spiir step imports the export for the signed-in user when run synchron
         ->assertRedirect();
 
     $importId = session('spiir_import_id');
-
-    app(PlatformSettings::class)->markOnboardingCompleted();
 
     $this->actingAs($admin)
         ->get(route('spiir-import.show', $importId))
@@ -195,7 +191,6 @@ test('the spiir import is rejected once postings exist', function () {
 
 test('the status endpoint 404s for an unknown import', function () {
     $admin = User::factory()->platformAdmin()->create();
-    app(PlatformSettings::class)->markOnboardingCompleted();
 
     $this->actingAs($admin)
         ->get(route('spiir-import.show', 'does-not-exist'))
