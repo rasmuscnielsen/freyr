@@ -806,8 +806,8 @@ export default function Postings({
                 </div>
 
                 {selectedIds.size > 0 && (
-                    <div className="fixed bottom-4 max-sm:inset-x-2 md:left-1/2 md:-translate-x-1/2 min-w-xs z-40 flex items-center gap-1.5 rounded-full border bg-card py-3 pr-1.5 pl-4 whitespace-nowrap shadow-lg">
-                        <span className="pr-1 text-sm font-medium tabular-nums flex-1">
+                    <div className="fixed bottom-4 z-40 flex min-w-xs items-center gap-1.5 rounded-full border bg-card py-3 pr-1.5 pl-4 whitespace-nowrap shadow-lg max-sm:inset-x-2 md:left-1/2 md:-translate-x-1/2">
+                        <span className="flex-1 pr-1 text-sm font-medium tabular-nums">
                             {selectedIds.size} selected
                         </span>
                         <div className="relative">
@@ -819,7 +819,7 @@ export default function Postings({
                                 onClick={() => setIsPickingBulkCategory(true)}
                             >
                                 {isBulkSaving ? 'Saving…' : 'Set category'}
-                                <ChevronsUpDown className="pacity-50" />
+                                <ChevronsUpDown className="opacity-50" />
                             </Button>
                             {isPickingBulkCategory && (
                                 <CategoryCombobox
