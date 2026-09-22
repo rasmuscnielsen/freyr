@@ -3,6 +3,7 @@ import {
     BarChart3,
     ListChecks,
     Settings,
+    SlidersHorizontal,
     Tags,
     WalletCards,
 } from 'lucide-react';
@@ -22,6 +23,7 @@ import {
 import { dashboard } from '@/routes';
 import { index as bankAccountsIndex } from '@/routes/bank-accounts';
 import { index as categoriesIndex } from '@/routes/platform/categories';
+import { edit as platformSettingsEdit } from '@/routes/platform/settings';
 import { index as postingsIndex } from '@/routes/postings';
 import { edit as profileEdit } from '@/routes/profile';
 import type { NavItem } from '@/types';
@@ -49,6 +51,11 @@ const platformNavItems: NavItem[] = [
         title: 'Categories',
         href: categoriesIndex(),
         icon: Tags,
+    },
+    {
+        title: 'Settings',
+        href: platformSettingsEdit(),
+        icon: SlidersHorizontal,
     },
 ];
 
