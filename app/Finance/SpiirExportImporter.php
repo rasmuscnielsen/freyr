@@ -98,15 +98,20 @@ class SpiirExportImporter
             ->delete();
     }
 
+    public function canImport(): bool
+    {
+        return ! Posting::query()->exists();
+    }
+
     /**
      * @return array{user_id:int, accounts:int, postings:int, counter_entries:int}
      */
-    public function importExport(string $path): array
+    public function importExport(string $path, ?User $user = null): array
     {
         $this->importCategories($path);
 
-        return DB::transaction(function () use ($path): array {
-            $user = $this->resolveUser($path);
+        return DB::transaction(function () use ($path, $user): array {
+            $user ??= $this->resolveUser($path);
 
             $accounts = $this->importAccounts($path, $user);
             $postings = $this->importPostings($path, $user, $accounts);

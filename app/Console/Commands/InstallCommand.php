@@ -39,7 +39,7 @@ class InstallCommand extends Command
             return self::SUCCESS;
         }
 
-        $this->components->info('Freyr is installed. Visit /register to create your account.');
+        $this->components->info('Freyr is installed. Open the app in your browser to create the first user.');
 
         return self::SUCCESS;
     }

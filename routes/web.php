@@ -6,8 +6,10 @@ use App\Http\Controllers\BankConnectionAccountController;
 use App\Http\Controllers\BankConnectionController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\Platform\CategoryController;
+use App\Http\Controllers\Platform\SettingsController;
 use App\Http\Controllers\Platform\SubcategoryController;
 use App\Http\Controllers\PostingController;
+use App\Http\Controllers\SpiirImportController;
 use Illuminate\Support\Facades\Route;
 
 Route::redirect('/', '/login')->name('home');
@@ -28,6 +30,11 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::resource('bank-accounts.postings', BankAccountPostingController::class)->only(['store', 'update', 'destroy'])->scoped();
 });
 
+Route::middleware(['auth', 'platform-admin'])->group(function () {
+    Route::post('spiir-import', [SpiirImportController::class, 'store'])->name('spiir-import.store');
+    Route::get('spiir-import/{import}', [SpiirImportController::class, 'show'])->name('spiir-import.show');
+});
+
 Route::middleware(['auth', 'verified', 'platform-admin'])->prefix('platform')->name('platform.')->group(function () {
     Route::get('categories', [CategoryController::class, 'index'])->name('categories.index');
     Route::post('categories', [CategoryController::class, 'store'])->name('categories.store');
@@ -37,6 +44,12 @@ Route::middleware(['auth', 'verified', 'platform-admin'])->prefix('platform')->n
     Route::post('subcategories', [SubcategoryController::class, 'store'])->name('subcategories.store');
     Route::patch('subcategories/{subcategory}', [SubcategoryController::class, 'update'])->name('subcategories.update');
     Route::delete('subcategories/{subcategory}', [SubcategoryController::class, 'destroy'])->name('subcategories.destroy');
+
+    Route::get('settings', [SettingsController::class, 'edit'])->name('settings.edit');
+    Route::patch('settings/registration', [SettingsController::class, 'updateRegistration'])->name('settings.registration.update');
+    Route::put('settings/enable-banking', [SettingsController::class, 'storeEnableBanking'])->name('settings.enable-banking.update');
+    Route::delete('settings/enable-banking', [SettingsController::class, 'destroyEnableBanking'])->name('settings.enable-banking.destroy');
 });
 
+require __DIR__.'/onboarding.php';
 require __DIR__.'/settings.php';
