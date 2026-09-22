@@ -6,12 +6,13 @@ use App\Models\Category;
 use App\Models\Posting;
 use App\Models\Subcategory;
 use App\Models\User;
+use App\Platform\PlatformSettings;
 
 function platformAdmin(): User
 {
-    config(['custom.admin_emails' => ['admin@example.com']]);
+    app(PlatformSettings::class)->markOnboardingCompleted();
 
-    return User::factory()->create(['email' => 'admin@example.com']);
+    return User::factory()->platformAdmin()->create();
 }
 
 test('a category can be created', function () {

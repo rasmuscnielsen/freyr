@@ -10,6 +10,8 @@ beforeEach(function () {
 });
 
 test('reset password link screen can be rendered', function () {
+    User::factory()->create();
+
     $response = $this->get(route('password.request'));
 
     $response->assertOk();

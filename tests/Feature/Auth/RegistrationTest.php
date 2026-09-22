@@ -1,6 +1,8 @@
 <?php
 
+use App\Enums\PlatformSettingKey;
 use App\Models\User;
+use App\Platform\PlatformSettings;
 use Laravel\Fortify\Features;
 
 beforeEach(function () {
@@ -8,12 +10,18 @@ beforeEach(function () {
 });
 
 test('registration screen can be rendered', function () {
+    User::factory()->create();
+    app(PlatformSettings::class)->set(PlatformSettingKey::RegistrationEnabled, true);
+
     $response = $this->get(route('register'));
 
     $response->assertOk();
 });
 
 test('new users can register', function () {
+    User::factory()->create();
+    app(PlatformSettings::class)->set(PlatformSettingKey::RegistrationEnabled, true);
+
     $response = $this->post(route('register.store'), [
         'name' => 'Test User',
         'email' => 'test@example.com',
@@ -25,14 +33,18 @@ test('new users can register', function () {
     $response->assertRedirect(route('dashboard', absolute: false));
 });
 
+test('registration is disabled by default', function () {
+    expect(app(PlatformSettings::class)->registrationEnabled())->toBeFalse();
+});
+
 test('the registration screen returns 404 when registration is disabled', function () {
-    config()->set('custom.registration_enabled', false);
+    User::factory()->create();
 
     $this->get(route('register'))->assertNotFound();
 });
 
 test('new users cannot register when registration is disabled', function () {
-    config()->set('custom.registration_enabled', false);
+    User::factory()->create();
 
     $response = $this->post(route('register.store'), [
         'name' => 'Test User',
@@ -43,11 +55,11 @@ test('new users cannot register when registration is disabled', function () {
 
     $response->assertNotFound();
     $this->assertGuest();
-    expect(User::query()->count())->toBe(0);
+    expect(User::query()->count())->toBe(1);
 });
 
 test('the login page hides the sign up link when registration is disabled', function () {
-    config()->set('custom.registration_enabled', false);
+    User::factory()->create();
 
     $this->get(route('login'))
         ->assertInertia(fn ($page) => $page->where('canRegister', false));

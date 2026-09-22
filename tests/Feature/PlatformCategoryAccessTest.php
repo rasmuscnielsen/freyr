@@ -1,17 +1,18 @@
 <?php
 
 use App\Models\User;
+use App\Platform\PlatformSettings;
 use Inertia\Testing\AssertableInertia as Assert;
 
 test('guests are redirected to login', function () {
+    User::factory()->create();
+
     $this->get(route('platform.categories.index'))
         ->assertRedirect(route('login'));
 });
 
 test('non-admin users are forbidden', function () {
-    config(['custom.admin_emails' => ['admin@example.com']]);
-
-    $user = User::factory()->create(['email' => 'member@example.com']);
+    $user = User::factory()->create();
 
     $this->actingAs($user)
         ->get(route('platform.categories.index'))
@@ -19,9 +20,8 @@ test('non-admin users are forbidden', function () {
 });
 
 test('platform admins can view the categories index', function () {
-    config(['custom.admin_emails' => ['admin@example.com']]);
-
-    $admin = User::factory()->create(['email' => 'admin@example.com']);
+    $admin = User::factory()->platformAdmin()->create();
+    app(PlatformSettings::class)->markOnboardingCompleted();
 
     $this->actingAs($admin)
         ->get(route('platform.categories.index'))
@@ -33,29 +33,24 @@ test('platform admins can view the categories index', function () {
             ->has('expenseTypes'));
 });
 
-test('admin identity is case-insensitive and guards empty config', function () {
-    config(['custom.admin_emails' => ['Admin@Example.com']]);
-
-    $admin = User::factory()->make(['email' => 'admin@example.com']);
+test('platform admin status is stored on the user record', function () {
+    $admin = User::factory()->platformAdmin()->make();
     expect($admin->isPlatformAdmin())->toBeTrue();
 
-    config(['custom.admin_emails' => ['']]);
-
-    $user = User::factory()->make(['email' => 'admin@example.com']);
+    $user = User::factory()->make();
     expect($user->isPlatformAdmin())->toBeFalse();
 });
 
 test('isPlatformAdmin is shared through inertia for admins and non-admins', function () {
-    config(['custom.admin_emails' => ['admin@example.com']]);
-
-    $admin = User::factory()->create(['email' => 'admin@example.com']);
+    $admin = User::factory()->platformAdmin()->create();
+    app(PlatformSettings::class)->markOnboardingCompleted();
 
     $this->actingAs($admin)
         ->get(route('dashboard'))
         ->assertInertia(fn (Assert $page) => $page
             ->where('auth.isPlatformAdmin', true));
 
-    $member = User::factory()->create(['email' => 'member@example.com']);
+    $member = User::factory()->create();
 
     $this->actingAs($member)
         ->get(route('dashboard'))
