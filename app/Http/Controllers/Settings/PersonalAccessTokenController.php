@@ -14,7 +14,7 @@ class PersonalAccessTokenController extends Controller
     {
         $token = $request->user()->createToken(
             name: $request->validated('name'),
-            scopes: ['read', 'write', 'mcp:use'],
+            scopes: $request->validated('scopes'),
         );
 
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Personal access token created.')]);

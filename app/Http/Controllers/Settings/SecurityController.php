@@ -10,6 +10,8 @@ use Illuminate\Validation\Rules\Password;
 use Inertia\Inertia;
 use Inertia\Response;
 use Laravel\Fortify\Features;
+use Laravel\Passport\Passport;
+use Laravel\Passport\Scope;
 
 class SecurityController extends Controller
 {
@@ -52,6 +54,10 @@ class SecurityController extends Controller
                 ->values()
                 ->all(),
             'plainTextPersonalAccessToken' => $request->session()->get('plainTextPersonalAccessToken'),
+            'availableTokenScopes' => Passport::scopes()
+                ->map(fn (Scope $scope) => $scope->toArray())
+                ->values()
+                ->all(),
             'passwordRules' => Password::defaults()->toPasswordRulesString(),
         ];
 

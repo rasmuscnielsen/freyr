@@ -142,6 +142,7 @@ export default function Security(props: Props) {
                 plainTextPersonalAccessToken={
                     props.plainTextPersonalAccessToken
                 }
+                availableTokenScopes={props.availableTokenScopes}
             />
         </>
     );

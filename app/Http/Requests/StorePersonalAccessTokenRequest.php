@@ -3,6 +3,8 @@
 namespace App\Http\Requests;
 
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
+use Laravel\Passport\Passport;
 
 class StorePersonalAccessTokenRequest extends FormRequest
 {
@@ -23,6 +25,8 @@ class StorePersonalAccessTokenRequest extends FormRequest
     {
         return [
             'name' => ['required', 'string', 'max:255'],
+            'scopes' => ['required', 'array', 'min:1'],
+            'scopes.*' => ['required', 'string', Rule::in(Passport::scopeIds())],
         ];
     }
 }

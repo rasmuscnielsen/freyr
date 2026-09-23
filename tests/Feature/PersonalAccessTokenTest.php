@@ -29,6 +29,7 @@ test('personal access tokens can be created', function () {
         ->from(route('security.edit'))
         ->post(route('personal-access-tokens.store'), [
             'name' => 'Local scripts',
+            'scopes' => ['read', 'write'],
         ]);
 
     $response
@@ -41,7 +42,32 @@ test('personal access tokens can be created', function () {
     expect($token->name)->toBe('Local scripts')
         ->and($token->can('read'))->toBeTrue()
         ->and($token->can('write'))->toBeTrue()
-        ->and($token->can('mcp:use'))->toBeTrue();
+        ->and($token->can('mcp:use'))->toBeFalse();
+});
+
+test('personal access tokens require at least one valid scope', function () {
+    providePersonalAccessClient();
+
+    $user = User::factory()->create();
+
+    $this
+        ->actingAs($user)
+        ->from(route('security.edit'))
+        ->post(route('personal-access-tokens.store'), [
+            'name' => 'No scopes',
+        ])
+        ->assertSessionHasErrors('scopes');
+
+    $this
+        ->actingAs($user)
+        ->from(route('security.edit'))
+        ->post(route('personal-access-tokens.store'), [
+            'name' => 'Bad scope',
+            'scopes' => ['admin:everything'],
+        ])
+        ->assertSessionHasErrors('scopes.0');
+
+    expect($user->tokens()->count())->toBe(0);
 });
 
 test('personal access tokens can be revoked', function () {

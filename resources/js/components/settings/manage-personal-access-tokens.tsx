@@ -5,6 +5,7 @@ import Heading from '@/components/heading';
 import InputError from '@/components/input-error';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useClipboard } from '@/hooks/use-clipboard';
@@ -16,9 +17,15 @@ type PersonalAccessToken = {
     expires_at_diff: string | null;
 };
 
+export type TokenScope = {
+    id: string;
+    description: string;
+};
+
 export type Props = {
     personalAccessTokens?: PersonalAccessToken[];
     plainTextPersonalAccessToken?: string | null;
+    availableTokenScopes?: TokenScope[];
 };
 
 const EmptyState = () => {
@@ -37,6 +44,7 @@ const EmptyState = () => {
 
 export default function ManagePersonalAccessTokens(props: Props) {
     const tokens = props.personalAccessTokens ?? [];
+    const scopes = props.availableTokenScopes ?? [];
     const [, copy] = useClipboard();
 
     return (
@@ -144,6 +152,36 @@ export default function ManagePersonalAccessTokens(props: Props) {
                             />
                             <InputError message={errors.name} />
                         </div>
+
+                        {scopes.length > 0 ? (
+                            <div className="grid gap-2">
+                                <Label>Scopes</Label>
+                                <div className="space-y-2">
+                                    {scopes.map((scope) => (
+                                        <label
+                                            key={scope.id}
+                                            className="flex items-start gap-3"
+                                        >
+                                            <Checkbox
+                                                name="scopes[]"
+                                                value={scope.id}
+                                                defaultChecked
+                                                className="mt-0.5"
+                                            />
+                                            <span className="grid gap-0.5">
+                                                <span className="font-mono text-xs font-medium">
+                                                    {scope.id}
+                                                </span>
+                                                <span className="text-sm text-muted-foreground">
+                                                    {scope.description}
+                                                </span>
+                                            </span>
+                                        </label>
+                                    ))}
+                                </div>
+                                <InputError message={errors.scopes} />
+                            </div>
+                        ) : null}
 
                         <Button type="submit" disabled={processing}>
                             <KeyRound />
