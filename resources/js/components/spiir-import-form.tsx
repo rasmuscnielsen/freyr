@@ -47,7 +47,7 @@ export default function SpiirImportForm({
         }
     }, [status, onStatusChange]);
 
-    if (!canImport) {
+    if (!canImport && !status) {
         return (
             <Alert>
                 <CircleAlertIcon />
