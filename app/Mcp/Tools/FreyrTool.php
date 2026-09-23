@@ -9,9 +9,10 @@ use Laravel\Mcp\Server\Tool;
 abstract class FreyrTool extends Tool
 {
     /**
-     * Token scope needed to invoke this tool. `mcp:use` — granted to OAuth
-     * clients at the consent screen — implies full MCP access, and a user
-     * resolved without a token (stdio `mcp:start`) is trusted outright.
+     * Scope required in addition to `mcp:use` — which only opens the MCP
+     * transport. Read tools layer on `read`, write tools layer on `write`,
+     * and a user resolved without a token (stdio `mcp:start`) is trusted
+     * outright.
      */
     protected string $requiredScope = 'read';
 
@@ -51,6 +52,6 @@ abstract class FreyrTool extends Tool
             return true;
         }
 
-        return $user->tokenCan('mcp:use') || $user->tokenCan($this->requiredScope);
+        return $user->tokenCan('mcp:use') && $user->tokenCan($this->requiredScope);
     }
 }

@@ -110,13 +110,13 @@ test('authorization code + PKCE flow issues a token that works on /mcp', functio
         ->assertJsonPath('result.serverInfo.name', 'Freyr');
 });
 
-test('a token minted with only the read scope does not get write tools', function () {
+test('mcp:use is layered on top of read and write scopes', function () {
     $user = User::factory()->create();
 
-    Passport::actingAs($user, ['read']);
+    Passport::actingAs($user, ['mcp:use', 'read']);
 
-    // CategorizePostings requires 'write' or 'mcp:use' — neither is present.
-    expect($user->tokenCan('write'))->toBeFalse();
-    expect($user->tokenCan('mcp:use'))->toBeFalse();
+    // Read scopes pass, but write tools still require 'write' on top.
+    expect($user->tokenCan('mcp:use'))->toBeTrue();
     expect($user->tokenCan('read'))->toBeTrue();
+    expect($user->tokenCan('write'))->toBeFalse();
 });

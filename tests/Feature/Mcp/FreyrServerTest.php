@@ -88,48 +88,48 @@ test('authenticated token requests reach the MCP server', function () {
 
 test('list-postings is registered in tools/list while the rest are discovered via search', function () {
     $user = User::factory()->create();
-    Passport::actingAs($user, ['mcp:use']);
+    Passport::actingAs($user, ['mcp:use', 'read']);
 
     FreyrServer::tools()
         ->assertRegistered(ListPostings::class)
         ->assertNotRegistered(ListCategories::class);
 });
 
-test('read tools require a read or mcp:use scope', function () {
+test('read tools require mcp:use and read scopes', function () {
     $user = User::factory()->create();
 
-    Passport::actingAs($user, ['write']);
+    Passport::actingAs($user, ['read']);
+
+    FreyrServer::tool(ListPostings::class)->assertNotRegistered();
+
+    Passport::actingAs($user, ['mcp:use']);
 
     FreyrServer::tool(ListPostings::class)->assertNotRegistered();
     expect(mcpCall('get-posting', ['id' => 1])['isError'])->toBeTrue();
 
-    Passport::actingAs($user, ['read']);
+    Passport::actingAs($user, ['mcp:use', 'read']);
 
     FreyrServer::tool(ListPostings::class)->assertOk();
 });
 
-test('write tools require a write or mcp:use scope', function () {
+test('write tools require mcp:use and write scopes', function () {
     $user = User::factory()->create();
     $subcategory = Subcategory::factory()->create();
 
-    Passport::actingAs($user, ['read']);
-
-    $result = mcpCall('categorize-postings', [
+    $categorize = fn () => mcpCall('categorize-postings', [
         'ids' => [1],
         'categorized_subcategory_id' => $subcategory->id,
     ]);
-
-    expect($result['isError'])->toBeTrue()
-        ->and($result['content'][0]['text'])->toContain('not available');
 
     Passport::actingAs($user, ['mcp:use']);
+    expect($categorize()['isError'])->toBeTrue();
 
-    $result = mcpCall('categorize-postings', [
-        'ids' => [1],
-        'categorized_subcategory_id' => $subcategory->id,
-    ]);
+    Passport::actingAs($user, ['mcp:use', 'read']);
+    expect($categorize()['isError'])->toBeTrue()
+        ->and($categorize()['content'][0]['text'])->toContain('not available');
 
-    expect($result['isError'])->toBeFalse();
+    Passport::actingAs($user, ['mcp:use', 'write']);
+    expect($categorize()['isError'])->toBeFalse();
 });
 
 test('a sole user can use all tools over stdio without authenticating', function () {
@@ -157,7 +157,7 @@ test('list-postings returns only the acting user postings', function () {
     $posting = Posting::factory()->forAccount($account)->create(['description' => 'Rent']);
     Posting::factory()->create(['description' => 'Foreign posting']);
 
-    Passport::actingAs($user, ['read']);
+    Passport::actingAs($user, ['mcp:use', 'read']);
 
     FreyrServer::tool(ListPostings::class)
         ->assertStructuredContent(fn (AssertableJson $json) => $json
@@ -175,7 +175,7 @@ test('list-postings filters uncategorized postings', function () {
     Posting::factory()->forAccount($account)->uncategorized()->create();
     Posting::factory()->forAccount($account)->categorizedAs($subcategory)->create();
 
-    Passport::actingAs($user, ['read']);
+    Passport::actingAs($user, ['mcp:use', 'read']);
 
     FreyrServer::tool(ListPostings::class, ['uncategorized' => true])
         ->assertStructuredContent(fn (AssertableJson $json) => $json
@@ -193,7 +193,7 @@ test('get-posting returns detail and errors on foreign postings', function () {
         ->create();
     $foreign = Posting::factory()->create();
 
-    Passport::actingAs($user, ['read']);
+    Passport::actingAs($user, ['mcp:use', 'read']);
 
     $result = mcpCall('get-posting', ['id' => $posting->id]);
 
@@ -214,7 +214,7 @@ test('list-categories exposes the categorization vocabulary', function () {
         'hints' => 'Supermarkets and food stores',
     ]);
 
-    Passport::actingAs($user, ['read']);
+    Passport::actingAs($user, ['mcp:use', 'read']);
 
     $result = mcpCall('list-categories');
 
@@ -228,7 +228,7 @@ test('list-bank-accounts returns only the acting user accounts', function () {
     BankAccount::factory()->for($user)->create(['name' => 'My account']);
     BankAccount::factory()->create(['name' => 'Foreign account']);
 
-    Passport::actingAs($user, ['read']);
+    Passport::actingAs($user, ['mcp:use', 'read']);
 
     $result = mcpCall('list-bank-accounts');
 
@@ -244,7 +244,7 @@ test('categorize-postings applies to owned postings and reports skipped ids', fu
     $owned = Posting::factory()->forAccount($account)->uncategorized()->create();
     $foreign = Posting::factory()->uncategorized()->create();
 
-    Passport::actingAs($user, ['write']);
+    Passport::actingAs($user, ['mcp:use', 'write']);
 
     $result = mcpCall('categorize-postings', [
         'ids' => [$owned->id, $foreign->id],
@@ -269,7 +269,7 @@ test('categorize-postings with null uncategorizes postings', function () {
         ->categorizedAs($subcategory)
         ->create();
 
-    Passport::actingAs($user, ['write']);
+    Passport::actingAs($user, ['mcp:use', 'write']);
 
     $result = mcpCall('categorize-postings', [
         'ids' => [$posting->id],
@@ -290,7 +290,7 @@ test('edit-posting edits comment and category on synced accounts', function () {
     $subcategory = Subcategory::factory()->create();
     $posting = Posting::factory()->forAccount($account)->uncategorized()->create();
 
-    Passport::actingAs($user, ['write']);
+    Passport::actingAs($user, ['mcp:use', 'write']);
 
     $result = mcpCall('edit-posting', [
         'id' => $posting->id,
@@ -313,7 +313,7 @@ test('edit-posting refuses amount edits on synced accounts', function () {
     $account = connectedAccountFor($user);
     $posting = Posting::factory()->forAccount($account)->create(['amount' => '-100.00']);
 
-    Passport::actingAs($user, ['write']);
+    Passport::actingAs($user, ['mcp:use', 'write']);
 
     $result = mcpCall('edit-posting', [
         'id' => $posting->id,
@@ -336,7 +336,7 @@ test('edit-posting edits manual account postings and recalculates balances', fun
         'balance' => '900.00',
     ]);
 
-    Passport::actingAs($user, ['write']);
+    Passport::actingAs($user, ['mcp:use', 'write']);
 
     $result = mcpCall('edit-posting', [
         'id' => $posting->id,
