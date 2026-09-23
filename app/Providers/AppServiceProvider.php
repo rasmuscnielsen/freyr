@@ -47,6 +47,7 @@ class AppServiceProvider extends ServiceProvider
                     ->map(fn (Scope $scope) => $scope->toArray())
                     ->all(),
                 'authToken' => $parameters['authToken'],
+                'csrfToken' => $parameters['request']->session()->token(),
             ]),
         );
     }

@@ -68,7 +68,8 @@ test('authorization code + PKCE flow issues a token that works on /mcp', functio
             ->component('auth/authorize')
             ->where('client.name', 'Claude')
             ->has('scopes', 2)
-            ->has('authToken'));
+            ->has('authToken')
+            ->has('csrfToken'));
 
     // User approves → redirect back to the client with a code.
     $response = $this->actingAs($user)

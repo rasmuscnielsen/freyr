@@ -1,6 +1,5 @@
-import { Form, Head } from '@inertiajs/react';
+import { Head } from '@inertiajs/react';
 import { Button } from '@/components/ui/button';
-import { Spinner } from '@/components/ui/spinner';
 
 type Scope = { id: string; description: string };
 
@@ -8,10 +7,12 @@ export default function Authorize({
     client,
     scopes,
     authToken,
+    csrfToken,
 }: {
     client: { name: string };
     scopes: Scope[];
     authToken: string;
+    csrfToken: string;
 }) {
     return (
         <>
@@ -44,55 +45,46 @@ export default function Authorize({
                     </p>
                 )}
 
+                {/* Native forms, not Inertia: the response is a cross-origin
+                    redirect to the client's redirect_uri, which the browser
+                    must perform as a full page navigation. */}
                 <div className="flex items-center gap-3">
-                    <Form
+                    <form
+                        method="POST"
                         action="/oauth/authorize"
-                        method="post"
                         className="flex-1"
                     >
-                        {({ processing }) => (
-                            <>
-                                <input
-                                    type="hidden"
-                                    name="auth_token"
-                                    value={authToken}
-                                />
-                                <Button
-                                    type="submit"
-                                    className="w-full"
-                                    disabled={processing}
-                                >
-                                    {processing && <Spinner />}
-                                    Approve
-                                </Button>
-                            </>
-                        )}
-                    </Form>
+                        <input type="hidden" name="_token" value={csrfToken} />
+                        <input
+                            type="hidden"
+                            name="auth_token"
+                            value={authToken}
+                        />
+                        <Button type="submit" className="w-full">
+                            Approve
+                        </Button>
+                    </form>
 
-                    <Form
+                    <form
+                        method="POST"
                         action="/oauth/authorize"
-                        method="delete"
                         className="flex-1"
                     >
-                        {({ processing }) => (
-                            <>
-                                <input
-                                    type="hidden"
-                                    name="auth_token"
-                                    value={authToken}
-                                />
-                                <Button
-                                    type="submit"
-                                    variant="outline"
-                                    className="w-full"
-                                    disabled={processing}
-                                >
-                                    {processing && <Spinner />}
-                                    Deny
-                                </Button>
-                            </>
-                        )}
-                    </Form>
+                        <input type="hidden" name="_token" value={csrfToken} />
+                        <input type="hidden" name="_method" value="DELETE" />
+                        <input
+                            type="hidden"
+                            name="auth_token"
+                            value={authToken}
+                        />
+                        <Button
+                            type="submit"
+                            variant="outline"
+                            className="w-full"
+                        >
+                            Deny
+                        </Button>
+                    </form>
                 </div>
             </div>
         </>
