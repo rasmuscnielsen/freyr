@@ -88,6 +88,8 @@ test('bulk categorization validates the subcategory and ids', function () {
 });
 
 test('guests cannot bulk update postings', function () {
+    User::factory()->create();
+
     $this->patch(route('postings.bulk-update'), [
         'ids' => [1],
         'categorized_subcategory_id' => null,

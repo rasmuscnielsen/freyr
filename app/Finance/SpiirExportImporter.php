@@ -98,15 +98,20 @@ class SpiirExportImporter
             ->delete();
     }
 
+    public function canImport(): bool
+    {
+        return ! Posting::query()->exists();
+    }
+
     /**
      * @return array{user_id:int, accounts:int, postings:int, counter_entries:int}
      */
-    public function importExport(string $path): array
+    public function importExport(string $path, ?User $user = null): array
     {
         $this->importCategories($path);
 
-        return DB::transaction(function () use ($path): array {
-            $user = $this->resolveUser($path);
+        return DB::transaction(function () use ($path, $user): array {
+            $user ??= $this->resolveUser($path);
 
             $accounts = $this->importAccounts($path, $user);
             $postings = $this->importPostings($path, $user, $accounts);
@@ -211,12 +216,18 @@ class SpiirExportImporter
     }
 
     /**
+     * Bulk-upserts postings keyed on their legacy id, so re-running an import
+     * stays idempotent without paying a select-then-write per row.
+     *
      * @param  Collection<string, int>  $accountIds
      */
     private function importPostings(string $path, User $user, Collection $accountIds): int
     {
         $subcategoryIds = Subcategory::query()->pluck('id', 'legacy_id');
-        $count = 0;
+        $now = now();
+
+        /** @var array<string, array<string, mixed>> $rows */
+        $rows = [];
 
         foreach ($this->readCsv($this->resolveFile($path, 'Posting.csv')) as $row) {
             $legacyId = $this->nullableString($row['Id'] ?? null);
@@ -230,72 +241,67 @@ class SpiirExportImporter
             $subcategoryLegacyId = $this->nullableString($row['SubcategoryId'] ?? null);
             $categorizedSubcategoryLegacyId = $this->nullableString($row['CategorizedSubcategoryId'] ?? null);
             $effectiveCategorizedSubcategoryLegacyId = $categorizedSubcategoryLegacyId ?? $subcategoryLegacyId;
+            $extraData = $this->json($row['ExtraData'] ?? null);
 
-            Posting::query()->updateOrCreate(
-                ['legacy_id' => $legacyId],
-                [
-                    'user_id' => $user->id,
-                    'bank_account_id' => $bankAccountId,
-                    'subcategory_id' => $subcategoryLegacyId === null ? null : $subcategoryIds->get($subcategoryLegacyId),
-                    'categorized_subcategory_id' => $effectiveCategorizedSubcategoryLegacyId === null ? null : $subcategoryIds->get($effectiveCategorizedSubcategoryLegacyId),
-                    'counter_entry_legacy_id' => $this->nullableString($row['CounterEntryPostingId'] ?? null),
-                    'split_group_legacy_id' => $this->nullableString($row['SplitGroupId'] ?? null),
-                    'date' => $this->date($row['Date'] ?? null) ?? now()->toDateString(),
-                    'custom_date' => $this->date($row['CustomDate'] ?? null),
-                    'description' => (string) ($row['Description'] ?: $row['OriginalDescription'] ?: 'Posting'),
-                    'original_description' => $this->nullableString($row['OriginalDescription'] ?? null),
-                    'comment' => $this->nullableString($row['Comment'] ?? null),
-                    'amount' => $this->decimal($row['Amount'] ?? null) ?? '0.00',
-                    'original_amount' => $this->decimal($row['OriginalAmount'] ?? null),
-                    'balance' => $this->decimal($row['Balance'] ?? null),
-                    'upload_batch_id' => $this->nullableString($row['UploadBatchId'] ?? null),
-                    'external_posting_id' => $this->nullableString($row['ExternalPostingId'] ?? null),
-                    'document_legacy_id' => $this->nullableString($row['DocumentId'] ?? null),
-                    'is_extraordinary' => $this->boolean($row['IsExtraordinary'] ?? null),
-                    'is_account_group_duplicate' => $this->boolean($row['IsAccountGroupDuplicate'] ?? null),
-                    'prevent_marking_as_counter_entry' => $this->boolean($row['PreventMarkingAsCounterEntry'] ?? null),
-                    'description_changed' => $this->boolean($row['DescriptionChanged'] ?? null),
-                    'extra_data' => $this->json($row['ExtraData'] ?? null),
-                    'posting_type' => $this->integer($row['PostingType'] ?? null),
-                    'posting_sub_type' => $this->integer($row['PostingSubType'] ?? null),
-                    'currency' => (string) ($row['Currency'] ?: 'DKK'),
-                    'original_currency' => $this->nullableString($row['OriginalCurrency'] ?? null),
-                    'merchant_legacy_id' => $this->nullableString($row['MerchantId'] ?? null),
-                    'country_code' => $this->nullableString($row['CountryCode'] ?? null),
-                    'state' => $this->nullableString($row['State'] ?? null),
-                    'carbon_emission_in_grams' => $this->integer($row['CarbonEmissionInGrams'] ?? null),
-                    'categorized_by' => $this->nullableString($row['CategorizedBy'] ?? null),
-                    'legacy_created_at' => $this->dateTime($row['Created'] ?? null),
-                ],
-            );
-
-            $count++;
+            $rows[$legacyId] = [
+                'legacy_id' => $legacyId,
+                'user_id' => $user->id,
+                'bank_account_id' => $bankAccountId,
+                'subcategory_id' => $subcategoryLegacyId === null ? null : $subcategoryIds->get($subcategoryLegacyId),
+                'categorized_subcategory_id' => $effectiveCategorizedSubcategoryLegacyId === null ? null : $subcategoryIds->get($effectiveCategorizedSubcategoryLegacyId),
+                'counter_entry_legacy_id' => $this->nullableString($row['CounterEntryPostingId'] ?? null),
+                'split_group_legacy_id' => $this->nullableString($row['SplitGroupId'] ?? null),
+                'date' => $this->date($row['Date'] ?? null) ?? $now->toDateString(),
+                'custom_date' => $this->date($row['CustomDate'] ?? null),
+                'description' => (string) ($row['Description'] ?: $row['OriginalDescription'] ?: 'Posting'),
+                'description_embedding' => null,
+                'description_embedded_at' => null,
+                'original_description' => $this->nullableString($row['OriginalDescription'] ?? null),
+                'comment' => $this->nullableString($row['Comment'] ?? null),
+                'amount' => $this->decimal($row['Amount'] ?? null) ?? '0.00',
+                'original_amount' => $this->decimal($row['OriginalAmount'] ?? null),
+                'balance' => $this->decimal($row['Balance'] ?? null),
+                'upload_batch_id' => $this->nullableString($row['UploadBatchId'] ?? null),
+                'external_posting_id' => $this->nullableString($row['ExternalPostingId'] ?? null),
+                'document_legacy_id' => $this->nullableString($row['DocumentId'] ?? null),
+                'is_extraordinary' => $this->boolean($row['IsExtraordinary'] ?? null),
+                'is_account_group_duplicate' => $this->boolean($row['IsAccountGroupDuplicate'] ?? null),
+                'prevent_marking_as_counter_entry' => $this->boolean($row['PreventMarkingAsCounterEntry'] ?? null),
+                'description_changed' => $this->boolean($row['DescriptionChanged'] ?? null),
+                'extra_data' => $extraData === null ? null : json_encode($extraData),
+                'posting_type' => $this->integer($row['PostingType'] ?? null),
+                'posting_sub_type' => $this->integer($row['PostingSubType'] ?? null),
+                'currency' => (string) ($row['Currency'] ?: 'DKK'),
+                'original_currency' => $this->nullableString($row['OriginalCurrency'] ?? null),
+                'merchant_legacy_id' => $this->nullableString($row['MerchantId'] ?? null),
+                'country_code' => $this->nullableString($row['CountryCode'] ?? null),
+                'state' => $this->nullableString($row['State'] ?? null),
+                'carbon_emission_in_grams' => $this->integer($row['CarbonEmissionInGrams'] ?? null),
+                'categorized_by' => $this->nullableString($row['CategorizedBy'] ?? null),
+                'legacy_created_at' => $this->dateTime($row['Created'] ?? null),
+                'created_at' => $now,
+                'updated_at' => $now,
+            ];
         }
 
-        return $count;
+        $updateColumns = array_values(array_diff(array_keys(reset($rows) ?: []), ['legacy_id', 'created_at']));
+
+        foreach (array_chunk($rows, 500) as $chunk) {
+            Posting::query()->upsert($chunk, ['legacy_id'], $updateColumns);
+        }
+
+        return count($rows);
     }
 
     private function resolveCounterEntryPostings(): int
     {
-        $postings = Posting::query()
-            ->whereNotNull('counter_entry_legacy_id')
-            ->whereNull('counter_entry_posting_id')
-            ->get(['id', 'counter_entry_legacy_id']);
-        $legacyIds = Posting::query()->pluck('id', 'legacy_id');
-        $count = 0;
-
-        foreach ($postings as $posting) {
-            $counterEntryPostingId = $legacyIds[$posting->counter_entry_legacy_id] ?? null;
-
-            if ($counterEntryPostingId === null) {
-                continue;
-            }
-
-            $posting->forceFill(['counter_entry_posting_id' => $counterEntryPostingId])->save();
-            $count++;
-        }
-
-        return $count;
+        return DB::update(<<<'SQL'
+            UPDATE postings
+            SET counter_entry_posting_id = counter_entry.id
+            FROM postings AS counter_entry
+            WHERE postings.counter_entry_posting_id IS NULL
+              AND postings.counter_entry_legacy_id = counter_entry.legacy_id
+        SQL);
     }
 
     /**

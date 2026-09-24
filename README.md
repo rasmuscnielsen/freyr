@@ -62,8 +62,12 @@ php artisan key:generate
 #    runs migrations and seeds the default category tree.
 php artisan app:install
 
-# 5. Build the frontend assets...
+# 5. Build the frontend assets
 pnpm run build
+
+# 6. Open the app in your browser and follow the setup wizard —
+#    it creates the first (administrator) account and walks you
+#    through registration, Enable Banking and Spiir import.
 ```
 
 In a local environment you can add `--demo` to reset the database and load a
@@ -94,8 +98,10 @@ so a self-hosted Freyr costs you nothing in API fees.
    application in their control panel.
 2. Note your **Application ID** and download the **private key** (`.pem`) that
    Enable Banking issues for the application.
-3. Configure the following environment variables (see `config/services.php`
-   under `enable_banking`):
+3. Enter the credentials in the setup wizard or later under **Platform →
+   Settings** (stored encrypted in the database) — or configure the following
+   environment variables as a fallback (see `config/services.php` under
+   `enable_banking`):
 
    | Variable                          | Description                                                                                   | Default                          |
    | --------------------------------- | --------------------------------------------------------------------------------------------- | -------------------------------- |
@@ -121,10 +127,8 @@ Run the queue worker with Horizon:
 php artisan horizon
 ```
 
-The Horizon dashboard is available at `/horizon`. Access is restricted to the
-user emails listed in the `ADMIN_EMAILS` environment variable
-(comma-separated). If `ADMIN_EMAILS` is empty, nobody can open the dashboard —
-set it to your own account's email.
+The Horizon dashboard is available at `/horizon`. Access is restricted to
+platform administrators (the first user, created by the setup wizard).
 
 Run the scheduler:
 
@@ -157,10 +161,10 @@ new code.
 
 ## Registration
 
-Anyone who can reach your instance can create an account by default. If your
-Freyr should be private (e.g. single-user), create your own account first and
-then set `REGISTRATION_ENABLED=false` — the sign-up page returns 404 from then
-on.
+Registration is **disabled by default** — new installations are private. You
+can allow other people to sign up in the setup wizard, or later under
+**Platform → Settings**. When registration is disabled, the sign-up page
+returns 404.
 
 ## Categories
 
@@ -198,9 +202,12 @@ Freyr is built in the spirit of Spiir, and migrating from a Spiir data export
 is a first-class flow. The recommended order:
 
 1. **Install Freyr** (`php artisan app:install`, see "Getting started").
-2. **Import your export.** Keep the export directory (containing
-   `Categories.json`, `User.csv`, `Account.csv`, and `Posting.csv`) **outside
-   the project directory** — so it cannot end up in version control — and run:
+2. **Import your export.** On a fresh install, the setup wizard lets you
+   upload the four export files (`Categories.json`, `User.csv`, `Account.csv`,
+   `Posting.csv`) straight from your browser — it is also available later
+   under **Platform → Settings** while no postings exist. Alternatively, keep
+   the export directory **outside the project directory** — so it cannot end
+   up in version control — and run:
 
    ```bash
    php artisan app:spiir:import ~/spiir-export

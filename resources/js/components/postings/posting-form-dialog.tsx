@@ -1,9 +1,9 @@
 import { useForm } from '@inertiajs/react';
 import { ChevronsUpDown } from 'lucide-react';
 import { useState } from 'react';
-import { CategoryCombobox } from '@/components/category-combobox';
-import type { CategoryComboboxOption } from '@/components/category-combobox';
 import InputError from '@/components/input-error';
+import { CategoryCombobox } from '@/components/postings/category-combobox';
+import type { CategoryComboboxOption } from '@/components/postings/category-combobox';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import {

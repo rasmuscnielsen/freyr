@@ -15,7 +15,7 @@ use Laravel\Fortify\PasskeyAuthenticatable;
 use Laravel\Fortify\TwoFactorAuthenticatable;
 use Laravel\Sanctum\HasApiTokens;
 
-#[Fillable(['name', 'email', 'email_verified_at', 'password'])]
+#[Fillable(['name', 'email', 'email_verified_at', 'password', 'is_platform_admin'])]
 #[Hidden(['password', 'two_factor_secret', 'two_factor_recovery_codes', 'remember_token'])]
 class User extends Authenticatable implements PasskeyUser
 {
@@ -33,28 +33,18 @@ class User extends Authenticatable implements PasskeyUser
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
             'two_factor_confirmed_at' => 'datetime',
+            'is_platform_admin' => 'boolean',
         ];
     }
 
     /**
-     * Determine whether the user is a platform administrator, i.e. their email
-     * is listed in `custom.admin_emails`. The comparison is case-insensitive
-     * and guards against an empty or unset configuration value.
+     * Determine whether the user is a platform administrator, flagged via the
+     * `is_platform_admin` column — set for the first user by the onboarding
+     * wizard.
      */
     public function isPlatformAdmin(): bool
     {
-        $email = $this->email;
-
-        if ($email === null || $email === '') {
-            return false;
-        }
-
-        $adminEmails = array_filter(array_map(
-            static fn (mixed $adminEmail): string => mb_strtolower(trim((string) $adminEmail)),
-            (array) config('custom.admin_emails', []),
-        ));
-
-        return in_array(mb_strtolower($email), $adminEmails, true);
+        return (bool) $this->is_platform_admin;
     }
 
     /**

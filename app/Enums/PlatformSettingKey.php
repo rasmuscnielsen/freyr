@@ -1,0 +1,47 @@
+<?php
+
+namespace App\Enums;
+
+enum PlatformSettingKey: string
+{
+    case RegistrationEnabled = 'registration.enabled';
+
+    case OnboardingCompletedAt = 'onboarding.completed_at';
+
+    case EnableBankingAppId = 'enable_banking.app_id';
+
+    case EnableBankingPrivateKey = 'enable_banking.private_key';
+
+    /**
+     * Whether the stored value should be encrypted at rest.
+     */
+    public function isEncrypted(): bool
+    {
+        return match ($this) {
+            self::EnableBankingAppId, self::EnableBankingPrivateKey => true,
+            default => false,
+        };
+    }
+
+    /**
+     * Whether the value is stored as a '1'/'0' boolean flag.
+     */
+    public function isBoolean(): bool
+    {
+        return $this === self::RegistrationEnabled;
+    }
+
+    /**
+     * The value returned when no row is stored. The Enable Banking keys fall
+     * back to the environment configuration so env-based setups keep working.
+     */
+    public function default(): mixed
+    {
+        return match ($this) {
+            self::RegistrationEnabled => false,
+            self::EnableBankingAppId => config('services.enable_banking.app_id'),
+            self::EnableBankingPrivateKey => config('services.enable_banking.private_key'),
+            default => null,
+        };
+    }
+}

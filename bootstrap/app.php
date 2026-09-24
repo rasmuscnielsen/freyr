@@ -1,8 +1,11 @@
 <?php
 
+use App\Http\Middleware\EnsureNoUsers;
+use App\Http\Middleware\EnsureOnboardingNotCompleted;
 use App\Http\Middleware\EnsurePlatformAdmin;
 use App\Http\Middleware\HandleAppearance;
 use App\Http\Middleware\HandleInertiaRequests;
+use App\Http\Middleware\RedirectToOnboarding;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
@@ -23,10 +26,13 @@ return Application::configure(basePath: dirname(__DIR__))
             HandleAppearance::class,
             HandleInertiaRequests::class,
             AddLinkHeadersForPreloadedAssets::class,
+            RedirectToOnboarding::class,
         ]);
 
         $middleware->alias([
             'platform-admin' => EnsurePlatformAdmin::class,
+            'no-users' => EnsureNoUsers::class,
+            'onboarding-not-completed' => EnsureOnboardingNotCompleted::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

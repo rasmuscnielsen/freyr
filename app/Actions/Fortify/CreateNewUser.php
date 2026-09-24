@@ -5,6 +5,7 @@ namespace App\Actions\Fortify;
 use App\Concerns\PasswordValidationRules;
 use App\Concerns\ProfileValidationRules;
 use App\Models\User;
+use App\Platform\PlatformSettings;
 use Illuminate\Support\Facades\Validator;
 use Laravel\Fortify\Contracts\CreatesNewUsers;
 
@@ -19,7 +20,7 @@ class CreateNewUser implements CreatesNewUsers
      */
     public function create(array $input): User
     {
-        abort_unless(config('custom.registration_enabled'), 404);
+        abort_unless(app(PlatformSettings::class)->registrationEnabled(), 404);
 
         Validator::make($input, [
             ...$this->profileRules(),

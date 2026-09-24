@@ -16,6 +16,8 @@ test('confirm password screen can be rendered', function () {
 });
 
 test('password confirmation requires authentication', function () {
+    User::factory()->create();
+
     $response = $this->get(route('password.confirm'));
 
     $response->assertRedirect(route('login'));

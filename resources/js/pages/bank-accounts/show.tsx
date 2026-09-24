@@ -15,9 +15,9 @@ import {
     TriangleAlert,
 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
-import type { CategoryComboboxOption } from '@/components/category-combobox';
-import { PostingFormDialog } from '@/components/posting-form-dialog';
-import type { PostingFormValues } from '@/components/posting-form-dialog';
+import type { CategoryComboboxOption } from '@/components/postings/category-combobox';
+import { PostingFormDialog } from '@/components/postings/posting-form-dialog';
+import type { PostingFormValues } from '@/components/postings/posting-form-dialog';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';

@@ -1,7 +1,7 @@
 import { Form, Head, usePage } from '@inertiajs/react';
-import DevLoginLink from '@/components/dev-login-link';
+import DevLoginLink from '@/components/auth/dev-login-link';
+import PasskeyVerify from '@/components/auth/passkey-verify';
 import InputError from '@/components/input-error';
-import PasskeyVerify from '@/components/passkey-verify';
 import PasswordInput from '@/components/password-input';
 import TextLink from '@/components/text-link';
 import { Button, buttonVariants } from '@/components/ui/button';

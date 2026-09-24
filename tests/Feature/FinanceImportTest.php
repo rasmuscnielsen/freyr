@@ -1,6 +1,7 @@
 <?php
 
 use App\Enums\CategoryType;
+use App\Finance\SpiirExportImporter;
 use App\Models\BankAccount;
 use App\Models\Category;
 use App\Models\Posting;
@@ -49,6 +50,17 @@ test('it imports a spiir export idempotently', function () {
         ->and(BankAccount::query()->count())->toBe(2)
         ->and(Posting::query()->count())->toBe(5)
         ->and(User::query()->count())->toBe(1);
+});
+
+test('it imports a spiir export for an explicit user', function () {
+    $user = User::factory()->create();
+    $path = base_path('tests/Fixtures/spiir-export');
+
+    $summary = app(SpiirExportImporter::class)->importExport($path, $user);
+
+    expect($summary['user_id'])->toBe($user->id)
+        ->and(User::query()->count())->toBe(1)
+        ->and(Posting::query()->count())->toBe(5);
 });
 
 test('it fails when the export path is not a directory', function () {

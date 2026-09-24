@@ -2,6 +2,8 @@
 
 namespace App\Providers;
 
+use App\Finance\EnableBanking\EnableBankingClient;
+use App\Platform\PlatformSettings;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\DB;
@@ -15,7 +17,11 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        //
+        $this->app->singleton(PlatformSettings::class);
+
+        $this->app->bind(EnableBankingClient::class, fn (): EnableBankingClient => new EnableBankingClient(
+            $this->app->make(PlatformSettings::class)->enableBankingConfig(),
+        ));
     }
 
     /**
