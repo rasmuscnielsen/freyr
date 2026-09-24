@@ -108,9 +108,9 @@ export default function SpiirImportForm({
             )}
 
             <p className="text-sm text-muted-foreground">
-                Export your data from Spiir and upload the four files below.
-                The import runs in the background and usually finishes within
-                a minute.
+                Export your data from Spiir and upload the four files below. The
+                import runs in the background and usually finishes within a
+                minute.
             </p>
 
             <Form {...action} className="flex flex-col gap-6">

@@ -6,6 +6,8 @@ use App\Http\Controllers\BankConnectionAccountController;
 use App\Http\Controllers\BankConnectionController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\Platform\CategoryController;
+use App\Http\Controllers\Platform\EnableBankingCredentialsController;
+use App\Http\Controllers\Platform\RegistrationController;
 use App\Http\Controllers\Platform\SettingsController;
 use App\Http\Controllers\Platform\SubcategoryController;
 use App\Http\Controllers\PostingController;
@@ -46,9 +48,9 @@ Route::middleware(['auth', 'verified', 'platform-admin'])->prefix('platform')->n
     Route::delete('subcategories/{subcategory}', [SubcategoryController::class, 'destroy'])->name('subcategories.destroy');
 
     Route::get('settings', [SettingsController::class, 'edit'])->name('settings.edit');
-    Route::patch('settings/registration', [SettingsController::class, 'updateRegistration'])->name('settings.registration.update');
-    Route::put('settings/enable-banking', [SettingsController::class, 'storeEnableBanking'])->name('settings.enable-banking.update');
-    Route::delete('settings/enable-banking', [SettingsController::class, 'destroyEnableBanking'])->name('settings.enable-banking.destroy');
+    Route::patch('settings/registration', [RegistrationController::class, 'update'])->name('settings.registration.update');
+    Route::put('settings/enable-banking', [EnableBankingCredentialsController::class, 'update'])->name('settings.enable-banking.update');
+    Route::delete('settings/enable-banking', [EnableBankingCredentialsController::class, 'destroy'])->name('settings.enable-banking.destroy');
 });
 
 require __DIR__.'/onboarding.php';

@@ -1,6 +1,6 @@
-import AppLogoIcon from '@/components/app-logo-icon';
-import OnboardingSteps from '@/components/onboarding-steps';
-import type { OnboardingStep } from '@/components/onboarding-steps';
+import AppLogoIcon from '@/components/layout/app-logo-icon';
+import OnboardingSteps from '@/components/onboarding/onboarding-steps';
+import type { OnboardingStep } from '@/components/onboarding/onboarding-steps';
 
 export default function OnboardingLayout({
     title,

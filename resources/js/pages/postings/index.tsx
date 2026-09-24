@@ -8,9 +8,9 @@ import {
     X,
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { CategoryCombobox } from '@/components/category-combobox';
-import type { CategoryComboboxOption } from '@/components/category-combobox';
-import { PostingFormDialog } from '@/components/posting-form-dialog';
+import { CategoryCombobox } from '@/components/postings/category-combobox';
+import type { CategoryComboboxOption } from '@/components/postings/category-combobox';
+import { PostingFormDialog } from '@/components/postings/posting-form-dialog';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
