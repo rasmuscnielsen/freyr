@@ -105,7 +105,10 @@ class DashboardController extends Controller
 
         $summary = $this->buildSummary($summaryMonthly);
 
-        $breakdownMonth = $this->resolveBreakdownMonth($request, $start, $end);
+        // Selectable months follow the chart's range, which includes the
+        // in-progress preview month; the period average stays bounded by
+        // the completed months only.
+        $breakdownMonth = $this->resolveBreakdownMonth($request, $start, $chartEnd);
 
         return Inertia::render('dashboard', [
             'period' => [
@@ -289,7 +292,7 @@ class DashboardController extends Controller
     private function resolveBreakdownMonth(
         Request $request,
         CarbonImmutable $start,
-        CarbonImmutable $end,
+        CarbonImmutable $chartEnd,
     ): ?string {
         $requested = (string) $request->query('breakdownMonth', '');
 
@@ -297,7 +300,7 @@ class DashboardController extends Controller
             return null;
         }
 
-        if ($requested < $start->format('Y-m') || $requested > $end->format('Y-m')) {
+        if ($requested < $start->format('Y-m') || $requested > $chartEnd->format('Y-m')) {
             return null;
         }
 

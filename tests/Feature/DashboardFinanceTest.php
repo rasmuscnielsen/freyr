@@ -316,6 +316,44 @@ test('breakdown month outside the selected period is ignored', function () {
         ->assertJsonPath('props.breakdown.month', null);
 });
 
+test('breakdown can target the in-progress preview month', function () {
+    CarbonImmutable::setTestNow('2026-04-15 12:00:00');
+
+    try {
+        ['user' => $user, 'account' => $account, 'groceries' => $groceries] = seedBudget();
+
+        // Current (incomplete) month plus a completed-month posting that
+        // must not leak into the selected-month breakdown.
+        Posting::factory()->forAccount($account)->categorizedAs($groceries)
+            ->create(['date' => '2026-04-12', 'amount' => -2000]);
+        Posting::factory()->forAccount($account)->categorizedAs($groceries)
+            ->create(['date' => '2026-03-12', 'amount' => -500]);
+
+        $response = $this->actingAs($user)
+            ->get(
+                route('dashboard', ['breakdownMonth' => '2026-04']),
+                breakdownPartialHeaders(),
+            )
+            ->assertOk();
+
+        $response->assertJsonPath('props.breakdown.month', '2026-04');
+        $response->assertJsonCount(1, 'props.breakdown.categories');
+        $response->assertJsonPath('props.breakdown.categories.0.name', 'Housing');
+        $response->assertJsonPath('props.breakdown.categories.0.total', 2000);
+
+        // The period itself still ends at the last completed month, so the
+        // preview month stays out of the averages.
+        $this->actingAs($user)
+            ->get(route('dashboard'))
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->where('period.end', '2026-03-31')
+                ->where('summary.consumption', 500));
+    } finally {
+        CarbonImmutable::setTestNow();
+    }
+});
+
 test('recategorizing a posting moves it between buckets', function () {
     ['user' => $user, 'account' => $account, 'rent' => $rent, 'groceries' => $groceries] = seedBudget();
 

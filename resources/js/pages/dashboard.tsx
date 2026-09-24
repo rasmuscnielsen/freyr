@@ -400,9 +400,9 @@ export default function Dashboard({
     }));
 
     // The Y scale fits the completed months only. The incomplete current
-    // month is a preview (dimmed, unclickable) and a single early-month
-    // outlier would otherwise flatten a whole year of real data; its bars
-    // clip at the top of the chart instead.
+    // month is a dimmed preview and a single early-month outlier would
+    // otherwise flatten a whole year of real data; its bars clip at the
+    // top of the chart instead.
     const completedFlow = flowData.filter(
         (point) => point.month <= lastCompletedMonth,
     );
@@ -447,10 +447,6 @@ export default function Dashboard({
     };
 
     const toggleMonth = (month: string) => {
-        if (month > lastCompletedMonth) {
-            return;
-        }
-
         reloadBreakdown(selectedMonth === month ? null : month);
     };
 
@@ -770,12 +766,13 @@ function cellOpacity(
     lastCompletedMonth: string,
     selectedMonth: string | null,
 ): number {
-    if (month > lastCompletedMonth) {
-        return 0.45;
+    if (selectedMonth !== null) {
+        return selectedMonth === month ? 1 : 0.35;
     }
 
-    if (selectedMonth !== null && selectedMonth !== month) {
-        return 0.35;
+    // The in-progress month is a dimmed preview until it is selected.
+    if (month > lastCompletedMonth) {
+        return 0.45;
     }
 
     return 1;
