@@ -131,7 +131,6 @@ type ConnectionAccount = {
     last_synced_at: string | null;
     last_transaction_date: string | null;
     bank_account: { id: number; name: string } | null;
-    details?: string | null;
 };
 
 type Connection = {

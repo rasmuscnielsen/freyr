@@ -143,17 +143,16 @@ export function ConnectionSetupDialog({
 
     // Local accounts already picked by another row cannot be picked twice.
     const chosenAccountIds = new Set(
-        Object.values(rows)
-            .map((row) => row.bankAccountId)
-            .filter((value) => value !== ''),
+        pendingAccounts
+            .map((account) => rowState(account))
+            .filter(
+                (row) => row.mode === 'existing' && row.bankAccountId !== '',
+            )
+            .map((row) => row.bankAccountId),
     );
 
     const isRowValid = (account: SetupConnectionAccount): boolean => {
         const row = rowState(account);
-
-        if (row.mode === '') {
-            return false;
-        }
 
         if (row.mode === 'existing' && row.bankAccountId === '') {
             return false;
@@ -166,10 +165,26 @@ export function ConnectionSetupDialog({
         return true;
     };
 
+    // Only rows with a chosen action are posted; empty rows are left as is.
+    // In setup mode every unlinked account needs an action, while already
+    // ignored rows may stay untouched.
+    const submittableAccounts = pendingAccounts.filter(
+        (account) => rowState(account).mode !== '',
+    );
+
+    const hasEmptyUnlinked =
+        isSetup &&
+        pendingAccounts.some(
+            (account) =>
+                account.status === 'unlinked' && rowState(account).mode === '',
+        );
+
     const canSubmit =
         !form.processing &&
         connection !== null &&
-        pendingAccounts.every(isRowValid);
+        !hasEmptyUnlinked &&
+        submittableAccounts.every(isRowValid) &&
+        (isSetup || submittableAccounts.length > 0);
 
     const submit = () => {
         if (connection === null || !canSubmit) {
@@ -177,7 +192,7 @@ export function ConnectionSetupDialog({
         }
 
         form.transform(() => ({
-            accounts: pendingAccounts.map((account) => {
+            accounts: submittableAccounts.map((account) => {
                 const row = rowState(account);
 
                 return {
@@ -213,9 +228,11 @@ export function ConnectionSetupDialog({
         );
     };
 
-    const syncingCount = Object.values(rows).filter(
-        (row) => row.mode === 'create' || row.mode === 'existing',
-    ).length;
+    const syncingCount = submittableAccounts.filter((account) => {
+        const mode = rowState(account).mode;
+
+        return mode === 'create' || mode === 'existing';
+    }).length;
 
     return (
         <>
@@ -255,7 +272,7 @@ export function ConnectionSetupDialog({
                                     row={rowState(account)}
                                     linkableAccounts={linkableAccounts}
                                     takenAccountIds={chosenAccountIds}
-                                    errorPrefix={`accounts.${pendingAccounts.indexOf(account)}`}
+                                    errorPrefix={`accounts.${submittableAccounts.indexOf(account)}`}
                                     errors={form.errors}
                                     onChange={(patch) =>
                                         setRow(account.id, patch)
@@ -270,8 +287,8 @@ export function ConnectionSetupDialog({
 
                     {isSetup && pendingAccounts.length > 0 && (
                         <p className="text-sm text-muted-foreground">
-                            {syncingCount} of {accounts.length} accounts will
-                            start syncing
+                            {syncingCount} of {pendingAccounts.length} accounts
+                            will start syncing
                         </p>
                     )}
 
