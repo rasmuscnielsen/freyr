@@ -1,13 +1,8 @@
 import { Head, Link, router } from '@inertiajs/react';
 import {
-    ArrowLeft,
-    Building2,
-    CalendarClock,
     ChevronLeft,
     ChevronRight,
-    PencilLine,
     Plus,
-    RefreshCw,
     ShieldCheck,
     Sparkles,
     Star,
@@ -21,7 +16,6 @@ import type { PostingFormValues } from '@/components/postings/posting-form-dialo
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
 import {
     Dialog,
     DialogContent,
@@ -253,204 +247,146 @@ export default function BankAccountShow({
         account.connection?.access_valid_until ?? null,
     );
 
+    const subtitleParts: string[] = [];
+
+    if (account.bank_name ?? account.connection?.aspsp_name) {
+        subtitleParts.push(
+            (account.bank_name ?? account.connection?.aspsp_name) as string,
+        );
+    }
+
+    if (account.account_type) {
+        subtitleParts.push(account.account_type);
+    }
+
+    subtitleParts.push(`${account.postings_count} postings`);
+    subtitleParts.push(
+        `Last posting ${
+            account.last_known_posting_date
+                ? formatDate(account.last_known_posting_date)
+                : 'never'
+        }`,
+    );
+
     return (
         <>
             <Head title={account.name} />
             <div className="flex flex-col gap-6 p-4 md:p-6">
-                <div>
-                    <Button asChild variant="ghost" size="sm" className="-ml-2">
-                        <Link href={bankAccountsIndex()}>
-                            <ArrowLeft className="size-4" />
-                            Bank accounts
-                        </Link>
-                    </Button>
-                </div>
-
-                <Card className="rounded-lg py-0">
-                    <CardContent className="flex flex-col gap-5 p-5">
-                        <div className="flex flex-wrap items-start justify-between gap-3">
-                            <div className="space-y-2">
-                                <div className="flex flex-wrap items-center gap-2">
-                                    <h1 className="text-2xl font-semibold tracking-tight">
-                                        {account.name}
-                                    </h1>
-                                    {account.is_favorite && (
-                                        <span title="Primary account">
-                                            <Star className="size-4.5 fill-brand text-brand" />
-                                        </span>
-                                    )}
-                                </div>
-                                <div className="flex flex-wrap items-center gap-2">
-                                    <Badge
-                                        variant={
-                                            account.is_active
-                                                ? 'success'
-                                                : 'secondary'
-                                        }
-                                    >
-                                        {account.is_active
-                                            ? 'Active'
-                                            : 'Closed'}
-                                    </Badge>
-                                    {account.account_type && (
-                                        <Badge variant="outline">
-                                            {account.account_type}
-                                        </Badge>
-                                    )}
-                                    {account.connection?.needs_renewal && (
-                                        <Badge variant="destructive">
-                                            Needs renewal
-                                        </Badge>
-                                    )}
-                                </div>
-                                <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                                    <Building2 className="size-4" />
-                                    <span>
-                                        {account.bank_name ?? 'No bank label'}
-                                        {account.connection
-                                            ? ` · ${account.connection.aspsp_name} (${account.connection.aspsp_country})`
-                                            : ''}
-                                    </span>
-                                </div>
-                            </div>
-
-                            <div className="text-right">
-                                <div className="text-xs text-muted-foreground">
-                                    Balance
-                                </div>
-                                <div className="text-2xl font-semibold tracking-tight tabular-nums">
-                                    {formatMoney(
-                                        account.current_balance,
-                                        account.currency,
-                                    )}
-                                </div>
-                                {account.balance_diff !== null && (
-                                    <Badge
-                                        variant="destructive"
-                                        className="mt-1"
-                                    >
-                                        Off by{' '}
-                                        {formatSharedMoney(
-                                            Number(account.balance_diff),
-                                            account.currency,
-                                        )}
-                                    </Badge>
-                                )}
-                            </div>
-                        </div>
-
-                        <div className="grid gap-3 text-sm text-muted-foreground sm:grid-cols-3">
-                            <div className="flex items-center gap-2">
-                                {account.is_manual ? (
-                                    <>
-                                        <PencilLine className="size-4" />
-                                        <span>
-                                            Manual account — postings are added
-                                            by hand
-                                        </span>
-                                    </>
-                                ) : (
-                                    <>
-                                        <RefreshCw className="size-4" />
-                                        <span>
-                                            Last sync{' '}
-                                            {formatDateTime(
-                                                account.last_synced_at,
-                                            )}
-                                        </span>
-                                    </>
-                                )}
-                            </div>
-                            <div className="flex items-center gap-2">
-                                <CalendarClock className="size-4" />
-                                <span>
-                                    Last posting{' '}
-                                    {account.last_known_posting_date
-                                        ? formatDate(
-                                              account.last_known_posting_date,
-                                          )
-                                        : 'never'}
+                <div className="flex flex-wrap items-start justify-between gap-4">
+                    <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                            <h1 className="truncate text-2xl font-semibold tracking-tight">
+                                {account.name}
+                            </h1>
+                            {account.is_favorite && (
+                                <span title="Primary account">
+                                    <Star className="size-4.5 fill-brand text-brand" />
                                 </span>
-                            </div>
-                            <div className="flex items-center gap-2">
-                                <span>{account.postings_count} postings</span>
-                            </div>
-                            {/* The audit itself runs lazily inside the dialog;
-                                this is a neutral entry point so the check is
-                                discoverable even when nothing looks wrong. */}
-                            {!account.is_manual &&
-                                account.current_balance !== null && (
-                                    <div className="flex items-center gap-2">
-                                        <ShieldCheck className="size-4" />
-                                        <button
-                                            type="button"
-                                            className="cursor-pointer underline-offset-2 hover:underline"
-                                            onClick={() => setIsAuditOpen(true)}
-                                        >
-                                            Balance check
-                                        </button>
-                                    </div>
-                                )}
-                        </div>
-
-                        {account.connection?.needs_renewal && (
-                            <Alert variant="destructive">
-                                <TriangleAlert className="size-4" />
-                                <AlertTitle>
-                                    Bank connection needs renewal
-                                </AlertTitle>
-                                <AlertDescription>
-                                    Renew the connection from the bank accounts
-                                    overview to keep syncing this account.
-                                </AlertDescription>
-                            </Alert>
-                        )}
-
-                        {!account.connection?.needs_renewal &&
-                            expiryDays !== null &&
-                            expiryDays < 14 && (
-                                <Alert>
-                                    <TriangleAlert className="size-4" />
-                                    <AlertTitle>
-                                        Access expiring soon
-                                    </AlertTitle>
-                                    <AlertDescription>
-                                        Bank access expires in {expiryDays}{' '}
-                                        {expiryDays === 1 ? 'day' : 'days'}.
-                                        Renew the connection to avoid
-                                        interrupted syncs.
-                                    </AlertDescription>
-                                </Alert>
                             )}
-
+                            {!account.is_active && (
+                                <Badge variant="secondary">Closed</Badge>
+                            )}
+                            {account.connection?.needs_renewal && (
+                                <Badge variant="destructive">
+                                    Needs renewal
+                                </Badge>
+                            )}
+                        </div>
+                        <p className="mt-1 text-sm text-muted-foreground">
+                            {subtitleParts.join(' · ')}
+                        </p>
+                    </div>
+                    <div className="text-right">
+                        <div className="text-2xl font-semibold tabular-nums">
+                            {formatMoney(
+                                account.current_balance,
+                                account.currency,
+                            )}
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                            {account.is_manual
+                                ? 'Manual account'
+                                : `Synced ${formatDateTime(account.last_synced_at)}`}
+                        </div>
                         {account.balance_diff !== null && (
-                            <Alert variant="destructive">
-                                <TriangleAlert className="size-4" />
-                                <AlertTitle>
-                                    Postings don't add up to the bank balance
-                                </AlertTitle>
-                                <AlertDescription className="flex flex-wrap items-center gap-3">
-                                    <span>
-                                        The bank-reported balance differs from
-                                        the running total of your postings by{' '}
-                                        {formatSharedMoney(
-                                            Number(account.balance_diff),
-                                            account.currency,
-                                        )}
-                                        .
-                                    </span>
+                            <Badge variant="destructive" className="mt-1">
+                                Off by{' '}
+                                {formatSharedMoney(
+                                    Number(account.balance_diff),
+                                    account.currency,
+                                )}
+                            </Badge>
+                        )}
+                        {/* The audit itself runs lazily inside the dialog;
+                            this is a neutral entry point so the check is
+                            discoverable even when nothing looks wrong. */}
+                        {!account.is_manual &&
+                            account.current_balance !== null && (
+                                <div>
                                     <Button
-                                        variant="outline"
+                                        variant="ghost"
                                         size="sm"
                                         onClick={() => setIsAuditOpen(true)}
                                     >
-                                        Show details
+                                        <ShieldCheck className="size-4" />
+                                        Balance check
                                     </Button>
-                                </AlertDescription>
-                            </Alert>
-                        )}
-                    </CardContent>
-                </Card>
+                                </div>
+                            )}
+                    </div>
+                </div>
+
+                {account.connection?.needs_renewal && (
+                    <Alert variant="destructive">
+                        <TriangleAlert className="size-4" />
+                        <AlertTitle>Bank connection needs renewal</AlertTitle>
+                        <AlertDescription>
+                            Renew the connection from the bank accounts overview
+                            to keep syncing this account.
+                        </AlertDescription>
+                    </Alert>
+                )}
+
+                {!account.connection?.needs_renewal &&
+                    expiryDays !== null &&
+                    expiryDays < 14 && (
+                        <Alert>
+                            <TriangleAlert className="size-4" />
+                            <AlertTitle>Access expiring soon</AlertTitle>
+                            <AlertDescription>
+                                Bank access expires in {expiryDays}{' '}
+                                {expiryDays === 1 ? 'day' : 'days'}. Renew the
+                                connection to avoid interrupted syncs.
+                            </AlertDescription>
+                        </Alert>
+                    )}
+
+                {account.balance_diff !== null && (
+                    <Alert variant="destructive">
+                        <TriangleAlert className="size-4" />
+                        <AlertTitle>
+                            Postings don't add up to the bank balance
+                        </AlertTitle>
+                        <AlertDescription className="flex flex-wrap items-center gap-3">
+                            <span>
+                                The bank-reported balance differs from the
+                                running total of your postings by{' '}
+                                {formatSharedMoney(
+                                    Number(account.balance_diff),
+                                    account.currency,
+                                )}
+                                .
+                            </span>
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => setIsAuditOpen(true)}
+                            >
+                                Show details
+                            </Button>
+                        </AlertDescription>
+                    </Alert>
+                )}
 
                 <div className="flex items-center justify-between">
                     <h2 className="text-sm font-medium">Postings</h2>

@@ -95,6 +95,7 @@ class BankAccountController extends Controller
                     ],
                 ]),
             'connections' => $this->connectionsPayload($user),
+            'setupConnectionId' => $this->setupConnectionId($request),
             'availableBanks' => $this->availableBanks($enableBanking),
             'defaults' => [
                 'aspsp_name' => config('services.enable_banking.aspsp_name'),
@@ -270,6 +271,26 @@ class BankAccountController extends Controller
                 ];
             })
             ->all();
+    }
+
+    /**
+     * Id of a freshly connected bank connection whose accounts still need to be
+     * mapped, passed through so the index page can open the setup wizard.
+     */
+    private function setupConnectionId(Request $request): ?int
+    {
+        $connectionId = $request->integer('setup') ?: null;
+
+        if ($connectionId === null) {
+            return null;
+        }
+
+        return BankConnection::query()
+            ->whereKey($connectionId)
+            ->whereBelongsTo($request->user())
+            ->exists()
+            ? $connectionId
+            : null;
     }
 
     /**
