@@ -6,6 +6,7 @@ use App\Enums\SyncHistory;
 use App\Finance\BankConnectionAccountLinker;
 use App\Http\Requests\LinkBankConnectionAccountRequest;
 use App\Jobs\SyncBankConnectionAccountJob;
+use App\Models\BankConnection;
 use App\Models\BankConnectionAccount;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -46,7 +47,9 @@ class BankConnectionAccountController extends Controller
     {
         $bankConnectionAccount->loadMissing('bankConnection');
         abort_unless($request->user()?->is($bankConnectionAccount->bankConnection->user), 403);
+        abort_unless($bankConnectionAccount->bankConnection->status !== BankConnection::STATUS_ARCHIVED, 422);
         abort_unless($bankConnectionAccount->bank_account_id !== null, 422);
+        abort_unless($bankConnectionAccount->bankAccount?->is_active ?? false, 422);
 
         SyncBankConnectionAccountJob::dispatch($bankConnectionAccount);
 

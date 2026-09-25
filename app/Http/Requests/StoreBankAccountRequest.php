@@ -29,8 +29,8 @@ class StoreBankAccountRequest extends FormRequest
             'account_type' => ['nullable', 'string', 'max:255'],
             'account_subcategory_key' => ['nullable', 'string', 'max:255'],
             'last_known_posting_date' => ['nullable', 'date'],
-            'is_active' => ['required', 'boolean'],
-            'is_favorite' => ['required', 'boolean'],
+            'is_active' => ['sometimes', 'boolean'],
+            'is_favorite' => ['sometimes', 'boolean'],
         ];
     }
 }

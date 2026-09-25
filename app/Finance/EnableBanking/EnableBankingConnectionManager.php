@@ -3,6 +3,7 @@
 namespace App\Finance\EnableBanking;
 
 use App\Finance\BalanceChainInspector;
+use App\Finance\SyncedBalanceChainWriter;
 use App\Models\BankAccount;
 use App\Models\BankConnection;
 use App\Models\BankConnectionAccount;
@@ -10,8 +11,10 @@ use App\Models\BankSyncRun;
 use App\Models\Posting;
 use App\Models\User;
 use Carbon\CarbonImmutable;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Http\Client\RequestException;
 use Illuminate\Support\Arr;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use RuntimeException;
@@ -23,6 +26,7 @@ class EnableBankingConnectionManager
         private readonly EnableBankingClient $client,
         private readonly EnableBankingTransactionMapper $transactionMapper,
         private readonly BalanceChainInspector $balanceChainInspector,
+        private readonly SyncedBalanceChainWriter $balanceChainWriter,
     ) {}
 
     public function startAuthorization(User $user, ?BankConnection $connection = null, ?string $aspspName = null, ?string $aspspCountry = null): string
@@ -40,8 +44,10 @@ class EnableBankingConnectionManager
                 'psu_type' => config('services.enable_banking.psu_type', 'personal'),
             ]);
 
+            // Only freshly created rows start life as pending: an existing
+            // connection keeps its status while consent is re-issued, so an
+            // abandoned renewal can't strand it in a prunable state.
             $connection->update([
-                'status' => BankConnection::STATUS_PENDING,
                 'state' => $state,
                 'aspsp_name' => $aspspName,
                 'aspsp_country' => $aspspCountry,
@@ -69,21 +75,43 @@ class EnableBankingConnectionManager
         $connection = BankConnection::query()
             ->whereBelongsTo($user)
             ->where('state', $state)
-            ->firstOrFail();
+            ->first();
+
+        if (! $connection instanceof BankConnection) {
+            return $this->connectionForConsumedState($user, $state);
+        }
 
         $session = $this->client->createSession($code);
 
-        return DB::transaction(function () use ($connection, $session): BankConnection {
+        $connection = DB::transaction(function () use ($connection, $session): BankConnection {
             $sessionId = (string) $session['session_id'];
+            $accountPayloads = array_values(array_filter(
+                Arr::wrap($session['accounts'] ?? []),
+                'is_array',
+            ));
 
-            $connection->update([
+            // The same bank login may be re-added through a brand-new
+            // authorization: when the session's accounts already live on
+            // another of the user's connections, the new consent folds into
+            // that connection so linked accounts keep their links instead of
+            // duplicating.
+            $target = $this->connectionForAccounts($connection, $accountPayloads) ?? $connection;
+
+            // The fresh row only ferried the new consent over — drop it before
+            // the (unique) authorization id moves onto the target connection.
+            if ($target->isNot($connection)) {
+                $connection->delete();
+            }
+
+            $target->update([
                 'status' => BankConnection::STATUS_ACTIVE,
                 'state' => null,
+                'authorization_id' => $connection->authorization_id ?? $target->authorization_id,
                 'session_id' => $sessionId,
                 'session_id_hash' => hash('sha256', $sessionId),
-                'aspsp_name' => (string) data_get($session, 'aspsp.name', $connection->aspsp_name),
-                'aspsp_country' => (string) data_get($session, 'aspsp.country', $connection->aspsp_country),
-                'psu_type' => (string) ($session['psu_type'] ?? $connection->psu_type),
+                'aspsp_name' => (string) data_get($session, 'aspsp.name', $target->aspsp_name),
+                'aspsp_country' => (string) data_get($session, 'aspsp.country', $target->aspsp_country),
+                'psu_type' => (string) ($session['psu_type'] ?? $target->psu_type),
                 'authorized_at' => now(),
                 'access_valid_until' => CarbonImmutable::parse((string) data_get($session, 'access.valid_until')),
                 'failure_code' => null,
@@ -91,16 +119,16 @@ class EnableBankingConnectionManager
                 'raw_session_payload' => $session,
             ]);
 
-            foreach (Arr::wrap($session['accounts'] ?? []) as $accountPayload) {
-                if (! is_array($accountPayload)) {
-                    continue;
-                }
-
-                $this->upsertAccount($connection, $accountPayload);
+            foreach ($accountPayloads as $accountPayload) {
+                $this->upsertAccount($target, $accountPayload);
             }
 
-            return $connection->refresh();
+            return $target->refresh();
         });
+
+        Cache::put(self::consumedStateKey($state), $connection->id, now()->addWeek());
+
+        return $connection;
     }
 
     public function syncAccount(BankConnectionAccount $account): BankSyncRun
@@ -118,6 +146,27 @@ class EnableBankingConnectionManager
             'date_from' => $dateFrom,
             'started_at' => now(),
         ]);
+
+        // Archived connections and closed accounts never sync. This surfaces
+        // as a failed run rather than a connection failure — the dispatchers
+        // filter both out anyway, so reaching this means a stale or manual
+        // dispatch.
+        $skippedReason = $connection->status === BankConnection::STATUS_ARCHIVED
+            ? 'connection_archived'
+            : ($account->bankAccount?->is_active === true ? null : 'account_archived');
+
+        if ($skippedReason !== null) {
+            $run->update([
+                'status' => BankSyncRun::STATUS_FAILED,
+                'finished_at' => now(),
+                'error_code' => $skippedReason,
+                'error_message' => $skippedReason === 'connection_archived'
+                    ? 'The bank connection is archived.'
+                    : 'The bank account is archived.',
+            ]);
+
+            return $run;
+        }
 
         try {
             if ($connection->needsRenewal()) {
@@ -138,10 +187,16 @@ class EnableBankingConnectionManager
                 ->map(fn (array $transaction): CarbonImmutable => $this->transactionMapper->transactionDate($transaction))
                 ->max();
 
-            $reconciliation = $this->reconcileBalance($account, $balances);
+            $booked = $this->bookedBalance($balances);
 
-            DB::transaction(function () use ($account, $connection, $run, $balances, $counts, $lastTransactionDate, $reconciliation): void {
-                $this->updateBankAccountBalances($account, $balances, $lastTransactionDate);
+            DB::transaction(function () use ($account, $connection, $run, $booked, $counts, $lastTransactionDate): void {
+                $this->updateBankAccountBalances($account, $booked, $lastTransactionDate);
+
+                if ($account->bankAccount instanceof BankAccount) {
+                    $this->balanceChainWriter->write($account->bankAccount, data_get($booked, 'balance_amount.amount'));
+                }
+
+                $reconciliation = $this->reconcileBalance($account, $booked);
 
                 $account->update([
                     'status' => BankConnectionAccount::STATUS_LINKED,
@@ -171,6 +226,30 @@ class EnableBankingConnectionManager
         return $run->refresh();
     }
 
+    /**
+     * A completed authorization nulls `state`, so a replayed callback (browser
+     * back/refresh, Enable Banking re-redirect) cannot find its connection by
+     * state. Recently consumed states remember their connection for a week
+     * and resolve to it instead of failing.
+     */
+    private function connectionForConsumedState(User $user, string $state): BankConnection
+    {
+        $connectionId = Cache::get(self::consumedStateKey($state));
+
+        $connection = $connectionId === null
+            ? null
+            : $user->bankConnections()->find($connectionId);
+
+        throw_unless($connection instanceof BankConnection, (new ModelNotFoundException)->setModel(BankConnection::class));
+
+        return $connection;
+    }
+
+    private static function consumedStateKey(string $state): string
+    {
+        return "enable-banking.consumed-state.{$state}";
+    }
+
     public function syncDateFrom(BankConnectionAccount $account): ?CarbonImmutable
     {
         if ($account->last_transaction_date !== null) {
@@ -198,6 +277,40 @@ class EnableBankingConnectionManager
     }
 
     /**
+     * Find another of the user's connections already holding one of the
+     * session's accounts — i.e. the same bank login authorized again.
+     *
+     * @param  list<array<string, mixed>>  $accountPayloads
+     */
+    private function connectionForAccounts(BankConnection $connection, array $accountPayloads): ?BankConnection
+    {
+        $identificationHashes = array_filter(array_map(
+            fn (array $payload): mixed => $payload['identification_hash'] ?? null,
+            $accountPayloads,
+        ));
+        $ibans = array_filter(array_map(
+            fn (array $payload): mixed => data_get($payload, 'account_id.iban'),
+            $accountPayloads,
+        ));
+
+        if ($identificationHashes === [] && $ibans === []) {
+            return null;
+        }
+
+        return BankConnection::query()
+            ->where('user_id', $connection->user_id)
+            ->whereKeyNot($connection)
+            ->with('accounts:id,bank_connection_id,identification_hash,iban')
+            ->get()
+            ->first(
+                fn (BankConnection $candidate): bool => $candidate->accounts->contains(
+                    fn (BankConnectionAccount $remote): bool => ($remote->identification_hash !== null && in_array($remote->identification_hash, $identificationHashes, true))
+                        || ($remote->iban !== null && in_array($remote->iban, $ibans, true))
+                )
+            );
+    }
+
+    /**
      * @param  array<string, mixed>  $accountPayload
      */
     private function upsertAccount(BankConnection $connection, array $accountPayload): BankConnectionAccount
@@ -216,6 +329,20 @@ class EnableBankingConnectionManager
                 }
             })
             ->first();
+
+        // Identifiers can rotate between consents: fall back to the IBAN so a
+        // re-authorized account still lands on its existing row — and its link.
+        $iban = data_get($accountPayload, 'account_id.iban');
+
+        if ($account === null && filled($iban)) {
+            $account = BankConnectionAccount::query()
+                ->whereBelongsTo($connection)
+                ->whereNotNull('iban')
+                ->get()
+                ->first(
+                    fn (BankConnectionAccount $remote): bool => $remote->iban !== null && $remote->iban === $iban
+                );
+        }
 
         $attributes = [
             'external_account_uid' => $uid,
@@ -237,9 +364,11 @@ class EnableBankingConnectionManager
         if ($account instanceof BankConnectionAccount) {
             $account->update([
                 ...$attributes,
-                'status' => $account->bank_account_id === null
-                    ? BankConnectionAccount::STATUS_UNLINKED
-                    : BankConnectionAccount::STATUS_LINKED,
+                'status' => $account->bank_account_id !== null
+                    ? BankConnectionAccount::STATUS_LINKED
+                    : ($account->status === BankConnectionAccount::STATUS_IGNORED
+                        ? BankConnectionAccount::STATUS_IGNORED
+                        : BankConnectionAccount::STATUS_UNLINKED),
             ]);
 
             return $account;
@@ -288,6 +417,13 @@ class EnableBankingConnectionManager
             $attributes = $this->transactionMapper->postingAttributes($account, $transaction);
 
             if ($posting instanceof Posting) {
+                // A missing bank balance must never clobber a stored one:
+                // banks that omit balance_after_transaction would otherwise
+                // wipe derived running balances on every re-import.
+                if (($attributes['balance'] ?? null) === null) {
+                    unset($attributes['balance']);
+                }
+
                 $posting->fill($attributes);
 
                 if ($posting->isDirty()) {
@@ -307,10 +443,7 @@ class EnableBankingConnectionManager
         return $counts;
     }
 
-    /**
-     * @param  list<array<string, mixed>>  $balances
-     */
-    private function updateBankAccountBalances(BankConnectionAccount $account, array $balances, ?CarbonImmutable $lastTransactionDate): void
+    private function updateBankAccountBalances(BankConnectionAccount $account, ?array $booked, ?CarbonImmutable $lastTransactionDate): void
     {
         $bankAccount = $account->bankAccount;
 
@@ -318,13 +451,23 @@ class EnableBankingConnectionManager
             return;
         }
 
-        $booked = collect($balances)->firstWhere('balance_type', 'CLBD') ?? $balances[0] ?? null;
-
         $bankAccount->update([
             'current_balance' => data_get($booked, 'balance_amount.amount'),
             'last_updated_at' => now(),
             'last_known_posting_date' => $lastTransactionDate?->toDateString() ?? $account->last_transaction_date,
         ]);
+    }
+
+    /**
+     * The booked (CLBD) balance is the only figure that anchors balances and
+     * reconciliation; absent a CLBD entry the first balance is used.
+     *
+     * @param  list<array<string, mixed>>  $balances
+     * @return array<string, mixed>|null
+     */
+    private function bookedBalance(array $balances): ?array
+    {
+        return collect($balances)->firstWhere('balance_type', 'CLBD') ?? $balances[0] ?? null;
     }
 
     /**
@@ -342,12 +485,11 @@ class EnableBankingConnectionManager
      * When no posting carries a running balance, reconciliation cannot be performed and both the
      * computed balance and `balance_matches` are left null.
      *
-     * @param  list<array<string, mixed>>  $balances
+     * @param  array<string, mixed>|null  $booked
      * @return array{expected_balance: ?string, computed_balance: ?string, balance_matches: ?bool}
      */
-    private function reconcileBalance(BankConnectionAccount $account, array $balances): array
+    private function reconcileBalance(BankConnectionAccount $account, ?array $booked): array
     {
-        $booked = collect($balances)->firstWhere('balance_type', 'CLBD') ?? $balances[0] ?? null;
         $expectedBalance = data_get($booked, 'balance_amount.amount');
         $expectedBalance = $expectedBalance === null ? null : (string) $expectedBalance;
 

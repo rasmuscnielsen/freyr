@@ -7,11 +7,16 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Str;
 
 class BankAccount extends Model
 {
     /** @use HasFactory<BankAccountFactory> */
     use HasFactory;
+
+    public const string MANUAL_LEGACY_ID_PREFIX = 'manual-';
+
+    public const string ENABLE_BANKING_LEGACY_ID_PREFIX = 'enable-banking-';
 
     /**
      * @var list<string>
@@ -85,6 +90,20 @@ class BankAccount extends Model
         return $this->relationLoaded('bankConnectionAccounts')
             ? $this->bankConnectionAccounts->isNotEmpty()
             : $this->bankConnectionAccounts()->exists();
+    }
+
+    /**
+     * Accounts imported from a Spiir export carry their raw Spiir id, while
+     * locally created accounts get a `manual-`/`enable-banking-` prefixed
+     * legacy id. Only imported accounts may be linked to a live bank feed:
+     * they are the ones holding migrated posting history worth syncing.
+     */
+    public function isSpiirImported(): bool
+    {
+        return ! Str::startsWith($this->legacy_id, [
+            self::MANUAL_LEGACY_ID_PREFIX,
+            self::ENABLE_BANKING_LEGACY_ID_PREFIX,
+        ]);
     }
 
     /**

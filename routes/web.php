@@ -22,6 +22,8 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::post('bank-connections', [BankConnectionController::class, 'store'])->name('bank-connections.store');
     Route::get('bank-connections/callback', [BankConnectionController::class, 'callback'])->name('bank-connections.callback');
     Route::post('bank-connections/{bankConnection}/renew', [BankConnectionController::class, 'renew'])->name('bank-connections.renew');
+    Route::post('bank-connections/{bankConnection}/archive', [BankConnectionController::class, 'archive'])->name('bank-connections.archive');
+    Route::post('bank-connections/{bankConnection}/unarchive', [BankConnectionController::class, 'unarchive'])->name('bank-connections.unarchive');
     Route::post('bank-connections/{bankConnection}/sync', [BankConnectionController::class, 'sync'])->name('bank-connections.sync');
     Route::post('bank-connections/{bankConnection}/accounts', [BankConnectionController::class, 'mapAccounts'])->name('bank-connections.accounts.map');
     Route::delete('bank-connections/{bankConnection}', [BankConnectionController::class, 'destroy'])->name('bank-connections.destroy');

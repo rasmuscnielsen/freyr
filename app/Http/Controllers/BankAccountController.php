@@ -18,6 +18,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -31,7 +32,6 @@ class BankAccountController extends Controller
         $accounts = BankAccount::query()
             ->whereBelongsTo($user)
             ->with('bankConnectionAccounts.bankConnection')
-            ->withCount('postings')
             ->withMax('postings', 'date')
             ->orderByDesc('is_active')
             ->orderBy('bank_name')
@@ -46,12 +46,10 @@ class BankAccountController extends Controller
                 'bank_name' => $account->bank_name,
                 'currency' => $account->currency,
                 'current_balance' => $account->current_balance === null ? null : (float) $account->current_balance,
-                'account_type' => $account->account_type,
-                'account_subcategory_key' => $account->account_subcategory_key,
                 'last_known_posting_date' => $account->last_known_posting_date?->toDateString(),
                 'is_active' => $account->is_active,
                 'is_favorite' => $account->is_favorite,
-                'postings_count' => $account->postings_count,
+                'is_spiir_imported' => $account->isSpiirImported(),
                 'postings_max_date' => $account->postings_max_date,
                 'connection_accounts' => $account->bankConnectionAccounts->map(fn (BankConnectionAccount $connectionAccount): array => [
                     'id' => $connectionAccount->id,
@@ -189,7 +187,7 @@ class BankAccountController extends Controller
     {
         $request->user()->bankAccounts()->create([
             ...$request->validated(),
-            'legacy_id' => 'manual-'.Str::uuid()->toString(),
+            'legacy_id' => BankAccount::MANUAL_LEGACY_ID_PREFIX.Str::uuid()->toString(),
         ]);
 
         return back();
@@ -206,13 +204,15 @@ class BankAccountController extends Controller
     {
         abort_unless($request->user()?->is($bankAccount->user), 403);
 
-        if ($bankAccount->postings()->exists()) {
-            $bankAccount->update(['is_active' => false]);
+        DB::transaction(function () use ($bankAccount): void {
+            // Linked remote accounts go back to the connection's setup list —
+            // their bank_account_id is nulled by the FK once the account is
+            // gone, and postings cascade away with the account.
+            $bankAccount->bankConnectionAccounts()
+                ->update(['status' => BankConnectionAccount::STATUS_UNLINKED]);
 
-            return back()->with('status', 'Accounts with postings are archived instead of deleted.');
-        }
-
-        $bankAccount->delete();
+            $bankAccount->delete();
+        });
 
         return back();
     }
@@ -227,6 +227,7 @@ class BankAccountController extends Controller
     {
         return $user->bankConnections()
             ->with(['accounts.bankAccount', 'accounts.bankConnection'])
+            ->where('status', '!=', BankConnection::STATUS_PENDING)
             ->orderByDesc('created_at')
             ->get()
             ->map(function (BankConnection $connection): array {
@@ -265,6 +266,7 @@ class BankAccountController extends Controller
                             'bank_account' => $account->bankAccount === null ? null : [
                                 'id' => $account->bankAccount->id,
                                 'name' => $account->bankAccount->name,
+                                'is_active' => $account->bankAccount->is_active,
                             ],
                         ])
                         ->all(),

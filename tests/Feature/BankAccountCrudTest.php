@@ -66,6 +66,33 @@ test('bank accounts can be listed created updated and deleted', function () {
     expect(BankAccount::query()->count())->toBe(0);
 });
 
+test('creating a manual account only needs a name and a currency', function () {
+    $user = User::factory()->create();
+
+    $this->actingAs($user)
+        ->post(route('bank-accounts.store'), [
+            'name' => 'Cash jar',
+            'currency' => 'EUR',
+        ])
+        ->assertRedirect();
+
+    $account = BankAccount::query()->sole();
+
+    expect($account->name)->toBe('Cash jar')
+        ->and($account->currency)->toBe('EUR')
+        ->and($account->is_active)->toBeTrue()
+        ->and($account->is_favorite)->toBeFalse()
+        ->and($account->isSpiirImported())->toBeFalse();
+
+    Cache::forget('enable-banking.aspsps.dk.personal.ais');
+    app()->instance(EnableBankingClient::class, new BankAccountCrudEnableBankingClient);
+
+    $this->actingAs($user)
+        ->get(route('bank-accounts.index'))
+        ->assertInertia(fn (Assert $page) => $page
+            ->where('accounts.0.is_spiir_imported', false));
+});
+
 test('bank accounts page exposes connection state and linkable remote accounts', function () {
     $user = User::factory()->create();
     Cache::forget('enable-banking.aspsps.dk.personal.ais');
@@ -95,17 +122,26 @@ test('bank accounts page exposes connection state and linkable remote accounts',
             ->where('linkableConnectionAccounts.0.name', 'Savings'));
 });
 
-test('bank accounts with postings are archived instead of deleted', function () {
+test('deleting an account removes it and its postings and unlinks remote accounts', function () {
     $user = User::factory()->create();
     $account = BankAccount::factory()->for($user)->create();
-    Posting::factory()->forAccount($account)->create();
+    $posting = Posting::factory()->forAccount($account)->create();
+    $connection = BankConnection::factory()->for($user)->create();
+    $remoteAccount = BankConnectionAccount::factory()
+        ->for($connection)
+        ->linkedTo($account)
+        ->create();
 
     $this->actingAs($user)
         ->delete(route('bank-accounts.destroy', $account))
         ->assertRedirect();
 
-    expect($account->refresh()->is_active)->toBeFalse()
-        ->and(BankAccount::query()->count())->toBe(1);
+    // The remote account returns to the connection's setup list so it can be
+    // linked or created again.
+    expect(BankAccount::query()->count())->toBe(0)
+        ->and(Posting::query()->whereKey($posting->id)->exists())->toBeFalse()
+        ->and($remoteAccount->refresh()->bank_account_id)->toBeNull()
+        ->and($remoteAccount->status)->toBe(BankConnectionAccount::STATUS_UNLINKED);
 });
 
 test('bank accounts page exposes the my banks connection panel', function () {
@@ -125,7 +161,8 @@ test('bank accounts page exposes the my banks connection panel', function () {
             ->where('connections.0.aspsp_name', 'Demo Bank')
             ->where('connections.0.linked_accounts_count', 1)
             ->where('connections.0.accounts.0.name', 'Everyday')
-            ->where('connections.0.accounts.0.bank_account.name', $account->name));
+            ->where('connections.0.accounts.0.bank_account.name', $account->name)
+            ->where('connections.0.accounts.0.bank_account.is_active', true));
 });
 
 test('bank account detail page renders postings and sync history', function () {

@@ -1,5 +1,5 @@
 import { router, useForm } from '@inertiajs/react';
-import { Landmark, MoreVertical, Unplug } from 'lucide-react';
+import { Archive, Landmark, MoreVertical, RotateCcw } from 'lucide-react';
 import { useState } from 'react';
 import InputError from '@/components/input-error';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -18,7 +18,6 @@ import {
     DropdownMenuItem,
     DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
     Select,
@@ -27,7 +26,7 @@ import {
     SelectTrigger,
     SelectValue,
 } from '@/components/ui/select';
-import { update as updateConnectionAccount } from '@/routes/bank-connection-accounts';
+import { update as updateAccount } from '@/routes/bank-accounts';
 import { map as mapAccounts } from '@/routes/bank-connections/accounts';
 
 export type SetupConnectionAccount = {
@@ -38,7 +37,7 @@ export type SetupConnectionAccount = {
     product: string | null;
     account_number_last_four: string | null;
     last_synced_at: string | null;
-    bank_account: { id: number; name: string } | null;
+    bank_account: { id: number; name: string; is_active: boolean } | null;
 };
 
 export type SetupConnection = {
@@ -60,7 +59,6 @@ type HistoryOption = '1y' | '2y' | 'max';
 
 type RowState = {
     mode: RowMode;
-    name: string;
     bankAccountId: string;
     history: HistoryOption;
 };
@@ -103,16 +101,12 @@ export function ConnectionSetupDialog({
                             account.status !== 'ignored'
                                 ? 'create'
                                 : '',
-                        name: account.name,
                         bankAccountId: '',
                         history: '1y' as HistoryOption,
                     },
                 ]),
         ),
     );
-    const [stoppingAccount, setStoppingAccount] =
-        useState<SetupConnectionAccount | null>(null);
-
     const form = useForm<{
         accounts: Array<{
             id: number;
@@ -132,7 +126,6 @@ export function ConnectionSetupDialog({
     const rowState = (account: SetupConnectionAccount): RowState =>
         rows[account.id] ?? {
             mode: '',
-            name: account.name,
             bankAccountId: '',
             history: '1y',
         };
@@ -143,7 +136,6 @@ export function ConnectionSetupDialog({
             [id]: {
                 ...(current[id] ?? {
                     mode: '',
-                    name: '',
                     bankAccountId: '',
                     history: '1y',
                 }),
@@ -166,10 +158,6 @@ export function ConnectionSetupDialog({
         const row = rowState(account);
 
         if (row.mode === 'existing' && row.bankAccountId === '') {
-            return false;
-        }
-
-        if (row.mode === 'create' && row.name.trim() === '') {
             return false;
         }
 
@@ -209,7 +197,7 @@ export function ConnectionSetupDialog({
                 return {
                     id: account.id,
                     mode: row.mode,
-                    name: row.mode === 'create' ? row.name.trim() : null,
+                    name: row.mode === 'create' ? account.name : null,
                     bank_account_id:
                         row.mode === 'existing'
                             ? Number(row.bankAccountId)
@@ -223,21 +211,6 @@ export function ConnectionSetupDialog({
             preserveScroll: true,
             onSuccess: onClose,
         });
-    };
-
-    const stopSyncing = () => {
-        if (stoppingAccount === null) {
-            return;
-        }
-
-        router.patch(
-            updateConnectionAccount.url(stoppingAccount.id),
-            { mode: 'ignore' },
-            {
-                preserveScroll: true,
-                onSuccess: () => setStoppingAccount(null),
-            },
-        );
     };
 
     const syncingCount = submittableAccounts.filter((account) => {
@@ -289,9 +262,6 @@ export function ConnectionSetupDialog({
                                     onChange={(patch) =>
                                         setRow(account.id, patch)
                                     }
-                                    onStopSyncing={() =>
-                                        setStoppingAccount(account)
-                                    }
                                 />
                             ))
                         )}
@@ -318,39 +288,6 @@ export function ConnectionSetupDialog({
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
-
-            <Dialog
-                open={stoppingAccount !== null}
-                onOpenChange={(nextOpen) =>
-                    !nextOpen && setStoppingAccount(null)
-                }
-            >
-                <DialogContent className="sm:max-w-md">
-                    <DialogHeader>
-                        <DialogTitle>
-                            Stop syncing {stoppingAccount?.name}?
-                        </DialogTitle>
-                        <DialogDescription>
-                            The local account{' '}
-                            {stoppingAccount?.bank_account?.name} is kept with
-                            its postings and becomes a manual account. You can
-                            link it again later.
-                        </DialogDescription>
-                    </DialogHeader>
-                    <DialogFooter>
-                        <Button
-                            variant="outline"
-                            onClick={() => setStoppingAccount(null)}
-                        >
-                            Cancel
-                        </Button>
-                        <Button variant="destructive" onClick={stopSyncing}>
-                            <Unplug className="size-4" />
-                            Stop syncing
-                        </Button>
-                    </DialogFooter>
-                </DialogContent>
-            </Dialog>
         </>
     );
 }
@@ -363,7 +300,6 @@ function SetupRow({
     errorPrefix,
     errors,
     onChange,
-    onStopSyncing,
 }: {
     account: SetupConnectionAccount;
     row: RowState;
@@ -372,11 +308,23 @@ function SetupRow({
     errorPrefix: string;
     errors: Record<string, string | undefined>;
     onChange: (patch: Partial<RowState>) => void;
-    onStopSyncing: () => void;
 }) {
     const isLinked =
         account.status === 'linked' && account.bank_account !== null;
+    const isArchived = isLinked && account.bank_account?.is_active === false;
     const isIgnored = account.status === 'ignored';
+
+    const toggleArchived = () => {
+        if (account.bank_account === null) {
+            return;
+        }
+
+        router.patch(
+            updateAccount.url(account.bank_account.id),
+            { is_active: isArchived },
+            { preserveScroll: true },
+        );
+    };
 
     return (
         <div className="grid grid-cols-1 gap-3 rounded-lg border p-3">
@@ -405,22 +353,31 @@ function SetupRow({
                     </div>
                 </div>
 
-                {isLinked ? (
+                {isLinked && (
                     <div className="flex shrink-0 items-start gap-2 self-end sm:self-start">
                         <div className="text-right">
                             <div className="flex items-center justify-end gap-1.5 text-sm">
-                                <span
-                                    className="size-1.5 rounded-full bg-emerald-500"
-                                    aria-hidden
-                                />
-                                Synced to {account.bank_account?.name}
+                                {isArchived ? (
+                                    <span className="text-muted-foreground">
+                                        Archived · linked to{' '}
+                                        {account.bank_account?.name}
+                                    </span>
+                                ) : (
+                                    <>
+                                        <span
+                                            className="size-1.5 rounded-full bg-emerald-500"
+                                            aria-hidden
+                                        />
+                                        Synced to {account.bank_account?.name}
+                                    </>
+                                )}
                             </div>
                             <div className="text-xs text-muted-foreground">
                                 Last sync{' '}
                                 {formatDateTime(account.last_synced_at)}
                             </div>
                         </div>
-                        <DropdownMenu>
+                        <DropdownMenu modal={false}>
                             <DropdownMenuTrigger asChild>
                                 <Button
                                     variant="ghost"
@@ -431,108 +388,125 @@ function SetupRow({
                                 </Button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end">
-                                <DropdownMenuItem
-                                    variant="destructive"
-                                    onSelect={onStopSyncing}
-                                >
-                                    <Unplug className="size-4" />
-                                    Stop syncing
+                                <DropdownMenuItem onSelect={toggleArchived}>
+                                    {isArchived ? (
+                                        <RotateCcw className="size-4" />
+                                    ) : (
+                                        <Archive className="size-4" />
+                                    )}
+                                    {isArchived
+                                        ? 'Unarchive account'
+                                        : 'Archive account'}
                                 </DropdownMenuItem>
                             </DropdownMenuContent>
                         </DropdownMenu>
                     </div>
-                ) : (
-                    <Select
-                        value={row.mode}
-                        onValueChange={(value) =>
-                            onChange({ mode: value as RowMode })
-                        }
-                    >
-                        <SelectTrigger className="w-full shrink-0 sm:w-56">
-                            <SelectValue placeholder="Choose action…" />
-                        </SelectTrigger>
-                        <SelectContent>
-                            <SelectItem value="create">
-                                Create new account
-                            </SelectItem>
-                            {linkableAccounts.length > 0 && (
-                                <SelectItem value="existing">
-                                    Link to existing account
-                                </SelectItem>
-                            )}
-                            <SelectItem value="ignore">Ignore</SelectItem>
-                        </SelectContent>
-                    </Select>
                 )}
             </div>
 
-            {!isLinked && row.mode === 'create' && (
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 items-start">
+            {!isLinked && (
+                <div className="grid grid-cols-1 items-start gap-3 sm:grid-cols-2">
                     <div className="grid gap-2">
-                        <Label htmlFor={`setup-name-${account.id}`}>
-                            Account name
+                        <Label htmlFor={`setup-action-${account.id}`}>
+                            Action
                         </Label>
-                        <Input
-                            id={`setup-name-${account.id}`}
-                            value={row.name}
-                            onChange={(event) =>
-                                onChange({ name: event.target.value })
-                            }
-                        />
-                        <InputError message={errors[`${errorPrefix}.name`]} />
-                    </div>
-                    <HistorySelect
-                        id={`setup-history-${account.id}`}
-                        value={row.history}
-                        onChange={(value) => onChange({ history: value })}
-                    />
-                </div>
-            )}
-
-            {!isLinked && row.mode === 'existing' && (
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                    <div className="grid gap-2">
-                        <Label>Choose account</Label>
                         <Select
-                            value={row.bankAccountId}
+                            value={row.mode}
                             onValueChange={(value) =>
-                                onChange({ bankAccountId: value })
+                                onChange({ mode: value as RowMode })
                             }
                         >
-                            <SelectTrigger className="w-full">
-                                <SelectValue placeholder="Choose account…" />
+                            <SelectTrigger
+                                id={`setup-action-${account.id}`}
+                                className="w-full"
+                            >
+                                <SelectValue placeholder="Choose action…" />
                             </SelectTrigger>
                             <SelectContent>
-                                {linkableAccounts.map((localAccount) => (
-                                    <SelectItem
-                                        key={localAccount.id}
-                                        value={String(localAccount.id)}
-                                        disabled={
-                                            takenAccountIds.has(
-                                                String(localAccount.id),
-                                            ) &&
-                                            row.bankAccountId !==
-                                                String(localAccount.id)
-                                        }
-                                    >
-                                        {localAccount.name} ·{' '}
-                                        {localAccount.currency}
-                                        {localAccount.bank_name
-                                            ? ` · ${localAccount.bank_name}`
-                                            : ''}
+                                <SelectItem value="create">
+                                    Create new account
+                                </SelectItem>
+                                {linkableAccounts.length > 0 && (
+                                    <SelectItem value="existing">
+                                        Link to existing account
                                     </SelectItem>
-                                ))}
+                                )}
+                                <SelectItem value="ignore">Ignore</SelectItem>
                             </SelectContent>
                         </Select>
-                        <InputError
-                            message={errors[`${errorPrefix}.bank_account_id`]}
-                        />
                     </div>
-                    <HistorySelect
-                        id={`setup-history-${account.id}`}
-                        value={row.history}
-                        onChange={(value) => onChange({ history: value })}
-                    />
+
+                    {row.mode === 'create' && (
+                        <HistorySelect
+                            id={`setup-history-${account.id}`}
+                            value={row.history}
+                            onChange={(value) => onChange({ history: value })}
+                        />
+                    )}
+
+                    {row.mode === 'existing' && (
+                        <div className="grid gap-3">
+                            <div className="grid gap-2">
+                                <Label htmlFor={`setup-account-${account.id}`}>
+                                    Account
+                                </Label>
+                                <Select
+                                    value={row.bankAccountId}
+                                    onValueChange={(value) =>
+                                        onChange({ bankAccountId: value })
+                                    }
+                                >
+                                    <SelectTrigger
+                                        id={`setup-account-${account.id}`}
+                                        className="w-full"
+                                    >
+                                        <SelectValue placeholder="Choose account…" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {linkableAccounts.map(
+                                            (localAccount) => (
+                                                <SelectItem
+                                                    key={localAccount.id}
+                                                    value={String(
+                                                        localAccount.id,
+                                                    )}
+                                                    disabled={
+                                                        takenAccountIds.has(
+                                                            String(
+                                                                localAccount.id,
+                                                            ),
+                                                        ) &&
+                                                        row.bankAccountId !==
+                                                            String(
+                                                                localAccount.id,
+                                                            )
+                                                    }
+                                                >
+                                                    {localAccount.name} ·{' '}
+                                                    {localAccount.currency}
+                                                    {localAccount.bank_name
+                                                        ? ` · ${localAccount.bank_name}`
+                                                        : ''}
+                                                </SelectItem>
+                                            ),
+                                        )}
+                                    </SelectContent>
+                                </Select>
+                                <InputError
+                                    message={
+                                        errors[`${errorPrefix}.bank_account_id`]
+                                    }
+                                />
+                            </div>
+                            <HistorySelect
+                                id={`setup-history-${account.id}`}
+                                value={row.history}
+                                onChange={(value) =>
+                                    onChange({ history: value })
+                                }
+                            />
+                        </div>
+                    )}
                 </div>
             )}
         </div>

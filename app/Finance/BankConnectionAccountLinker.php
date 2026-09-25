@@ -27,7 +27,7 @@ class BankConnectionAccountLinker
         $remote->loadMissing('bankConnection');
 
         $bankAccount = $remote->bankConnection->user->bankAccounts()->create([
-            'legacy_id' => 'enable-banking-'.Str::uuid()->toString(),
+            'legacy_id' => BankAccount::ENABLE_BANKING_LEGACY_ID_PREFIX.Str::uuid()->toString(),
             'ignore_postings_before' => $history->cutoffDate(),
             'name' => $name,
             'bank_key' => 'enable_banking_'.$remote->bankConnection->aspsp_country,

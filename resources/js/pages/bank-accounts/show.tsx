@@ -280,7 +280,7 @@ export default function BankAccountShow({
                                 </span>
                             )}
                             {!account.is_active && (
-                                <Badge variant="secondary">Closed</Badge>
+                                <Badge variant="secondary">Archived</Badge>
                             )}
                             {account.connection?.needs_renewal && (
                                 <Badge variant="destructive">
@@ -429,10 +429,10 @@ export default function BankAccountShow({
                                                 setEditingPosting(posting)
                                             }
                                         >
-                                            <td className="px-3 py-2 whitespace-nowrap text-muted-foreground tabular-nums">
+                                            <td className="px-3 py-3 whitespace-nowrap text-muted-foreground tabular-nums">
                                                 {formatDate(posting.date)}
                                             </td>
-                                            <td className="px-3 py-2 font-medium">
+                                            <td className="px-3 py-3 font-medium">
                                                 <span className="flex items-center gap-1.5">
                                                     {posting.description}
                                                     {posting.is_extraordinary && (
@@ -450,21 +450,21 @@ export default function BankAccountShow({
                                                         : 'Uncategorized'}
                                                 </span>
                                             </td>
-                                            <td className="hidden px-3 py-2 text-muted-foreground md:table-cell">
+                                            <td className="hidden px-3 py-3 text-muted-foreground md:table-cell">
                                                 {posting.category
                                                     ? `${posting.category.name} / ${posting.category.subcategory}`
                                                     : 'Uncategorized'}
                                             </td>
                                             <td
                                                 className={cn(
-                                                    'px-3 py-2 text-right font-medium whitespace-nowrap tabular-nums',
+                                                    'px-3 py-3 text-right font-medium whitespace-nowrap tabular-nums',
                                                     posting.amount >= 0 &&
                                                         'text-chart-income',
                                                 )}
                                             >
                                                 {money.format(posting.amount)}
                                             </td>
-                                            <td className="hidden px-3 py-2 text-right whitespace-nowrap text-muted-foreground tabular-nums md:table-cell">
+                                            <td className="hidden px-3 py-3 text-right whitespace-nowrap text-muted-foreground tabular-nums md:table-cell">
                                                 {posting.balance === null
                                                     ? '—'
                                                     : money.format(
@@ -472,7 +472,7 @@ export default function BankAccountShow({
                                                       )}
                                             </td>
                                             {account.is_manual && (
-                                                <td className="px-3 py-2 text-right whitespace-nowrap">
+                                                <td className="px-3 py-3 text-right whitespace-nowrap">
                                                     <Button
                                                         variant="ghost"
                                                         size="icon"
