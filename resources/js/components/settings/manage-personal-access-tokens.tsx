@@ -5,20 +5,27 @@ import Heading from '@/components/heading';
 import InputError from '@/components/input-error';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useClipboard } from '@/hooks/use-clipboard';
 
 type PersonalAccessToken = {
-    id: number;
+    id: string;
     name: string;
     created_at_diff: string;
-    last_used_at_diff: string | null;
+    expires_at_diff: string | null;
+};
+
+export type TokenScope = {
+    id: string;
+    description: string;
 };
 
 export type Props = {
     personalAccessTokens?: PersonalAccessToken[];
     plainTextPersonalAccessToken?: string | null;
+    availableTokenScopes?: TokenScope[];
 };
 
 const EmptyState = () => {
@@ -29,7 +36,7 @@ const EmptyState = () => {
             </div>
             <p className="font-medium">No personal access tokens yet</p>
             <p className="mt-1 text-sm text-muted-foreground">
-                Create a token to access the read-only API.
+                Create a token to access the API or connect an MCP client.
             </p>
         </div>
     );
@@ -37,6 +44,7 @@ const EmptyState = () => {
 
 export default function ManagePersonalAccessTokens(props: Props) {
     const tokens = props.personalAccessTokens ?? [];
+    const scopes = props.availableTokenScopes ?? [];
     const [, copy] = useClipboard();
 
     return (
@@ -44,7 +52,7 @@ export default function ManagePersonalAccessTokens(props: Props) {
             <Heading
                 variant="small"
                 title="Personal access tokens"
-                description="Manage read-only API tokens for your account"
+                description="Manage API tokens for your account"
             />
 
             {props.plainTextPersonalAccessToken ? (
@@ -95,9 +103,9 @@ export default function ManagePersonalAccessTokens(props: Props) {
                                 </p>
                                 <p className="mt-1 text-sm text-muted-foreground">
                                     Created {token.created_at_diff}
-                                    {token.last_used_at_diff
-                                        ? ` · Last used ${token.last_used_at_diff}`
-                                        : ' · Never used'}
+                                    {token.expires_at_diff
+                                        ? ` · Expires ${token.expires_at_diff}`
+                                        : ''}
                                 </p>
                             </div>
 
@@ -144,6 +152,36 @@ export default function ManagePersonalAccessTokens(props: Props) {
                             />
                             <InputError message={errors.name} />
                         </div>
+
+                        {scopes.length > 0 ? (
+                            <div className="grid gap-2">
+                                <Label>Scopes</Label>
+                                <div className="space-y-2">
+                                    {scopes.map((scope) => (
+                                        <label
+                                            key={scope.id}
+                                            className="flex items-start gap-3"
+                                        >
+                                            <Checkbox
+                                                name="scopes[]"
+                                                value={scope.id}
+                                                defaultChecked
+                                                className="mt-0.5"
+                                            />
+                                            <span className="grid gap-0.5">
+                                                <span className="font-mono text-xs font-medium">
+                                                    {scope.id}
+                                                </span>
+                                                <span className="text-sm text-muted-foreground">
+                                                    {scope.description}
+                                                </span>
+                                            </span>
+                                        </label>
+                                    ))}
+                                </div>
+                                <InputError message={errors.scopes} />
+                            </div>
+                        ) : null}
 
                         <Button type="submit" disabled={processing}>
                             <KeyRound />

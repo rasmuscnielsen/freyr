@@ -25,6 +25,7 @@ class BankAccountResource extends JsonResource
             'account_subcategory_key' => $this->account_subcategory_key,
             'last_updated_at' => $this->last_updated_at?->toJSON(),
             'last_known_posting_date' => $this->last_known_posting_date?->toDateString(),
+            'has_bank_connection' => $this->hasBankConnection(),
             'is_active' => $this->is_active,
             'is_favorite' => $this->is_favorite,
             'created_at' => $this->created_at?->toJSON(),

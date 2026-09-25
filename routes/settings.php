@@ -29,7 +29,6 @@ Route::middleware(['auth', 'verified'])->group(function () {
         ->name('personal-access-tokens.store');
 
     Route::delete('settings/personal-access-tokens/{token}', [PersonalAccessTokenController::class, 'destroy'])
-        ->whereNumber('token')
         ->name('personal-access-tokens.destroy');
 
     Route::inertia('settings/appearance', 'settings/appearance')->name('appearance.edit');

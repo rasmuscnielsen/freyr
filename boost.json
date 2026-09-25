@@ -20,6 +20,8 @@
         "laravel-best-practices",
         "testing-best-practices",
         "configuring-horizon",
+        "mcp-development",
+        "passport-development",
         "wayfinder-development",
         "inertia-react-development",
         "tailwindcss-development",

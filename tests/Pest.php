@@ -1,6 +1,8 @@
 <?php
 
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Artisan;
+use Laravel\Passport\ClientRepository;
 use Tests\TestCase;
 
 /*
@@ -16,6 +18,10 @@ use Tests\TestCase;
 
 pest()->extend(TestCase::class)
     ->use(RefreshDatabase::class)
+    // Passport::actingAs() builds a CryptKey from the signing keys, which are
+    // gitignored — generate them once per run so tests work from a clean
+    // checkout.
+    ->beforeEach(fn () => providePassportKeys())
     ->in('Feature');
 
 /*
@@ -44,7 +50,25 @@ expect()->extend('toBeOne', function () {
 |
 */
 
-function something()
+/**
+ * Ensure the OAuth signing keys exist — they live in storage/ and are
+ * gitignored, so a clean checkout has none. No-ops when already generated.
+ */
+function providePassportKeys(): void
 {
-    // ..
+    if (! file_exists(storage_path('oauth-private.key'))) {
+        Artisan::call('passport:keys');
+    }
+}
+
+/**
+ * Provision OAuth signing keys and a personal access client so that
+ * `User::createToken()` (Passport) can mint real tokens in tests.
+ */
+function providePersonalAccessClient(): void
+{
+    providePassportKeys();
+
+    app(ClientRepository::class)
+        ->createPersonalAccessGrantClient('Personal access', 'users');
 }
