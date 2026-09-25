@@ -22,7 +22,7 @@ class BankConnectionFactory extends Factory
             'user_id' => User::factory(),
             'provider' => BankConnection::PROVIDER_ENABLE_BANKING,
             'status' => BankConnection::STATUS_ACTIVE,
-            'aspsp_name' => 'Nykredit Bank',
+            'aspsp_name' => 'Example Bank',
             'aspsp_country' => 'DK',
             'psu_type' => 'personal',
             'authorization_id' => fake()->uuid(),
@@ -33,7 +33,7 @@ class BankConnectionFactory extends Factory
             'access_valid_until' => now()->addDays(90),
             'raw_session_payload' => [
                 'session_id' => $sessionId,
-                'aspsp' => ['name' => 'Nykredit Bank', 'country' => 'DK'],
+                'aspsp' => ['name' => 'Example Bank', 'country' => 'DK'],
             ],
         ];
     }

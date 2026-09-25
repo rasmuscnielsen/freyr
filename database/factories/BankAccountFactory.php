@@ -21,9 +21,9 @@ class BankAccountFactory extends Factory
         return [
             'user_id' => User::factory(),
             'legacy_id' => fake()->unique()->numerify('legacy-account-####'),
-            'name' => fake()->randomElement(['Checking', 'Savings', 'Wise DKK']),
-            'bank_key' => fake()->randomElement(['Nykredit', 'DK_Wise', 'OtherBank']),
-            'bank_name' => fake()->randomElement(['Nykredit', 'Wise', 'Other Bank']),
+            'name' => fake()->randomElement(['Checking', 'Savings', 'Sample Account']),
+            'bank_key' => fake()->randomElement(['ExampleBank', 'DK_SampleBank', 'OtherBank']),
+            'bank_name' => fake()->randomElement(['ExampleBank', 'SampleBank', 'Other Bank']),
             'currency' => 'DKK',
             'current_balance' => fake()->randomFloat(2, 0, 100000),
             'account_type' => 'Consumption',

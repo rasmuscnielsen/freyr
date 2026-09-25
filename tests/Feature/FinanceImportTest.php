@@ -26,7 +26,7 @@ test('it imports a spiir export idempotently', function () {
 
     $travelCard = BankAccount::query()->where('legacy_id', 'acc-2')->firstOrFail();
     expect($travelCard->currency)->toBe('EUR')
-        ->and($travelCard->bank_name)->toBe('Wise');
+        ->and($travelCard->bank_name)->toBe('Other bank');
 
     $salary = Posting::query()->where('legacy_id', 'post-1')->firstOrFail();
     expect((float) $salary->amount)->toBe(30000.0)

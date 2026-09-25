@@ -13,7 +13,7 @@ test('posting description embeddings can be generated for uncached postings', fu
         );
     })->preventStrayEmbeddings();
 
-    $first = Posting::factory()->create(['description' => 'Rema 1000 Copenhagen']);
+    $first = Posting::factory()->create(['description' => 'Example Market']);
     $second = Posting::factory()->create(['description' => 'Netflix subscription']);
 
     $count = app(PostingDescriptionEmbeddingGenerator::class)->generateMissing(limit: 10, batchSize: 2);
@@ -24,7 +24,7 @@ test('posting description embeddings can be generated for uncached postings', fu
         ->and($second->refresh()->description_embedding)->toHaveCount(1536);
 
     Embeddings::assertGenerated(
-        fn (EmbeddingsPrompt $prompt): bool => $prompt->contains('Rema 1000 Copenhagen')
+        fn (EmbeddingsPrompt $prompt): bool => $prompt->contains('Example Market')
             && $prompt->contains('Netflix subscription')
             && $prompt->dimensions === 1536,
     );

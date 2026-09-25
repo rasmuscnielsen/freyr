@@ -34,7 +34,7 @@ class BankConnectionAccountFactory extends Factory
             'iban' => 'DK5000000000000001',
             'account_number' => '00000000000001',
             'account_number_last_four' => '0001',
-            'bic' => 'NYKBDKKK',
+            'bic' => 'TESTDKKK',
             'product' => 'Ung Konto',
             'cash_account_type' => 'CACC',
             'raw_account_payload' => [

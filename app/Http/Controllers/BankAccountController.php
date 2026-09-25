@@ -135,6 +135,8 @@ class BankAccountController extends Controller
         $connectionAccount = $bankAccount->bankConnectionAccounts->first();
         $connection = $connectionAccount?->bankConnection;
         $isManual = ! $bankAccount->hasBankConnection();
+        $balanceAudit = $isManual ? null : $inspector->inspect($bankAccount);
+        $balanceDelta = $balanceAudit['total_delta'] ?? null;
 
         return Inertia::render('bank-accounts/show', [
             'account' => [
@@ -159,10 +161,10 @@ class BankAccountController extends Controller
                     'needs_renewal' => $connection->needsRenewal(),
                     'access_valid_until' => $connection->access_valid_until?->toIso8601String(),
                 ],
-                'balance_diff' => $isManual ? null : $this->balanceDiff($bankAccount),
+                'balance_diff' => $balanceDelta === '0.00' ? null : $balanceDelta,
             ],
             'postings' => $postings,
-            'balanceAudit' => Inertia::optional(fn (): ?array => $isManual ? null : $inspector->inspect($bankAccount)),
+            'balanceAudit' => Inertia::optional(fn (): ?array => $balanceAudit),
             'syncRuns' => $this->syncRunsPayload($bankAccount->syncRuns()->latest('id')->limit(5)->get()),
             'categories' => Category::query()
                 ->with(['subcategories' => fn ($query) => $query->orderBy('name')])
@@ -292,27 +294,6 @@ class BankAccountController extends Controller
                 'balance_delta' => $run->balanceDelta(),
             ])
             ->all();
-    }
-
-    /**
-     * Live difference between the bank-reported balance and the newest running
-     * balance from postings, or null when they agree (or either is unknown).
-     */
-    private function balanceDiff(BankAccount $bankAccount): ?string
-    {
-        $latestPostingBalance = $bankAccount->postings()
-            ->whereNotNull('balance')
-            ->orderByDesc('date')
-            ->orderByDesc('id')
-            ->value('balance');
-
-        if ($latestPostingBalance === null || $bankAccount->current_balance === null) {
-            return null;
-        }
-
-        $delta = (float) $bankAccount->current_balance - (float) $latestPostingBalance;
-
-        return abs($delta) <= 0.005 ? null : number_format($delta, 2, '.', '');
     }
 
     /**

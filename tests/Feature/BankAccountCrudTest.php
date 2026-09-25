@@ -14,9 +14,9 @@ use Tests\Fakes\BankAccountCrudEnableBankingClient;
 function bankAccountPayload(array $overrides = []): array
 {
     return [
-        'name' => 'Wise DKK',
-        'bank_key' => 'DK_Wise',
-        'bank_name' => 'Wise',
+        'name' => 'Sample Account',
+        'bank_key' => 'DK_SampleBank',
+        'bank_name' => 'SampleBank',
         'currency' => 'DKK',
         'account_type' => 'Consumption',
         'account_subcategory_key' => 'consumption',
@@ -38,7 +38,7 @@ test('bank accounts can be listed created updated and deleted', function () {
         ->assertInertia(fn (Assert $page) => $page
             ->component('bank-accounts/index')
             ->has('accounts', 0)
-            ->where('availableBanks.1.name', 'Nykredit Bank'));
+            ->where('availableBanks.1.name', 'Example Bank'));
 
     $this->actingAs($user)
         ->post(route('bank-accounts.store'), bankAccountPayload())
@@ -46,17 +46,17 @@ test('bank accounts can be listed created updated and deleted', function () {
 
     $account = BankAccount::query()->firstOrFail();
 
-    expect($account->name)->toBe('Wise DKK')
+    expect($account->name)->toBe('Sample Account')
         ->and($account->legacy_id)->toStartWith('manual-');
 
     $this->actingAs($user)
         ->patch(route('bank-accounts.update', $account), bankAccountPayload([
-            'name' => 'Wise Everyday',
+            'name' => 'Sample Everyday',
             'is_favorite' => true,
         ]))
         ->assertRedirect();
 
-    expect($account->refresh()->name)->toBe('Wise Everyday')
+    expect($account->refresh()->name)->toBe('Sample Everyday')
         ->and($account->is_favorite)->toBeTrue();
 
     $this->actingAs($user)
@@ -114,7 +114,7 @@ test('bank accounts page exposes the my banks connection panel', function () {
     app()->instance(EnableBankingClient::class, new BankAccountCrudEnableBankingClient);
 
     $account = BankAccount::factory()->for($user)->create();
-    $connection = BankConnection::factory()->for($user)->forBank('Lunar Bank')->create();
+    $connection = BankConnection::factory()->for($user)->forBank('Demo Bank')->create();
     BankConnectionAccount::factory()->for($connection)->linkedTo($account)->create(['details' => 'Everyday']);
 
     $this->actingAs($user)
@@ -122,7 +122,7 @@ test('bank accounts page exposes the my banks connection panel', function () {
         ->assertOk()
         ->assertInertia(fn (Assert $page) => $page
             ->component('bank-accounts/index')
-            ->where('connections.0.aspsp_name', 'Lunar Bank')
+            ->where('connections.0.aspsp_name', 'Demo Bank')
             ->where('connections.0.linked_accounts_count', 1)
             ->where('connections.0.accounts.0.name', 'Everyday')
             ->where('connections.0.accounts.0.bank_account.name', $account->name));

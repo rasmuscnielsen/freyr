@@ -2,6 +2,7 @@
 
 namespace App\Finance\EnableBanking;
 
+use App\Finance\BalanceChainInspector;
 use App\Models\BankAccount;
 use App\Models\BankConnection;
 use App\Models\BankConnectionAccount;
@@ -21,6 +22,7 @@ class EnableBankingConnectionManager
     public function __construct(
         private readonly EnableBankingClient $client,
         private readonly EnableBankingTransactionMapper $transactionMapper,
+        private readonly BalanceChainInspector $balanceChainInspector,
     ) {}
 
     public function startAuthorization(User $user, ?BankConnection $connection = null, ?string $aspspName = null, ?string $aspspCountry = null): string
@@ -318,8 +320,7 @@ class EnableBankingConnectionManager
      * Reconcile our local running balance against the bank-reported booked balance.
      *
      * The expected figure is the bank's booked (CLBD) balance at sync time. The computed
-     * figure is the running balance stored on the newest posting we hold for this account
-     * (latest by date, then by id, among postings from this source with a non-null balance).
+     * figure is the closing balance reconstructed from the account's postings.
      *
      * The comparison is deliberately naive: it does not attempt to account for pending or
      * not-yet-booked transactions. If the newest local posting predates the balance snapshot
@@ -342,16 +343,7 @@ class EnableBankingConnectionManager
         $computedBalance = null;
 
         if ($account->bank_account_id !== null) {
-            $latestPosting = Posting::query()
-                ->where('user_id', $account->bankConnection->user_id)
-                ->where('source', BankConnectionAccount::SOURCE_ENABLE_BANKING)
-                ->where('external_account_uid_hash', $account->external_account_uid_hash)
-                ->whereNotNull('balance')
-                ->orderByDesc('date')
-                ->orderByDesc('id')
-                ->first();
-
-            $computedBalance = $latestPosting?->balance;
+            $computedBalance = $this->balanceChainInspector->inspect($account->bankAccount)['closing_balance'];
         }
 
         if ($computedBalance === null || $expectedBalance === null) {

@@ -36,6 +36,7 @@ class BalanceChainInspector
      * @return array{
      *     is_consistent: bool,
      *     total_delta: ?string,
+     *     closing_balance: ?string,
      *     checked_postings: int,
      *     breaks: list<array{kind: string, date: ?string, delta: ?string, postings: list<array<string, mixed>>}>
      * }
@@ -51,10 +52,6 @@ class BalanceChainInspector
         $running = null;
 
         foreach ($postings->groupBy(fn (Posting $posting): string => $posting->date->toDateString()) as $date => $dayPostings) {
-            if (count($breaks) >= self::MAX_BREAKS) {
-                break;
-            }
-
             $checkpoints = $dayPostings->whereNotNull('balance');
 
             if ($running === null) {
@@ -86,7 +83,9 @@ class BalanceChainInspector
             }
 
             $reportedClose = (float) $checkpoints->last()->balance;
-            $breaks[] = $this->classifyBreak($date, $dayPostings, $running, $expectedClose, $reportedClose);
+            if (count($breaks) < self::MAX_BREAKS) {
+                $breaks[] = $this->classifyBreak($date, $dayPostings, $running, $expectedClose, $reportedClose);
+            }
 
             // Resync on the bank's figure so later days are judged on their own.
             $running = $reportedClose;
@@ -110,6 +109,7 @@ class BalanceChainInspector
         return [
             'is_consistent' => $breaks === [],
             'total_delta' => $totalDelta === null ? null : $this->decimal($totalDelta),
+            'closing_balance' => $running === null ? null : $this->decimal($running),
             'checked_postings' => $postings->count(),
             'breaks' => $breaks,
         ];

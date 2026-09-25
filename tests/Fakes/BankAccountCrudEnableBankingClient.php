@@ -13,8 +13,8 @@ class BankAccountCrudEnableBankingClient extends EnableBankingClient
     {
         return [
             'aspsps' => [
-                ['name' => 'Nykredit Bank', 'country' => 'DK'],
-                ['name' => 'Lunar Bank', 'country' => 'DK'],
+                ['name' => 'Example Bank', 'country' => 'DK'],
+                ['name' => 'Demo Bank', 'country' => 'DK'],
             ],
         ];
     }

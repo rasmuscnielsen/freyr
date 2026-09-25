@@ -33,7 +33,7 @@ function enableBankingSessionPayload(): array
                     'iban' => 'DK5000000000000001',
                     'other' => ['identification' => '00000000000001'],
                 ],
-                'account_servicer' => ['bic_fi' => 'NYKBDKKK'],
+                'account_servicer' => ['bic_fi' => 'TESTDKKK'],
                 'name' => 'Sandbox User',
                 'details' => 'Everyday',
                 'cash_account_type' => 'CACC',
@@ -48,7 +48,7 @@ function enableBankingSessionPayload(): array
                     'iban' => 'DK5000000000000002',
                     'other' => ['identification' => '00000000000002'],
                 ],
-                'account_servicer' => ['bic_fi' => 'NYKBDKKK'],
+                'account_servicer' => ['bic_fi' => 'TESTDKKK'],
                 'name' => 'Sandbox User',
                 'details' => 'Shared',
                 'cash_account_type' => 'CACC',
@@ -60,7 +60,7 @@ function enableBankingSessionPayload(): array
             ],
         ],
         'aspsp' => [
-            'name' => 'Nykredit Bank',
+            'name' => 'Example Bank',
             'country' => 'DK',
         ],
         'psu_type' => 'personal',
@@ -142,7 +142,7 @@ test('inertia requests to start a bank connection return an external location re
     $this->actingAs($user)
         ->withHeader(Header::INERTIA, 'true')
         ->post(route('bank-connections.store'), [
-            'aspsp_name' => 'Nykredit Bank',
+            'aspsp_name' => 'Example Bank',
             'aspsp_country' => 'DK',
         ])
         ->assertStatus(409)
@@ -156,7 +156,7 @@ test('standard requests to start a bank connection redirect to enable banking', 
 
     $this->actingAs($user)
         ->post(route('bank-connections.store'), [
-            'aspsp_name' => 'Nykredit Bank',
+            'aspsp_name' => 'Example Bank',
             'aspsp_country' => 'DK',
         ])
         ->assertRedirect('https://enablebanking.test/login');
@@ -249,7 +249,7 @@ test('callback persists an active connection and returned accounts', function ()
         ->assertRedirect(route('bank-accounts.index'));
 
     expect($connection->refresh()->status)->toBe(BankConnection::STATUS_ACTIVE)
-        ->and($connection->aspsp_name)->toBe('Nykredit Bank')
+        ->and($connection->aspsp_name)->toBe('Example Bank')
         ->and($connection->session_id_hash)->toBe(hash('sha256', '11111111-2222-4333-8444-555555555555'))
         ->and($connection->accounts)->toHaveCount(2)
         ->and($connection->accounts()->first()->details)->toBe('Everyday');
@@ -287,13 +287,13 @@ test('remote accounts can be linked to an existing or newly created bank account
     $this->actingAs($user)
         ->patch(route('bank-connection-accounts.update', $newRemoteAccount), [
             'mode' => 'create',
-            'name' => 'Nykredit Nemkonto',
+            'name' => 'Example Checking',
         ])
         ->assertRedirect();
 
     expect($newRemoteAccount->refresh()->status)->toBe(BankConnectionAccount::STATUS_LINKED)
         ->and($newRemoteAccount->bankAccount->user_id)->toBe($user->id)
-        ->and($newRemoteAccount->bankAccount->name)->toBe('Nykredit Nemkonto');
+        ->and($newRemoteAccount->bankAccount->name)->toBe('Example Checking');
 
     Queue::assertPushed(
         SyncBankConnectionAccountJob::class,
@@ -540,6 +540,38 @@ test('sync flags a balance mismatch without failing the run', function () {
         ->and($run->computed_balance)->toBe('51339.66')
         ->and($run->hasBalanceMismatch())->toBeTrue()
         ->and($run->balanceDelta())->toBe('100.00');
+});
+
+test('sync accepts the closing checkpoint when same-day ids are out of bank order', function () {
+    $user = User::factory()->create();
+    $connection = BankConnection::factory()->for($user)->create();
+    $localAccount = BankAccount::factory()->for($user)->create();
+    $remoteAccount = BankConnectionAccount::factory()->for($connection)->linkedTo($localAccount)->create();
+
+    foreach ([
+        ['2026-06-18', '100.00', '100.00'],
+        ['2026-06-19', '-30.00', '120.00'],
+        ['2026-06-19', '50.00', '150.00'],
+    ] as [$date, $amount, $balance]) {
+        Posting::factory()->forAccount($localAccount)->create([
+            'source' => BankConnectionAccount::SOURCE_ENABLE_BANKING,
+            'external_account_uid_hash' => $remoteAccount->external_account_uid_hash,
+            'date' => $date,
+            'amount' => $amount,
+            'balance' => $balance,
+        ]);
+    }
+
+    $balances = enableBankingBalancesPayload();
+    $balances[0]['balance_amount']['amount'] = '120.00';
+    app()->instance(EnableBankingClient::class, new FakeEnableBankingClient(balances: $balances));
+
+    (new SyncBankConnectionAccountJob($remoteAccount))->handle(app(EnableBankingConnectionManager::class));
+
+    $run = BankSyncRun::query()->latest('id')->firstOrFail();
+    expect($run->balance_matches)->toBeTrue()
+        ->and($run->expected_balance)->toBe('120.00')
+        ->and($run->computed_balance)->toBe('120.00');
 });
 
 test('sync leaves reconciliation null when postings carry no running balance', function () {

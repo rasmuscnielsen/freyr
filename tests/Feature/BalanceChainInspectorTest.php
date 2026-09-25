@@ -93,7 +93,24 @@ test('rows stored out of intra-day order are clean when the day still closes', f
 
     $audit = inspector()->inspect($account);
 
-    expect($audit['is_consistent'])->toBeTrue();
+    expect($audit['is_consistent'])->toBeTrue()
+        ->and($audit['closing_balance'])->toBe('120.00');
+});
+
+test('account warning agrees with the audit when same-day ids are out of bank order', function () {
+    $account = inspectableAccount(['current_balance' => '120.00']);
+    $connection = BankConnection::factory()->for($account->user)->create();
+    BankConnectionAccount::factory()->for($connection)->linkedTo($account)->create();
+    chainPosting($account, '2026-01-01', '100.00', '100.00');
+    chainPosting($account, '2026-01-02', '-30.00', '120.00');
+    chainPosting($account, '2026-01-02', '50.00', '150.00');
+
+    $this->actingAs($account->user)
+        ->get(route('bank-accounts.show', $account))
+        ->assertOk()
+        ->assertInertia(fn (Assert $page) => $page
+            ->where('account.balance_diff', null)
+            ->missing('balanceAudit'));
 });
 
 test('days without stored balances are folded into the next checkpoint', function () {
@@ -105,6 +122,21 @@ test('days without stored balances are folded into the next checkpoint', functio
     $audit = inspector()->inspect($account);
 
     expect($audit['is_consistent'])->toBeTrue();
+});
+
+test('the closing balance still includes days after the break display limit', function () {
+    $account = inspectableAccount(['current_balance' => '121.00']);
+    chainPosting($account, '2026-01-01', '100.00', '100.00');
+
+    for ($day = 2; $day <= 22; $day++) {
+        chainPosting($account, sprintf('2026-01-%02d', $day), '0.00', (string) (99 + $day).'.00');
+    }
+
+    $audit = inspector()->inspect($account);
+
+    expect($audit['closing_balance'])->toBe('121.00')
+        ->and($audit['total_delta'])->toBe('0.00')
+        ->and($audit['breaks'])->toHaveCount(20);
 });
 
 test('a bank balance ahead of the newest posting is reported as tail lag', function () {
