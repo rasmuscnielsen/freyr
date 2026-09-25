@@ -345,15 +345,17 @@ export default function BankAccounts({
             ? setupConnectionId
             : null,
     );
-    const [isSetupMode, setIsSetupMode] = useState(
-        () => managingConnectionId !== null,
-    );
     // The dialog stays mounted across the setup post, so always render the
     // freshest connection object from props rather than stale state.
     const managingConnection =
         connections.find(
             (connection) => connection.id === managingConnectionId,
         ) ?? null;
+    // Any unlinked account means the connection still needs its initial setup.
+    const isSetupMode =
+        managingConnection?.accounts.some(
+            (account) => account.status === 'unlinked',
+        ) ?? false;
 
     const closeSetupDialog = () => {
         setManagingConnectionId(null);
@@ -369,8 +371,6 @@ export default function BankAccounts({
                     preserveState: true,
                 },
             );
-        } else {
-            setIsSetupMode(false);
         }
     };
     const [removingConnection, setRemovingConnection] =
@@ -486,10 +486,9 @@ export default function BankAccounts({
                         <BanksPanel
                             connections={connections}
                             onAddBank={() => setAddingConnection(true)}
-                            onManage={(connection) => {
-                                setIsSetupMode(false);
-                                setManagingConnectionId(connection.id);
-                            }}
+                            onManage={(connection) =>
+                                setManagingConnectionId(connection.id)
+                            }
                             onRemove={setRemovingConnection}
                         />
                     </div>
