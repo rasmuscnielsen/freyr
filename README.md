@@ -60,18 +60,15 @@ cp .env.example .env
 php artisan key:generate
 
 # 4. Configure your database in .env (see .env.example), then install:
-#    runs migrations and seeds the default category tree.
+#    runs migrations, seeds the default category tree, and creates
+#    the OAuth keys and personal access client used by API tokens
+#    and MCP OAuth logins.
 php artisan app:install
 
-# 5. Create OAuth signing keys and a personal access client
-#    (required for API tokens and MCP OAuth logins)
-php artisan passport:keys
-php artisan passport:client --personal
-
-# 6. Build the frontend assets
+# 5. Build the frontend assets
 pnpm run build
 
-# 7. Open the app in your browser and follow the setup wizard —
+# 6. Open the app in your browser and follow the setup wizard —
 #    it creates the first (administrator) account and walks you
 #    through registration, Enable Banking and Spiir import.
 ```

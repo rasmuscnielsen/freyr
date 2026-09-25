@@ -8,11 +8,12 @@ use Illuminate\Console\Attributes\Description;
 use Illuminate\Console\Attributes\Signature;
 use Illuminate\Console\Command;
 use Illuminate\Console\ConfirmableTrait;
+use Laravel\Passport\Passport;
 
 #[Signature('app:install
     {--demo : Reset the database and seed demo data}
     {--force : Force the operation to run when in production}')]
-#[Description('Set up the application: run migrations and seed the default categories')]
+#[Description('Set up the application: run migrations, seed the default categories and install Passport')]
 class InstallCommand extends Command
 {
     use ConfirmableTrait;
@@ -31,6 +32,8 @@ class InstallCommand extends Command
         $this->call($demo ? 'migrate:fresh' : 'migrate', ['--force' => true]);
         $this->call('db:seed', ['--class' => DefaultCategoriesSeeder::class, '--force' => true]);
 
+        $this->installPassport();
+
         if ($demo) {
             $this->call('db:seed', ['--class' => DemoSeeder::class, '--force' => true]);
 
@@ -42,5 +45,28 @@ class InstallCommand extends Command
         $this->components->info('Freyr is installed. Open the app in your browser to create the first user.');
 
         return self::SUCCESS;
+    }
+
+    /**
+     * Create the Passport encryption keys and personal access client, unless they exist.
+     */
+    protected function installPassport(): void
+    {
+        if (! file_exists(Passport::keyPath('oauth-private.key')) || ! file_exists(Passport::keyPath('oauth-public.key'))) {
+            $this->call('passport:keys');
+        }
+
+        $hasPersonalAccessClient = Passport::client()->newQuery()
+            ->where('revoked', false)
+            ->whereJsonContains('grant_types', 'personal_access')
+            ->exists();
+
+        if (! $hasPersonalAccessClient) {
+            $this->call('passport:client', [
+                '--personal' => true,
+                '--name' => config('app.name'),
+                '--provider' => config('auth.guards.api.provider'),
+            ]);
+        }
     }
 }
