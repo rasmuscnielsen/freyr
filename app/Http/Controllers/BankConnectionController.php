@@ -3,7 +3,9 @@
 namespace App\Http\Controllers;
 
 use App\Finance\AccountBalanceRecalculator;
+use App\Finance\BankConnectionAccountLinker;
 use App\Finance\EnableBanking\EnableBankingConnectionManager;
+use App\Http\Requests\MapBankConnectionAccountsRequest;
 use App\Http\Requests\StartBankConnectionRequest;
 use App\Jobs\SyncBankConnectionAccountJob;
 use App\Models\BankAccount;
@@ -52,6 +54,10 @@ class BankConnectionController extends Controller
             ->get()
             ->each(fn (BankConnectionAccount $account) => SyncBankConnectionAccountJob::dispatch($account));
 
+        if ($connection->accounts()->where('status', BankConnectionAccount::STATUS_UNLINKED)->exists()) {
+            return redirect()->route('bank-accounts.index', ['setup' => $connection->id]);
+        }
+
         return redirect()->route('bank-accounts.index');
     }
 
@@ -76,6 +82,32 @@ class BankConnectionController extends Controller
             ->each(fn (BankConnectionAccount $account) => SyncBankConnectionAccountJob::dispatch($account));
 
         return back();
+    }
+
+    /**
+     * Map a batch of remote accounts on the connection: link to an existing
+     * local account, create a new local account, or ignore the remote account.
+     */
+    public function mapAccounts(MapBankConnectionAccountsRequest $request, BankConnection $bankConnection, BankConnectionAccountLinker $linker): RedirectResponse
+    {
+        abort_unless($request->user()?->is($bankConnection->user), 403);
+
+        DB::transaction(function () use ($request, $bankConnection, $linker): void {
+            foreach ($request->validated('accounts') as $item) {
+                $remote = $bankConnection->accounts()->findOrFail($item['id']);
+
+                match ($item['mode']) {
+                    'existing' => $linker->linkExisting(
+                        $remote,
+                        $request->user()->bankAccounts()->findOrFail($item['bank_account_id']),
+                    ),
+                    'create' => $linker->createAndLink($remote, $item['name']),
+                    'ignore' => $linker->ignore($remote),
+                };
+            }
+        });
+
+        return back()->with('status', 'Bank accounts set up.');
     }
 
     /**

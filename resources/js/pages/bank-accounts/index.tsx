@@ -2,6 +2,7 @@ import { Head, router, useForm } from '@inertiajs/react';
 import {
     Archive,
     CheckCircle2,
+    ChevronRight,
     Landmark,
     MoreVertical,
     Pencil,
@@ -11,18 +12,23 @@ import {
     Star,
     TriangleAlert,
     Trash2,
-    Unplug,
     WalletCards,
 } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import type { KeyboardEvent, MouseEvent } from 'react';
 import { toast } from 'sonner';
+import { ConnectionSetupDialog } from '@/components/bank-accounts/connection-setup-dialog';
 import InputError from '@/components/input-error';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
+import {
+    Collapsible,
+    CollapsibleContent,
+    CollapsibleTrigger,
+} from '@/components/ui/collapsible';
 import {
     Dialog,
     DialogContent,
@@ -125,6 +131,7 @@ type ConnectionAccount = {
     last_synced_at: string | null;
     last_transaction_date: string | null;
     bank_account: { id: number; name: string } | null;
+    details?: string | null;
 };
 
 type Connection = {
@@ -167,6 +174,7 @@ type BankAccountsProps = {
         aspsp_name: string | null;
         aspsp_country: string | null;
     };
+    setupConnectionId: number | null;
 };
 
 const accountTypeOptions = [
@@ -324,14 +332,48 @@ export default function BankAccounts({
     connections,
     availableBanks,
     defaults,
+    setupConnectionId,
 }: BankAccountsProps) {
     const [editingAccount, setEditingAccount] = useState<Account | null>(null);
     const [isCreating, setIsCreating] = useState(false);
     const [connectingAccount, setConnectingAccount] = useState<Account | null>(
         null,
     );
-    const [managingConnection, setManagingConnection] =
-        useState<Connection | null>(null);
+    const [managingConnectionId, setManagingConnectionId] = useState<
+        number | null
+    >(() =>
+        connections.some((connection) => connection.id === setupConnectionId)
+            ? setupConnectionId
+            : null,
+    );
+    const [isSetupMode, setIsSetupMode] = useState(
+        () => managingConnectionId !== null,
+    );
+    // The dialog stays mounted across the setup post, so always render the
+    // freshest connection object from props rather than stale state.
+    const managingConnection =
+        connections.find(
+            (connection) => connection.id === managingConnectionId,
+        ) ?? null;
+
+    const closeSetupDialog = () => {
+        setManagingConnectionId(null);
+
+        if (setupConnectionId !== null) {
+            // Strip ?setup= so a refresh does not reopen the wizard.
+            router.get(
+                bankAccountsIndex.url(),
+                {},
+                {
+                    replace: true,
+                    preserveScroll: true,
+                    preserveState: true,
+                },
+            );
+        } else {
+            setIsSetupMode(false);
+        }
+    };
     const [removingConnection, setRemovingConnection] =
         useState<Connection | null>(null);
     const [addingConnection, setAddingConnection] = useState(false);
@@ -411,13 +453,32 @@ export default function BankAccounts({
                                         />
                                     ))}
                                     {closedAccounts.length > 0 && (
-                                        <AccountList
-                                            label="Closed"
-                                            accounts={closedAccounts}
-                                            muted
-                                            onEdit={setEditingAccount}
-                                            onConnect={setConnectingAccount}
-                                        />
+                                        <Collapsible
+                                            defaultOpen={false}
+                                            className="group"
+                                        >
+                                            <CollapsibleTrigger className="flex w-full items-center gap-2 rounded-md py-1 text-left">
+                                                <ChevronRight className="size-4 text-muted-foreground transition-transform group-data-[state=open]:rotate-90" />
+                                                <span className="text-sm font-semibold">
+                                                    Closed
+                                                </span>
+                                                <span className="text-xs text-muted-foreground tabular-nums">
+                                                    {closedAccounts.length}
+                                                </span>
+                                            </CollapsibleTrigger>
+                                            <CollapsibleContent className="pt-2">
+                                                <AccountList
+                                                    label="Closed"
+                                                    hideHeader
+                                                    accounts={closedAccounts}
+                                                    muted
+                                                    onEdit={setEditingAccount}
+                                                    onConnect={
+                                                        setConnectingAccount
+                                                    }
+                                                />
+                                            </CollapsibleContent>
+                                        </Collapsible>
                                     )}
                                 </>
                             )}
@@ -426,7 +487,10 @@ export default function BankAccounts({
                         <BanksPanel
                             connections={connections}
                             onAddBank={() => setAddingConnection(true)}
-                            onManage={setManagingConnection}
+                            onManage={(connection) => {
+                                setIsSetupMode(false);
+                                setManagingConnectionId(connection.id);
+                            }}
                             onRemove={setRemovingConnection}
                         />
                     </div>
@@ -467,15 +531,16 @@ export default function BankAccounts({
                 onClose={() => setAddingConnection(false)}
             />
 
-            <ManageConnectionDialog
+            <ConnectionSetupDialog
                 key={
                     managingConnection === null
-                        ? 'manage-dialog-closed'
-                        : `manage-dialog-${managingConnection.id}`
+                        ? 'setup-dialog-closed'
+                        : `setup-dialog-${managingConnection.id}`
                 }
                 connection={managingConnection}
                 linkableAccounts={managingConnection ? linkableAccounts : []}
-                onClose={() => setManagingConnection(null)}
+                isSetup={isSetupMode}
+                onClose={closeSetupDialog}
             />
 
             <RemoveConnectionDialog
@@ -601,6 +666,10 @@ function ConnectionCard({
             ? 'bg-amber-400'
             : 'bg-emerald-500';
 
+    const pendingCount = connection.accounts.filter(
+        (account) => account.status === 'unlinked',
+    ).length;
+
     const syncAll = () => {
         toast('Syncing bank accounts...');
         router.post(
@@ -641,6 +710,11 @@ function ConnectionCard({
                             aria-hidden
                         />
                         {connection.status.replace('_', ' ')}
+                        {pendingCount > 0 && (
+                            <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 normal-case dark:bg-amber-950 dark:text-amber-400">
+                                {pendingCount} to set up
+                            </span>
+                        )}
                     </span>
                 </div>
 
@@ -726,8 +800,12 @@ function ConnectionCard({
                             Sync all
                         </Button>
                     )}
-                    <Button size="sm" variant="outline" onClick={onManage}>
-                        Manage
+                    <Button
+                        size="sm"
+                        variant={pendingCount > 0 ? 'default' : 'outline'}
+                        onClick={onManage}
+                    >
+                        {pendingCount > 0 ? 'Set up' : 'Manage'}
                     </Button>
                     <DropdownMenu>
                         <DropdownMenuTrigger asChild>
@@ -766,12 +844,14 @@ function AccountList({
     label,
     accounts,
     muted = false,
+    hideHeader = false,
     onEdit,
     onConnect,
 }: {
     label: string;
     accounts: Account[];
     muted?: boolean;
+    hideHeader?: boolean;
     onEdit: (account: Account) => void;
     onConnect: (account: Account) => void;
 }) {
@@ -779,23 +859,25 @@ function AccountList({
 
     return (
         <section className="flex flex-col gap-2">
-            <div className="flex items-baseline justify-between gap-2">
-                <div className="flex items-baseline gap-2">
-                    <h2 className="text-sm font-semibold">{label}</h2>
-                    <span className="text-xs text-muted-foreground tabular-nums">
-                        {accounts.length}
-                    </span>
+            {!hideHeader && (
+                <div className="flex items-baseline justify-between gap-2">
+                    <div className="flex items-baseline gap-2">
+                        <h2 className="text-sm font-semibold">{label}</h2>
+                        <span className="text-xs text-muted-foreground tabular-nums">
+                            {accounts.length}
+                        </span>
+                    </div>
+                    {subtotals.length > 0 && (
+                        <span className="flex flex-wrap items-baseline gap-x-3 text-sm font-medium text-muted-foreground tabular-nums">
+                            {subtotals.map((entry) => (
+                                <span key={entry.currency}>
+                                    {formatMoney(entry.total, entry.currency)}
+                                </span>
+                            ))}
+                        </span>
+                    )}
                 </div>
-                {subtotals.length > 0 && (
-                    <span className="flex flex-wrap items-baseline gap-x-3 text-sm font-medium text-muted-foreground tabular-nums">
-                        {subtotals.map((entry) => (
-                            <span key={entry.currency}>
-                                {formatMoney(entry.total, entry.currency)}
-                            </span>
-                        ))}
-                    </span>
-                )}
-            </div>
+            )}
             <Card className="rounded-lg py-0">
                 <CardContent className="divide-y p-0">
                     {accounts.map((account) => (
@@ -969,217 +1051,6 @@ function AccountRow({
                     </DropdownMenuItem>
                 </DropdownMenuContent>
             </DropdownMenu>
-        </div>
-    );
-}
-
-function ManageConnectionDialog({
-    connection,
-    linkableAccounts,
-    onClose,
-}: {
-    connection: Connection | null;
-    linkableAccounts: Account[];
-    onClose: () => void;
-}) {
-    return (
-        <Dialog
-            open={connection !== null}
-            onOpenChange={(nextOpen) => !nextOpen && onClose()}
-        >
-            <DialogContent className="sm:max-w-2xl">
-                <DialogHeader>
-                    <DialogTitle>
-                        Manage {connection?.aspsp_name ?? 'bank'}
-                    </DialogTitle>
-                    <DialogDescription>
-                        Map each account returned by the bank to a local
-                        account, create a new one, or ignore it.
-                    </DialogDescription>
-                </DialogHeader>
-
-                <div className="grid gap-3">
-                    {connection?.accounts.length === 0 ? (
-                        <Alert>
-                            <Landmark className="size-4" />
-                            <AlertTitle>No accounts returned</AlertTitle>
-                            <AlertDescription>
-                                This connection has not returned any accounts
-                                yet.
-                            </AlertDescription>
-                        </Alert>
-                    ) : (
-                        connection?.accounts.map((account) => (
-                            <RemoteAccountRow
-                                key={account.id}
-                                account={account}
-                                linkableAccounts={linkableAccounts}
-                            />
-                        ))
-                    )}
-                </div>
-
-                <DialogFooter>
-                    <Button variant="outline" onClick={onClose}>
-                        Done
-                    </Button>
-                </DialogFooter>
-            </DialogContent>
-        </Dialog>
-    );
-}
-
-function RemoteAccountRow({
-    account,
-    linkableAccounts,
-}: {
-    account: ConnectionAccount;
-    linkableAccounts: Account[];
-}) {
-    const [action, setAction] = useState('');
-    const [createName, setCreateName] = useState(account.name);
-    const [confirming, setConfirming] = useState<'ignore' | 'unlink' | null>(
-        null,
-    );
-
-    const runAction = (value: string) => {
-        if (value === '' || value === 'ignore' || value === 'unlink') {
-            return;
-        }
-
-        // value is a local bank account id -> link to existing.
-        router.patch(
-            updateConnectionAccount.url(account.id),
-            { mode: 'existing', bank_account_id: Number(value) },
-            { preserveScroll: true, onSuccess: () => setAction('') },
-        );
-    };
-
-    const createAndLink = () => {
-        router.patch(
-            updateConnectionAccount.url(account.id),
-            { mode: 'create', name: createName || account.name },
-            { preserveScroll: true, onSuccess: () => setAction('') },
-        );
-    };
-
-    const ignore = () => {
-        router.patch(
-            updateConnectionAccount.url(account.id),
-            { mode: 'ignore' },
-            { preserveScroll: true, onSuccess: () => setConfirming(null) },
-        );
-    };
-
-    return (
-        <div className="grid gap-3 rounded-md border p-3">
-            <div className="flex flex-wrap items-start justify-between gap-2">
-                <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-2">
-                        <h3 className="font-medium">{account.name}</h3>
-                        <Badge
-                            variant={connectionStatusVariant(account.status)}
-                        >
-                            {account.status.replace('_', ' ')}
-                        </Badge>
-                    </div>
-                    <p className="text-sm text-muted-foreground">
-                        {account.product ?? 'Account'} · {account.currency}
-                        {account.account_number_last_four
-                            ? ` · *${account.account_number_last_four}`
-                            : ''}
-                    </p>
-                    <p className="text-sm text-muted-foreground">
-                        {account.bank_account
-                            ? `Linked to ${account.bank_account.name}`
-                            : 'Not linked'}{' '}
-                        · Last sync {formatDateTime(account.last_synced_at)}
-                    </p>
-                </div>
-            </div>
-
-            <div className="grid gap-2">
-                <Select
-                    value={action}
-                    onValueChange={(value) => {
-                        setAction(value);
-
-                        if (value === 'ignore') {
-                            setConfirming('ignore');
-                        } else {
-                            runAction(value);
-                        }
-                    }}
-                >
-                    <SelectTrigger className="w-full">
-                        <SelectValue placeholder="Choose an action…" />
-                    </SelectTrigger>
-                    <SelectContent>
-                        {linkableAccounts.length > 0 &&
-                            linkableAccounts.map((localAccount) => (
-                                <SelectItem
-                                    key={localAccount.id}
-                                    value={String(localAccount.id)}
-                                >
-                                    Map to {localAccount.name}
-                                </SelectItem>
-                            ))}
-                        <SelectItem value="create">
-                            Create new account…
-                        </SelectItem>
-                        <SelectItem value="ignore">Ignore account</SelectItem>
-                    </SelectContent>
-                </Select>
-
-                {action === 'create' && (
-                    <div className="flex flex-wrap gap-2">
-                        <Input
-                            value={createName}
-                            onChange={(event) =>
-                                setCreateName(event.target.value)
-                            }
-                            placeholder={account.name}
-                            className="flex-1"
-                        />
-                        <Button onClick={createAndLink}>Create and link</Button>
-                    </div>
-                )}
-            </div>
-
-            <Dialog
-                open={confirming !== null}
-                onOpenChange={(nextOpen) => {
-                    if (!nextOpen) {
-                        setConfirming(null);
-                        setAction('');
-                    }
-                }}
-            >
-                <DialogContent className="sm:max-w-md">
-                    <DialogHeader>
-                        <DialogTitle>Ignore this account?</DialogTitle>
-                        <DialogDescription>
-                            Ignored accounts stop syncing and are unlinked from
-                            any local account. You can re-map them later.
-                        </DialogDescription>
-                    </DialogHeader>
-                    <DialogFooter>
-                        <Button
-                            variant="outline"
-                            onClick={() => {
-                                setConfirming(null);
-                                setAction('');
-                            }}
-                        >
-                            Cancel
-                        </Button>
-                        <Button variant="destructive" onClick={ignore}>
-                            <Unplug className="size-4" />
-                            Ignore
-                        </Button>
-                    </DialogFooter>
-                </DialogContent>
-            </Dialog>
         </div>
     );
 }
@@ -1768,24 +1639,6 @@ function connectionStatusDot(status: string): string {
     }
 
     return 'bg-emerald-500';
-}
-
-function connectionStatusVariant(
-    status: string,
-): 'success' | 'secondary' | 'destructive' | 'outline' {
-    if (['failed', 'renewal_required', 'revoked'].includes(status)) {
-        return 'destructive';
-    }
-
-    if (['pending', 'unlinked'].includes(status)) {
-        return 'secondary';
-    }
-
-    if (status === 'ignored') {
-        return 'outline';
-    }
-
-    return 'success';
 }
 
 BankAccounts.layout = {

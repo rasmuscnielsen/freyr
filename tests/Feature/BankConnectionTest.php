@@ -246,7 +246,7 @@ test('callback persists an active connection and returned accounts', function ()
             'state' => 'callback-state',
             'code' => 'authorization-code',
         ]))
-        ->assertRedirect(route('bank-accounts.index'));
+        ->assertRedirect(route('bank-accounts.index', ['setup' => $connection->id]));
 
     expect($connection->refresh()->status)->toBe(BankConnection::STATUS_ACTIVE)
         ->and($connection->aspsp_name)->toBe('Example Bank')
@@ -472,7 +472,9 @@ test('renewed callbacks preserve existing account links', function () {
             'state' => 'renewal-state',
             'code' => 'authorization-code',
         ]))
-        ->assertRedirect(route('bank-accounts.index'));
+        // The renewal returns a second, previously unseen remote account, so
+        // the setup wizard opens for it.
+        ->assertRedirect(route('bank-accounts.index', ['setup' => $connection->id]));
 
     expect($connection->refresh()->status)->toBe(BankConnection::STATUS_ACTIVE)
         ->and($remoteAccount->refresh()->bank_account_id)->toBe($localAccount->id)
@@ -707,4 +709,94 @@ test('removing a connection is authorized to the owner', function () {
         ->assertForbidden();
 
     expect(BankConnection::query()->count())->toBe(1);
+});
+
+test('batch mapping links, creates, and ignores remote accounts in one request', function () {
+    $user = User::factory()->create();
+    $connection = BankConnection::factory()->for($user)->create();
+    $remoteCreate = BankConnectionAccount::factory()->for($connection)->create(['user_id' => $user->id]);
+    $remoteExisting = BankConnectionAccount::factory()->for($connection)->create(['user_id' => $user->id]);
+    $remoteIgnore = BankConnectionAccount::factory()->for($connection)->create(['user_id' => $user->id]);
+    $localAccount = BankAccount::factory()->for($user)->create(['name' => 'Everyday']);
+
+    Queue::fake();
+
+    $this->actingAs($user)
+        ->post(route('bank-connections.accounts.map', $connection), [
+            'accounts' => [
+                ['id' => $remoteCreate->id, 'mode' => 'create', 'name' => 'Example Checking'],
+                ['id' => $remoteExisting->id, 'mode' => 'existing', 'bank_account_id' => $localAccount->id],
+                ['id' => $remoteIgnore->id, 'mode' => 'ignore'],
+            ],
+        ])
+        ->assertRedirect()
+        ->assertSessionHas('status', 'Bank accounts set up.');
+
+    expect($remoteCreate->refresh()->status)->toBe(BankConnectionAccount::STATUS_LINKED)
+        ->and($remoteCreate->bankAccount->name)->toBe('Example Checking')
+        ->and($remoteCreate->bankAccount->user_id)->toBe($user->id)
+        ->and($remoteExisting->refresh()->status)->toBe(BankConnectionAccount::STATUS_LINKED)
+        ->and($remoteExisting->bank_account_id)->toBe($localAccount->id)
+        ->and($remoteIgnore->refresh()->status)->toBe(BankConnectionAccount::STATUS_IGNORED)
+        ->and($remoteIgnore->bank_account_id)->toBeNull();
+
+    Queue::assertPushedTimes(SyncBankConnectionAccountJob::class, 2);
+    Queue::assertPushed(
+        SyncBankConnectionAccountJob::class,
+        fn (SyncBankConnectionAccountJob $job): bool => $job->bankConnectionAccount->is($remoteCreate),
+    );
+    Queue::assertPushed(
+        SyncBankConnectionAccountJob::class,
+        fn (SyncBankConnectionAccountJob $job): bool => $job->bankConnectionAccount->is($remoteExisting),
+    );
+});
+
+test('batch mapping rejects a local account already linked to another remote account', function () {
+    $user = User::factory()->create();
+    $connection = BankConnection::factory()->for($user)->create();
+    $localAccount = BankAccount::factory()->for($user)->create();
+    BankConnectionAccount::factory()->for($connection)->linkedTo($localAccount)->create();
+    $remoteAccount = BankConnectionAccount::factory()->for($connection)->create(['user_id' => $user->id]);
+
+    Queue::fake();
+
+    $this->actingAs($user)
+        ->post(route('bank-connections.accounts.map', $connection), [
+            'accounts' => [
+                ['id' => $remoteAccount->id, 'mode' => 'existing', 'bank_account_id' => $localAccount->id],
+            ],
+        ])
+        ->assertSessionHasErrors('accounts.0.bank_account_id');
+
+    expect($remoteAccount->refresh()->status)->toBe(BankConnectionAccount::STATUS_UNLINKED);
+
+    Queue::assertNothingPushed();
+});
+
+test('batch mapping rejects remote accounts from another connection and other users', function () {
+    $user = User::factory()->create();
+    $connection = BankConnection::factory()->for($user)->create();
+    $otherConnection = BankConnection::factory()->for($user)->create();
+    $foreignRemote = BankConnectionAccount::factory()->for($otherConnection)->create(['user_id' => $user->id]);
+
+    $this->actingAs($user)
+        ->post(route('bank-connections.accounts.map', $connection), [
+            'accounts' => [
+                ['id' => $foreignRemote->id, 'mode' => 'ignore'],
+            ],
+        ])
+        ->assertSessionHasErrors('accounts.0.id');
+
+    expect($foreignRemote->refresh()->status)->toBe(BankConnectionAccount::STATUS_UNLINKED);
+
+    $intruder = User::factory()->create();
+    $remoteAccount = BankConnectionAccount::factory()->for($connection)->create(['user_id' => $user->id]);
+
+    $this->actingAs($intruder)
+        ->post(route('bank-connections.accounts.map', $connection), [
+            'accounts' => [
+                ['id' => $remoteAccount->id, 'mode' => 'ignore'],
+            ],
+        ])
+        ->assertForbidden();
 });
