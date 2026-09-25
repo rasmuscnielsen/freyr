@@ -19,7 +19,10 @@ class DeployedCommand extends Command
 
         if (app()->environment('production')) {
             $this->call('optimize');
-            $this->call('horizon:terminate');
+
+            if (config('queue.default') === 'redis') {
+                $this->call('horizon:terminate');
+            }
         }
 
         return self::SUCCESS;
