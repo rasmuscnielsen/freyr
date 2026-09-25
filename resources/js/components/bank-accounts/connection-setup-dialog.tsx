@@ -56,10 +56,13 @@ export type LinkableAccount = {
 
 type RowMode = '' | 'create' | 'existing' | 'ignore';
 
+type HistoryOption = '1y' | '2y' | 'max';
+
 type RowState = {
     mode: RowMode;
     name: string;
     bankAccountId: string;
+    history: HistoryOption;
 };
 
 function formatDateTime(value: string | null): string {
@@ -102,6 +105,7 @@ export function ConnectionSetupDialog({
                                 : '',
                         name: account.name,
                         bankAccountId: '',
+                        history: '1y' as HistoryOption,
                     },
                 ]),
         ),
@@ -115,6 +119,7 @@ export function ConnectionSetupDialog({
             mode: string;
             name: string | null;
             bank_account_id: number | null;
+            history: string | null;
         }>;
     }>({ accounts: [] });
 
@@ -125,7 +130,12 @@ export function ConnectionSetupDialog({
     );
 
     const rowState = (account: SetupConnectionAccount): RowState =>
-        rows[account.id] ?? { mode: '', name: account.name, bankAccountId: '' };
+        rows[account.id] ?? {
+            mode: '',
+            name: account.name,
+            bankAccountId: '',
+            history: '1y',
+        };
 
     const setRow = (id: number, patch: Partial<RowState>) => {
         setRows((current) => ({
@@ -135,6 +145,7 @@ export function ConnectionSetupDialog({
                     mode: '',
                     name: '',
                     bankAccountId: '',
+                    history: '1y',
                 }),
                 ...patch,
             },
@@ -203,6 +214,7 @@ export function ConnectionSetupDialog({
                         row.mode === 'existing'
                             ? Number(row.bankAccountId)
                             : null,
+                    history: row.mode === 'ignore' ? null : row.history,
                 };
             }),
         }));
@@ -254,7 +266,7 @@ export function ConnectionSetupDialog({
                         </DialogDescription>
                     </DialogHeader>
 
-                    <div className="grid gap-3">
+                    <div className="grid grid-cols-1 gap-3">
                         {accounts.length === 0 ? (
                             <Alert>
                                 <Landmark className="size-4" />
@@ -367,8 +379,8 @@ function SetupRow({
     const isIgnored = account.status === 'ignored';
 
     return (
-        <div className="grid gap-3 rounded-lg border p-3">
-            <div className="flex items-start justify-between gap-3">
+        <div className="grid grid-cols-1 gap-3 rounded-lg border p-3">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                 <div className="flex min-w-0 items-center gap-3">
                     <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-muted">
                         <Landmark className="size-4 text-muted-foreground" />
@@ -394,7 +406,7 @@ function SetupRow({
                 </div>
 
                 {isLinked ? (
-                    <div className="flex shrink-0 items-start gap-2">
+                    <div className="flex shrink-0 items-start gap-2 self-end sm:self-start">
                         <div className="text-right">
                             <div className="flex items-center justify-end gap-1.5 text-sm">
                                 <span
@@ -436,7 +448,7 @@ function SetupRow({
                             onChange({ mode: value as RowMode })
                         }
                     >
-                        <SelectTrigger className="w-56 shrink-0">
+                        <SelectTrigger className="w-full shrink-0 sm:w-56">
                             <SelectValue placeholder="Choose action…" />
                         </SelectTrigger>
                         <SelectContent>
@@ -455,60 +467,106 @@ function SetupRow({
             </div>
 
             {!isLinked && row.mode === 'create' && (
-                <div className="grid gap-2">
-                    <Label htmlFor={`setup-name-${account.id}`}>
-                        Account name
-                    </Label>
-                    <Input
-                        id={`setup-name-${account.id}`}
-                        value={row.name}
-                        onChange={(event) =>
-                            onChange({ name: event.target.value })
-                        }
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 items-start">
+                    <div className="grid gap-2">
+                        <Label htmlFor={`setup-name-${account.id}`}>
+                            Account name
+                        </Label>
+                        <Input
+                            id={`setup-name-${account.id}`}
+                            value={row.name}
+                            onChange={(event) =>
+                                onChange({ name: event.target.value })
+                            }
+                        />
+                        <InputError message={errors[`${errorPrefix}.name`]} />
+                    </div>
+                    <HistorySelect
+                        id={`setup-history-${account.id}`}
+                        value={row.history}
+                        onChange={(value) => onChange({ history: value })}
                     />
-                    <InputError message={errors[`${errorPrefix}.name`]} />
                 </div>
             )}
 
             {!isLinked && row.mode === 'existing' && (
-                <div className="grid gap-2">
-                    <Label>Choose account</Label>
-                    <Select
-                        value={row.bankAccountId}
-                        onValueChange={(value) =>
-                            onChange({ bankAccountId: value })
-                        }
-                    >
-                        <SelectTrigger className="w-full">
-                            <SelectValue placeholder="Choose account…" />
-                        </SelectTrigger>
-                        <SelectContent>
-                            {linkableAccounts.map((localAccount) => (
-                                <SelectItem
-                                    key={localAccount.id}
-                                    value={String(localAccount.id)}
-                                    disabled={
-                                        takenAccountIds.has(
-                                            String(localAccount.id),
-                                        ) &&
-                                        row.bankAccountId !==
-                                            String(localAccount.id)
-                                    }
-                                >
-                                    {localAccount.name} ·{' '}
-                                    {localAccount.currency}
-                                    {localAccount.bank_name
-                                        ? ` · ${localAccount.bank_name}`
-                                        : ''}
-                                </SelectItem>
-                            ))}
-                        </SelectContent>
-                    </Select>
-                    <InputError
-                        message={errors[`${errorPrefix}.bank_account_id`]}
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <div className="grid gap-2">
+                        <Label>Choose account</Label>
+                        <Select
+                            value={row.bankAccountId}
+                            onValueChange={(value) =>
+                                onChange({ bankAccountId: value })
+                            }
+                        >
+                            <SelectTrigger className="w-full">
+                                <SelectValue placeholder="Choose account…" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                {linkableAccounts.map((localAccount) => (
+                                    <SelectItem
+                                        key={localAccount.id}
+                                        value={String(localAccount.id)}
+                                        disabled={
+                                            takenAccountIds.has(
+                                                String(localAccount.id),
+                                            ) &&
+                                            row.bankAccountId !==
+                                                String(localAccount.id)
+                                        }
+                                    >
+                                        {localAccount.name} ·{' '}
+                                        {localAccount.currency}
+                                        {localAccount.bank_name
+                                            ? ` · ${localAccount.bank_name}`
+                                            : ''}
+                                    </SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                        <InputError
+                            message={errors[`${errorPrefix}.bank_account_id`]}
+                        />
+                    </div>
+                    <HistorySelect
+                        id={`setup-history-${account.id}`}
+                        value={row.history}
+                        onChange={(value) => onChange({ history: value })}
                     />
                 </div>
             )}
+        </div>
+    );
+}
+
+function HistorySelect({
+    id,
+    value,
+    onChange,
+}: {
+    id: string;
+    value: HistoryOption;
+    onChange: (value: HistoryOption) => void;
+}) {
+    return (
+        <div className="grid gap-2">
+            <Label htmlFor={id}>Import transaction history</Label>
+            <Select
+                value={value}
+                onValueChange={(next) => onChange(next as HistoryOption)}
+            >
+                <SelectTrigger id={id} className="w-full">
+                    <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                    <SelectItem value="1y">1 year</SelectItem>
+                    <SelectItem value="2y">2 years</SelectItem>
+                    <SelectItem value="max">Max</SelectItem>
+                </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+                Some banks may limit transaction history.
+            </p>
         </div>
     );
 }

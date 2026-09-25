@@ -132,7 +132,7 @@ class EnableBankingClient
     /**
      * @return list<array<string, mixed>>
      */
-    public function transactions(string $accountUid, CarbonInterface $dateFrom): array
+    public function transactions(string $accountUid, ?CarbonInterface $dateFrom, ?string $strategy = null): array
     {
         $transactions = [];
         $continuationKey = null;
@@ -140,8 +140,9 @@ class EnableBankingClient
         do {
             $response = $this->request()
                 ->get(sprintf('/accounts/%s/transactions', $accountUid), array_filter([
-                    'date_from' => $dateFrom->toDateString(),
+                    'date_from' => $dateFrom?->toDateString(),
                     'continuation_key' => $continuationKey,
+                    'strategy' => $strategy,
                 ]))
                 ->throw()
                 ->json();

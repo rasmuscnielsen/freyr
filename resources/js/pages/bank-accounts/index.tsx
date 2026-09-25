@@ -380,7 +380,6 @@ export default function BankAccounts({
     const activeAccounts = accounts.filter((account) => account.is_active);
     const closedAccounts = accounts.filter((account) => !account.is_active);
     const accountGroups = groupAccountsByType(activeAccounts);
-    const totalBalances = balancesByCurrency(activeAccounts);
     const hasNothing = accounts.length === 0 && connections.length === 0;
 
     const linkableAccounts = accounts.filter(
@@ -392,7 +391,7 @@ export default function BankAccounts({
         <>
             <Head title="Bank accounts" />
             <div className="flex flex-col gap-6 p-4 md:p-6">
-                <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+                <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                     <div>
                         <h1 className="text-2xl font-semibold tracking-tight">
                             Bank accounts
@@ -402,29 +401,10 @@ export default function BankAccounts({
                             one place.
                         </p>
                     </div>
-                    <div className="flex flex-wrap items-end gap-x-6 gap-y-3">
-                        {totalBalances.length > 0 && (
-                            <div className="md:text-right">
-                                <div className="text-xs text-muted-foreground">
-                                    Total balance
-                                </div>
-                                <div className="flex flex-wrap items-baseline gap-x-3 font-semibold tabular-nums md:justify-end">
-                                    {totalBalances.map((entry) => (
-                                        <span key={entry.currency}>
-                                            {formatMoney(
-                                                entry.total,
-                                                entry.currency,
-                                            )}
-                                        </span>
-                                    ))}
-                                </div>
-                            </div>
-                        )}
-                        <Button onClick={() => setIsCreating(true)}>
-                            <Plus className="size-4" />
-                            Add account
-                        </Button>
-                    </div>
+                    <Button onClick={() => setIsCreating(true)}>
+                        <Plus className="size-4" />
+                        Add account
+                    </Button>
                 </div>
 
                 {hasNothing ? (
@@ -433,7 +413,7 @@ export default function BankAccounts({
                         onAddAccount={() => setIsCreating(true)}
                     />
                 ) : (
-                    <div className="grid items-start gap-8 xl:grid-cols-[minmax(0,1fr)_340px]">
+                    <div className="grid grid-cols-1 items-start gap-8 xl:grid-cols-[minmax(0,1fr)_340px]">
                         <div className="flex flex-col gap-6">
                             {accounts.length === 0 ? (
                                 <div className="rounded-md border border-dashed p-8 text-center text-sm text-muted-foreground">
@@ -594,8 +574,8 @@ function BanksPanel({
     onRemove: (connection: Connection) => void;
 }) {
     return (
-        <aside className="flex flex-col gap-3 xl:sticky xl:top-6">
-            <div className="flex items-center justify-between">
+        <aside className="flex flex-col gap-2 xl:sticky xl:top-6">
+            <div className="flex items-baseline justify-between gap-2">
                 <div className="flex items-baseline gap-2">
                     <h2 className="text-sm font-semibold">Connections</h2>
                     {connections.length > 0 && (
@@ -604,8 +584,13 @@ function BanksPanel({
                         </span>
                     )}
                 </div>
-                <Button variant="outline" size="sm" onClick={onAddBank}>
-                    <Plus className="size-4" />
+                <Button
+                    variant="link"
+                    size="sm"
+                    className="h-auto px-1 text-xs"
+                    onClick={onAddBank}
+                >
+                    <Plus className="size-3.5" />
                     Add bank
                 </Button>
             </div>

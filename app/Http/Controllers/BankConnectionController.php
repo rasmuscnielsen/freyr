@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Enums\SyncHistory;
 use App\Finance\AccountBalanceRecalculator;
 use App\Finance\BankConnectionAccountLinker;
 use App\Finance\EnableBanking\EnableBankingConnectionManager;
@@ -95,13 +96,15 @@ class BankConnectionController extends Controller
         DB::transaction(function () use ($request, $bankConnection, $linker): void {
             foreach ($request->validated('accounts') as $item) {
                 $remote = $bankConnection->accounts()->findOrFail($item['id']);
+                $history = isset($item['history']) ? SyncHistory::from($item['history']) : SyncHistory::Max;
 
                 match ($item['mode']) {
                     'existing' => $linker->linkExisting(
                         $remote,
                         $request->user()->bankAccounts()->findOrFail($item['bank_account_id']),
+                        $history,
                     ),
-                    'create' => $linker->createAndLink($remote, $item['name']),
+                    'create' => $linker->createAndLink($remote, $item['name'], $history),
                     'ignore' => $linker->ignore($remote),
                 };
             }

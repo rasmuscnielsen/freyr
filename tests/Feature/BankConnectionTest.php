@@ -335,6 +335,81 @@ test('linking an account with existing postings sets an import cutoff', function
     expect($localAccount->refresh()->ignore_postings_before->toDateString())->toBe('2026-01-01');
 });
 
+test('a chosen sync history becomes the import cutoff of a created account', function () {
+    $user = User::factory()->create();
+    $connection = BankConnection::factory()->for($user)->create();
+    $remoteAccount = BankConnectionAccount::factory()
+        ->for($connection)
+        ->create(['user_id' => $user->id]);
+
+    Queue::fake();
+
+    $this->actingAs($user)
+        ->post(route('bank-connections.accounts.map', $connection), [
+            'accounts' => [
+                [
+                    'id' => $remoteAccount->id,
+                    'mode' => 'create',
+                    'name' => 'Everyday',
+                    'history' => '2y',
+                ],
+            ],
+        ])
+        ->assertRedirect();
+
+    expect($remoteAccount->refresh()->bankAccount->ignore_postings_before->toDateString())
+        ->toBe('2024-06-20');
+});
+
+test('a max sync history leaves a created account without an import cutoff', function () {
+    $user = User::factory()->create();
+    $connection = BankConnection::factory()->for($user)->create();
+    $remoteAccount = BankConnectionAccount::factory()
+        ->for($connection)
+        ->create(['user_id' => $user->id]);
+
+    Queue::fake();
+
+    $this->actingAs($user)
+        ->post(route('bank-connections.accounts.map', $connection), [
+            'accounts' => [
+                [
+                    'id' => $remoteAccount->id,
+                    'mode' => 'create',
+                    'name' => 'Everyday',
+                    'history' => 'max',
+                ],
+            ],
+        ])
+        ->assertRedirect();
+
+    expect($remoteAccount->refresh()->bankAccount->ignore_postings_before)->toBeNull();
+});
+
+test('a chosen sync history never imports before the existing posting history', function () {
+    $user = User::factory()->create();
+    $connection = BankConnection::factory()->for($user)->create();
+    $remoteAccount = BankConnectionAccount::factory()
+        ->for($connection)
+        ->create(['user_id' => $user->id]);
+    $localAccount = BankAccount::factory()->for($user)->create();
+    Posting::factory()->forAccount($localAccount)->create(['date' => '2026-06-10']);
+
+    Queue::fake();
+
+    // The requested year would reach 2025-06-20, but the stored history
+    // already covers postings through 2026-06-10, so the later cutoff wins.
+    $this->actingAs($user)
+        ->patch(route('bank-connection-accounts.update', $remoteAccount), [
+            'mode' => 'existing',
+            'bank_account_id' => $localAccount->id,
+            'history' => '1y',
+        ])
+        ->assertRedirect();
+
+    expect($localAccount->refresh()->ignore_postings_before->toDateString())->toBe('2026-06-11');
+});
+
 test('linking an account without postings sets no import cutoff', function () {
     $user = User::factory()->create();
     $connection = BankConnection::factory()->for($user)->create();
@@ -400,7 +475,9 @@ test('sync imports past transactions idempotently and skips future scheduled tra
 
     (new SyncBankConnectionAccountJob($remoteAccount))->handle(app(EnableBankingConnectionManager::class));
 
-    expect($client->transactionDateFroms)->toBe(['2026-01-01'])
+    // The first sync asks Enable Banking for the longest available history.
+    expect($client->transactionDateFroms)->toBe([null])
+        ->and($client->transactionStrategies)->toBe(['longest'])
         ->and(Posting::query()->count())->toBe(1)
         ->and(Posting::query()->where('external_posting_id', 'future-enable-banking-transaction-id')->exists())->toBeFalse();
 
@@ -416,7 +493,8 @@ test('sync imports past transactions idempotently and skips future scheduled tra
 
     $latestRun = BankSyncRun::query()->latest('id')->firstOrFail();
 
-    expect($client->transactionDateFroms)->toBe(['2026-01-01', '2026-06-18'])
+    expect($client->transactionDateFroms)->toBe([null, '2026-06-18'])
+        ->and($client->transactionStrategies)->toBe(['longest', null])
         ->and(Posting::query()->count())->toBe(1)
         ->and($latestRun->duplicate_postings_count)->toBe(1);
 });

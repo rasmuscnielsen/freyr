@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests;
 
+use App\Enums\SyncHistory;
 use App\Models\BankConnectionAccount;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
@@ -40,6 +41,7 @@ class MapBankConnectionAccountsRequest extends FormRequest
                 'distinct',
                 Rule::exists('bank_accounts', 'id')->where('user_id', $this->user()?->id),
             ],
+            'accounts.*.history' => ['nullable', Rule::enum(SyncHistory::class)],
         ];
     }
 

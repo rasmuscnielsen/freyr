@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Enums\SyncHistory;
 use App\Finance\BankConnectionAccountLinker;
 use App\Http\Requests\LinkBankConnectionAccountRequest;
 use App\Jobs\SyncBankConnectionAccountJob;
@@ -24,16 +25,19 @@ class BankConnectionAccountController extends Controller
             return back();
         }
 
+        $history = isset($validated['history']) ? SyncHistory::from($validated['history']) : SyncHistory::Max;
+
         if ($validated['mode'] === 'existing') {
             $linker->linkExisting(
                 $bankConnectionAccount,
                 $request->user()->bankAccounts()->findOrFail($validated['bank_account_id']),
+                $history,
             );
 
             return back();
         }
 
-        $linker->createAndLink($bankConnectionAccount, $validated['name']);
+        $linker->createAndLink($bankConnectionAccount, $validated['name'], $history);
 
         return back();
     }

@@ -2,6 +2,7 @@
 
 namespace App\Finance;
 
+use App\Enums\SyncHistory;
 use App\Jobs\SyncBankConnectionAccountJob;
 use App\Models\BankAccount;
 use App\Models\BankConnectionAccount;
@@ -14,19 +15,20 @@ class BankConnectionAccountLinker
         private readonly AccountBalanceRecalculator $balanceRecalculator,
     ) {}
 
-    public function linkExisting(BankConnectionAccount $remote, BankAccount $local): void
+    public function linkExisting(BankConnectionAccount $remote, BankAccount $local, SyncHistory $history = SyncHistory::Max): void
     {
-        $this->preventHistoricalReimport($local);
+        $this->applyImportCutoff($local, $history);
 
         $this->link($remote, $local->id);
     }
 
-    public function createAndLink(BankConnectionAccount $remote, string $name): BankAccount
+    public function createAndLink(BankConnectionAccount $remote, string $name, SyncHistory $history = SyncHistory::Max): BankAccount
     {
         $remote->loadMissing('bankConnection');
 
         $bankAccount = $remote->bankConnection->user->bankAccounts()->create([
             'legacy_id' => 'enable-banking-'.Str::uuid()->toString(),
+            'ignore_postings_before' => $history->cutoffDate(),
             'name' => $name,
             'bank_key' => 'enable_banking_'.$remote->bankConnection->aspsp_country,
             'bank_name' => $remote->bankConnection->aspsp_name,
@@ -70,25 +72,32 @@ class BankConnectionAccountLinker
     }
 
     /**
-     * When linking to an account that already holds postings (e.g. from a
-     * Spiir import or manual entry), only transactions newer than the stored
-     * history should sync, so the first sync does not duplicate postings
-     * that arrived by other means and cannot be matched by external id.
+     * The import cutoff keeps the first sync from importing transactions the
+     * user does not want (their chosen history depth) or must not duplicate:
+     * postings that already arrived by other means (e.g. a Spiir import or
+     * manual entry) cannot be matched by external id, so only transactions
+     * newer than the stored history may sync.
      */
-    private function preventHistoricalReimport(BankAccount $bankAccount): void
+    private function applyImportCutoff(BankAccount $bankAccount, SyncHistory $history): void
     {
         if ($bankAccount->ignore_postings_before !== null) {
             return;
         }
 
+        $cutoff = $history->cutoffDate();
+
         $latestPostingDate = $bankAccount->postings()->max('date');
 
-        if ($latestPostingDate === null) {
-            return;
+        if ($latestPostingDate !== null) {
+            $reimportCutoff = CarbonImmutable::parse($latestPostingDate)->addDay();
+
+            if ($cutoff === null || $reimportCutoff->gt($cutoff)) {
+                $cutoff = $reimportCutoff;
+            }
         }
 
-        $bankAccount->update([
-            'ignore_postings_before' => CarbonImmutable::parse($latestPostingDate)->addDay(),
-        ]);
+        if ($cutoff !== null) {
+            $bankAccount->update(['ignore_postings_before' => $cutoff]);
+        }
     }
 }

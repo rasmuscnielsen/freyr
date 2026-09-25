@@ -125,7 +125,13 @@ class EnableBankingConnectionManager
             }
 
             $balances = $this->client->balances((string) $account->external_account_uid);
-            $transactions = $this->client->transactions((string) $account->external_account_uid, $dateFrom);
+            $transactions = $this->client->transactions(
+                (string) $account->external_account_uid,
+                $dateFrom,
+                // The first sync is the only chance to fetch deep history, so
+                // ask Enable Banking for the longest period the bank serves.
+                $account->last_transaction_date === null ? 'longest' : null,
+            );
             $postedTransactions = $this->postedTransactions($transactions);
             $counts = $this->importTransactions($account, $postedTransactions);
             $lastTransactionDate = collect($postedTransactions)
@@ -165,13 +171,18 @@ class EnableBankingConnectionManager
         return $run->refresh();
     }
 
-    public function syncDateFrom(BankConnectionAccount $account): CarbonImmutable
+    public function syncDateFrom(BankConnectionAccount $account): ?CarbonImmutable
     {
         if ($account->last_transaction_date !== null) {
             return CarbonImmutable::parse($account->last_transaction_date)->subDay();
         }
 
-        return CarbonImmutable::now()->startOfYear();
+        // A first sync fetches everything the bank offers unless the account
+        // carries an import cutoff (a chosen history depth or a re-import
+        // guard); the cutoff is then the suggested search start.
+        $cutoff = $account->bankAccount?->ignore_postings_before;
+
+        return $cutoff === null ? null : CarbonImmutable::parse($cutoff);
     }
 
     /**

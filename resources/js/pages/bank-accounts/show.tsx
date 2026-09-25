@@ -3,7 +3,6 @@ import {
     ChevronLeft,
     ChevronRight,
     Plus,
-    ShieldCheck,
     Sparkles,
     Star,
     Trash2,
@@ -260,13 +259,10 @@ export default function BankAccountShow({
     }
 
     subtitleParts.push(`${account.postings_count} postings`);
-    subtitleParts.push(
-        `Last posting ${
-            account.last_known_posting_date
-                ? formatDate(account.last_known_posting_date)
-                : 'never'
-        }`,
-    );
+
+    if (!account.is_manual) {
+        subtitleParts.push(`Synced ${formatDateTime(account.last_synced_at)}`);
+    }
 
     return (
         <>
@@ -303,11 +299,11 @@ export default function BankAccountShow({
                                 account.currency,
                             )}
                         </div>
-                        <div className="text-xs text-muted-foreground">
-                            {account.is_manual
-                                ? 'Manual account'
-                                : `Synced ${formatDateTime(account.last_synced_at)}`}
-                        </div>
+                        {account.is_manual && (
+                            <div className="text-xs text-muted-foreground">
+                                Manual account
+                            </div>
+                        )}
                         {account.balance_diff !== null && (
                             <Badge variant="destructive" className="mt-1">
                                 Off by{' '}
@@ -317,22 +313,6 @@ export default function BankAccountShow({
                                 )}
                             </Badge>
                         )}
-                        {/* The audit itself runs lazily inside the dialog;
-                            this is a neutral entry point so the check is
-                            discoverable even when nothing looks wrong. */}
-                        {!account.is_manual &&
-                            account.current_balance !== null && (
-                                <div>
-                                    <Button
-                                        variant="ghost"
-                                        size="sm"
-                                        onClick={() => setIsAuditOpen(true)}
-                                    >
-                                        <ShieldCheck className="size-4" />
-                                        Balance check
-                                    </Button>
-                                </div>
-                            )}
                     </div>
                 </div>
 

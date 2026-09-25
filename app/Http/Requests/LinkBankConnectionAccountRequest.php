@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests;
 
+use App\Enums\SyncHistory;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -30,6 +31,7 @@ class LinkBankConnectionAccountRequest extends FormRequest
                 Rule::exists('bank_accounts', 'id')->where('user_id', $this->user()?->id),
             ],
             'name' => ['nullable', 'required_if:mode,create', 'string', 'max:255'],
+            'history' => ['nullable', Rule::enum(SyncHistory::class)],
         ];
     }
 }
