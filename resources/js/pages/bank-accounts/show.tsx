@@ -24,7 +24,7 @@ import {
     DialogTitle,
 } from '@/components/ui/dialog';
 import { Spinner } from '@/components/ui/spinner';
-import { formatDate } from '@/lib/dates';
+import { formatDate, formatRelativeDateTime } from '@/lib/dates';
 import { formatMoney as formatSharedMoney } from '@/lib/money';
 import { cn } from '@/lib/utils';
 import { index as bankAccountsIndex } from '@/routes/bank-accounts';
@@ -175,17 +175,6 @@ function formatMoney(amount: number | null, currency: string): string {
     return formatSharedMoney(amount, currency, { maximumFractionDigits: 2 });
 }
 
-function formatDateTime(value: string | null): string {
-    if (value === null) {
-        return 'Never';
-    }
-
-    return new Intl.DateTimeFormat(undefined, {
-        dateStyle: 'medium',
-        timeStyle: 'short',
-    }).format(new Date(value.replace(' ', 'T')));
-}
-
 function daysUntil(value: string | null): number | null {
     if (value === null) {
         return null;
@@ -261,7 +250,9 @@ export default function BankAccountShow({
     subtitleParts.push(`${account.postings_count} postings`);
 
     if (!account.is_manual) {
-        subtitleParts.push(`Synced ${formatDateTime(account.last_synced_at)}`);
+        subtitleParts.push(
+            `Synced ${formatRelativeDateTime(account.last_synced_at)}`,
+        );
     }
 
     return (
@@ -556,7 +547,9 @@ export default function BankAccountShow({
                                             {run.status}
                                         </Badge>
                                         <span className="text-muted-foreground">
-                                            {formatDateTime(run.started_at)}
+                                            {formatRelativeDateTime(
+                                                run.started_at,
+                                            )}
                                         </span>
                                         {run.balance_matches === false && (
                                             <Badge variant="destructive">

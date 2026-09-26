@@ -54,7 +54,7 @@ import {
     SelectTrigger,
     SelectValue,
 } from '@/components/ui/select';
-import { formatDate } from '@/lib/dates';
+import { formatDate, formatRelativeDateTime } from '@/lib/dates';
 import { formatMoney as formatSharedMoney } from '@/lib/money';
 import { cn } from '@/lib/utils';
 import {
@@ -184,17 +184,6 @@ function formatMoney(amount: number | null, currency: string): string {
     }
 
     return formatSharedMoney(amount, currency, { maximumFractionDigits: 0 });
-}
-
-function formatDateTime(value: string | null): string {
-    if (value === null) {
-        return 'Not synced';
-    }
-
-    return new Intl.DateTimeFormat(undefined, {
-        dateStyle: 'medium',
-        timeStyle: 'short',
-    }).format(new Date(value.replace(' ', 'T')));
 }
 
 function daysUntil(value: string | null): number | null {
@@ -785,12 +774,10 @@ function BankCard({
                                 {expiryLabel()}
                             </span>
                             <span className="text-muted-foreground">
-                                Last sync{' '}
-                                {connection.last_successful_sync_at
-                                    ? formatDateTime(
-                                          connection.last_successful_sync_at,
-                                      )
-                                    : 'never'}
+                                Last sync:{' '}
+                                {formatRelativeDateTime(
+                                    connection.last_successful_sync_at,
+                                )}
                             </span>
                         </div>
                         {expiryFraction !== null && (
