@@ -164,6 +164,35 @@ test('bank accounts page exposes the my banks connection panel', function () {
             ->where('connections.0.accounts.0.bank_account.is_active', true));
 });
 
+test('bank pages never expose previously stored exception messages', function () {
+    $user = User::factory()->create();
+    $account = BankAccount::factory()->for($user)->create();
+    $connection = BankConnection::factory()->for($user)->create([
+        'status' => BankConnection::STATUS_FAILED,
+        'failure_code' => '23503',
+        'failure_message' => 'SQLSTATE[23503] secret-transfer-data',
+    ]);
+    $remote = BankConnectionAccount::factory()->for($connection)->linkedTo($account)->create();
+    BankSyncRun::factory()->forConnectionAccount($remote)->failed()->create([
+        'error_code' => '23503',
+        'error_message' => 'SQLSTATE[23503] secret-transfer-data',
+    ]);
+    Cache::forget('enable-banking.aspsps.dk.personal.ais');
+    app()->instance(EnableBankingClient::class, new BankAccountCrudEnableBankingClient);
+
+    $this->actingAs($user)
+        ->get(route('bank-accounts.index'))
+        ->assertInertia(fn (Assert $page) => $page
+            ->where('connections.0.failure_message', 'Bank sync failed. Please try again.'))
+        ->assertDontSee('secret-transfer-data');
+
+    $this->actingAs($user)
+        ->get(route('bank-accounts.show', $account))
+        ->assertInertia(fn (Assert $page) => $page
+            ->where('syncRuns.0.error_message', 'Bank sync failed. Please try again.'))
+        ->assertDontSee('secret-transfer-data');
+});
+
 test('bank account detail page renders postings and sync history', function () {
     $user = User::factory()->create();
     $account = BankAccount::factory()->for($user)->create(['name' => 'Everyday']);

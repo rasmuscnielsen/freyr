@@ -4,6 +4,7 @@ namespace Tests\Fakes;
 
 use App\Finance\EnableBanking\EnableBankingClient;
 use Carbon\CarbonInterface;
+use Closure;
 
 class FakeEnableBankingClient extends EnableBankingClient
 {
@@ -28,6 +29,7 @@ class FakeEnableBankingClient extends EnableBankingClient
         private readonly array $balances = [],
         private readonly array $transactions = [],
         private readonly ?array $recentTransactions = null,
+        private readonly ?Closure $onTransactions = null,
     ) {}
 
     /**
@@ -74,6 +76,7 @@ class FakeEnableBankingClient extends EnableBankingClient
      */
     public function transactions(string $accountUid, ?CarbonInterface $dateFrom, ?string $strategy = null): array
     {
+        ($this->onTransactions)?->__invoke();
         $this->transactionDateFroms[] = $dateFrom?->toDateString();
         $this->transactionStrategies[] = $strategy;
 
