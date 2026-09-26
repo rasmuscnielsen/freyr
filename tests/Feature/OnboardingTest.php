@@ -170,7 +170,7 @@ test('the spiir step imports the export for the signed-in user when run synchron
         ->assertJsonPath('summary.user_id', $admin->id);
 
     expect(User::query()->count())->toBe(1)
-        ->and(Posting::query()->count())->toBe(5)
+        ->and(Posting::query()->count())->toBe(7)
         ->and(BankAccount::query()->count())->toBe(2);
 });
 

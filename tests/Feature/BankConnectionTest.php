@@ -652,7 +652,7 @@ test('sync imports past transactions idempotently and skips future scheduled tra
 
     expect($posting->amount)->toBe('-128.00')
         ->and($posting->source)->toBe(BankConnectionAccount::SOURCE_ENABLE_BANKING)
-        ->and($posting->external_posting_id)->toBe('stable-enable-banking-transaction-id')
+        ->and($posting->external_posting_id)->toBe('2026-06-19-04.21.58.526801')
         ->and($localAccount->refresh()->current_balance)->toBe('51339.66')
         ->and($remoteAccount->refresh()->last_transaction_date->toDateString())->toBe('2026-06-19');
 
@@ -664,6 +664,96 @@ test('sync imports past transactions idempotently and skips future scheduled tra
         ->and($client->transactionStrategies)->toBe(['longest', null])
         ->and(Posting::query()->count())->toBe(1)
         ->and($latestRun->duplicate_postings_count)->toBe(1);
+});
+
+test('sync imports future booked transactions only when their balances chain to CLBD', function () {
+    $user = User::factory()->create();
+    $connection = BankConnection::factory()->for($user)->create();
+    $localAccount = BankAccount::factory()->for($user)->create(['opening_balance' => '92390.10']);
+    $remoteAccount = BankConnectionAccount::factory()->for($connection)->linkedTo($localAccount)->create();
+
+    $future = function (string $reference, string $status, string $amount, string $balance): array {
+        return [
+            'entry_reference' => $reference,
+            'transaction_id' => 'mutable-'.$reference,
+            'transaction_amount' => ['currency' => 'DKK', 'amount' => $amount],
+            'credit_debit_indicator' => 'DBIT',
+            'status' => $status,
+            'booking_date' => '2026-06-22',
+            'balance_after_transaction' => ['currency' => 'DKK', 'amount' => $balance],
+        ];
+    };
+    $transactions = [
+        $future('small-booked', 'BOOK', '81.55', '92308.55'),
+        $future('large-booked', 'BOOK', '1405.00', '90903.55'),
+        $future('scheduled-booked', 'BOOK', '20.00', '90883.55'),
+        $future('pending', 'PDNG', '30.00', '90903.55'),
+    ];
+    $client = new FakeEnableBankingClient(
+        balances: [[
+            'balance_type' => 'CLBD',
+            'balance_amount' => ['currency' => 'DKK', 'amount' => '90903.55'],
+        ]],
+        transactions: $transactions,
+    );
+    app()->instance(EnableBankingClient::class, $client);
+
+    (new SyncBankConnectionAccountJob($remoteAccount))->handle(app(EnableBankingConnectionManager::class));
+
+    expect(Posting::query()->pluck('external_posting_id')->all())->toEqualCanonicalizing(['small-booked', 'large-booked'])
+        ->and(BankSyncRun::query()->latest('id')->firstOrFail()->balance_matches)->toBeTrue()
+        ->and($remoteAccount->refresh()->last_transaction_date->toDateString())->toBe('2026-06-22');
+
+    (new SyncBankConnectionAccountJob($remoteAccount))->handle(app(EnableBankingConnectionManager::class));
+
+    expect($client->transactionDateFroms)->toBe([null, '2026-06-19'])
+        ->and(Posting::query()->count())->toBe(2);
+
+    $finalized = array_map(function (array $transaction): array {
+        $transaction['booking_date'] = '2026-06-20';
+        $transaction['transaction_id'] = 'final-'.$transaction['entry_reference'];
+
+        return $transaction;
+    }, array_slice($transactions, 0, 2));
+    app()->instance(EnableBankingClient::class, new FakeEnableBankingClient(
+        balances: [[
+            'balance_type' => 'CLBD',
+            'balance_amount' => ['currency' => 'DKK', 'amount' => '90903.55'],
+        ]],
+        transactions: $finalized,
+    ));
+
+    (new SyncBankConnectionAccountJob($remoteAccount))->handle(app(EnableBankingConnectionManager::class));
+
+    expect(Posting::query()->count())->toBe(2)
+        ->and(Posting::query()->whereDate('date', '2026-06-20')->count())->toBe(2)
+        ->and(BankSyncRun::query()->latest('id')->firstOrFail()->balance_matches)->toBeTrue();
+});
+
+test('sync updates an existing transaction by entry reference when its transaction id changes', function () {
+    $user = User::factory()->create();
+    $connection = BankConnection::factory()->for($user)->create();
+    $localAccount = BankAccount::factory()->for($user)->create();
+    $remoteAccount = BankConnectionAccount::factory()->for($connection)->linkedTo($localAccount)->create();
+    $transaction = enableBankingTransactionsPayload()[0];
+    Posting::factory()->for($user)->for($localAccount)->create([
+        'source' => BankConnectionAccount::SOURCE_ENABLE_BANKING,
+        'external_account_uid_hash' => $remoteAccount->external_account_uid_hash,
+        'external_posting_id' => 'old-transaction-id',
+        'legacy_id' => 'enable-banking:'.$remoteAccount->external_account_uid_hash.':old-transaction-id',
+        'extra_data' => ['entry_reference' => $transaction['entry_reference']],
+    ]);
+    $transaction['transaction_id'] = 'new-transaction-id';
+    app()->instance(EnableBankingClient::class, new FakeEnableBankingClient(
+        balances: enableBankingBalancesPayload(),
+        transactions: [$transaction],
+    ));
+
+    (new SyncBankConnectionAccountJob($remoteAccount))->handle(app(EnableBankingConnectionManager::class));
+
+    expect(Posting::query()->count())->toBe(1)
+        ->and(Posting::query()->firstOrFail()->external_posting_id)->toBe($transaction['entry_reference'])
+        ->and(BankSyncRun::query()->latest('id')->firstOrFail()->updated_postings_count)->toBe(1);
 });
 
 test('archived accounts are never synced', function () {
@@ -1132,7 +1222,7 @@ test('sync extends the derived chain for later postings without balances', funct
     (new SyncBankConnectionAccountJob($remoteAccount))->handle(app(EnableBankingConnectionManager::class));
 
     $newPosting = Posting::query()
-        ->where('external_posting_id', 'new-enable-banking-transaction-id')
+        ->where('external_posting_id', '2026-06-20-10.00.00.000001')
         ->firstOrFail();
 
     expect($newPosting->balance)->toBe('51289.66')

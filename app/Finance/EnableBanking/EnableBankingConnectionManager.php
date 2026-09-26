@@ -192,13 +192,12 @@ class EnableBankingConnectionManager
                 // ask Enable Banking for the longest period the bank serves.
                 $account->last_transaction_date === null ? 'longest' : null,
             );
-            $postedTransactions = $this->postedTransactions($transactions);
+            $booked = $this->bookedBalance($balances);
+            $postedTransactions = $this->postedTransactions($transactions, $balances);
             $counts = $this->importTransactions($account, $postedTransactions);
             $lastTransactionDate = collect($postedTransactions)
                 ->map(fn (array $transaction): CarbonImmutable => $this->transactionMapper->transactionDate($transaction))
                 ->max();
-
-            $booked = $this->bookedBalance($balances);
 
             DB::transaction(function () use ($account, $connection, $run, $booked, $counts, $lastTransactionDate): void {
                 $this->updateBankAccountBalances($account, $booked, $lastTransactionDate);
@@ -264,7 +263,9 @@ class EnableBankingConnectionManager
     public function syncDateFrom(BankConnectionAccount $account): ?CarbonImmutable
     {
         if ($account->last_transaction_date !== null) {
-            return CarbonImmutable::parse($account->last_transaction_date)->subDay();
+            $lastDate = CarbonImmutable::parse($account->last_transaction_date);
+
+            return ($lastDate->isFuture() ? CarbonImmutable::today() : $lastDate)->subDay();
         }
 
         // A first sync fetches everything the bank offers unless the account
@@ -277,14 +278,49 @@ class EnableBankingConnectionManager
 
     /**
      * @param  list<array<string, mixed>>  $transactions
+     * @param  list<array<string, mixed>>  $balances
      * @return list<array<string, mixed>>
      */
-    private function postedTransactions(array $transactions): array
+    private function postedTransactions(array $transactions, array $balances): array
     {
-        return collect($transactions)
-            ->filter(fn (array $transaction): bool => ! $this->transactionMapper->transactionDate($transaction)->isFuture())
-            ->values()
-            ->all();
+        $bookedTransactions = collect($transactions)
+            ->filter(fn (array $transaction): bool => ($transaction['status'] ?? null) === 'BOOK');
+        $posted = $bookedTransactions
+            ->reject(fn (array $transaction): bool => $this->transactionMapper->transactionDate($transaction)->isFuture());
+        $clbd = collect($balances)->firstWhere('balance_type', 'CLBD');
+        $currentBalance = data_get($clbd, 'balance_amount.amount');
+
+        if ($currentBalance === null) {
+            return $posted->values()->all();
+        }
+
+        $future = $bookedTransactions
+            ->filter(fn (array $transaction): bool => $this->transactionMapper->transactionDate($transaction)->isFuture()
+                && data_get($transaction, 'balance_after_transaction.amount') !== null)
+            ->values();
+
+        // Walk backward from the bank's current booked balance; only that
+        // unique checkpoint chain can prove a future-dated BOOK is included.
+        $includedFuture = [];
+
+        while ($future->isNotEmpty()) {
+            $matches = $future->filter(fn (array $transaction): bool => bccomp(
+                (string) data_get($transaction, 'balance_after_transaction.amount'),
+                (string) $currentBalance,
+                2,
+            ) === 0);
+
+            if ($matches->count() !== 1) {
+                break;
+            }
+
+            $index = $matches->keys()->first();
+            $transaction = $future->pull($index);
+            $includedFuture[] = $transaction;
+            $currentBalance = bcsub((string) $currentBalance, $this->transactionMapper->signedAmount($transaction), 2);
+        }
+
+        return [...$posted->values()->all(), ...array_reverse($includedFuture)];
     }
 
     /**
@@ -419,7 +455,16 @@ class EnableBankingConnectionManager
                 ->where('user_id', $account->bankConnection->user_id)
                 ->where('source', BankConnectionAccount::SOURCE_ENABLE_BANKING)
                 ->where('external_account_uid_hash', $account->external_account_uid_hash)
-                ->where('external_posting_id', $transactionId)
+                ->where(function ($query) use ($transaction, $transactionId): void {
+                    $query->whereIn('external_posting_id', array_unique(array_filter([
+                        $transactionId,
+                        $transaction['transaction_id'] ?? null,
+                    ])));
+
+                    if (filled($transaction['entry_reference'] ?? null)) {
+                        $query->orWhere('extra_data->entry_reference', $transaction['entry_reference']);
+                    }
+                })
                 ->first();
 
             $attributes = $this->transactionMapper->postingAttributes($account, $transaction);

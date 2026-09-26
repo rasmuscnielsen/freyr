@@ -274,6 +274,27 @@ class SpiirExportImporter
             ];
         }
 
+        $splitGroups = collect($rows)
+            ->filter(fn (array $row): bool => $row['split_group_legacy_id'] !== null)
+            ->groupBy(fn (array $row): string => $row['bank_account_id'].':'.$row['split_group_legacy_id']);
+
+        foreach ($splitGroups as $group) {
+            $parents = $group->where('posting_type', 2);
+            $children = $group->where('posting_type', 0);
+
+            if ($parents->count() !== 1 || $children->isEmpty() || $parents->count() + $children->count() !== $group->count()) {
+                continue;
+            }
+
+            $parent = $parents->first();
+            $childrenAmount = $children->reduce(fn (string $total, array $child): string => bcadd($total, $child['amount'], 2), '0.00');
+
+            if (bccomp($parent['amount'], $childrenAmount, 2) === 0) {
+                unset($rows[$parent['legacy_id']]);
+                Posting::query()->where('legacy_id', $parent['legacy_id'])->delete();
+            }
+        }
+
         $updateColumns = array_values(array_diff(array_keys(reset($rows) ?: []), ['legacy_id', 'created_at']));
 
         foreach (array_chunk($rows, 500) as $chunk) {
