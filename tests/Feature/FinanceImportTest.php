@@ -3,6 +3,8 @@
 use App\Enums\CategoryType;
 use App\Finance\SpiirExportImporter;
 use App\Models\BankAccount;
+use App\Models\BankConnection;
+use App\Models\BankConnectionAccount;
 use App\Models\Category;
 use App\Models\Posting;
 use App\Models\Subcategory;
@@ -17,7 +19,7 @@ test('it imports a spiir export idempotently', function () {
     expect(Category::query()->count())->toBe(3)
         ->and(Subcategory::query()->count())->toBe(3)
         ->and(BankAccount::query()->count())->toBe(2)
-        ->and(Posting::query()->count())->toBe(5)
+        ->and(Posting::query()->count())->toBe(7)
         ->and(User::query()->count())->toBe(1);
 
     $user = User::query()->firstOrFail();
@@ -39,6 +41,11 @@ test('it imports a spiir export idempotently', function () {
     expect($transferOut->counter_entry_posting_id)->toBe($transferIn->id)
         ->and($transferIn->counter_entry_posting_id)->toBe($transferOut->id);
 
+    expect(Posting::query()->where('legacy_id', 'post-6')->exists())->toBeFalse()
+        ->and(Posting::query()->where('legacy_id', 'post-7')->firstOrFail()->balance)->toBe('30229.75')
+        ->and(Posting::query()->where('legacy_id', 'post-8')->firstOrFail()->balance)->toBe('30199.75')
+        ->and(BankAccount::query()->where('legacy_id', 'acc-1')->firstOrFail()->current_balance)->toBe('30199.75');
+
     // Spiir's legacy 'Transfer' category type collapses onto Exclude.
     expect(Category::query()->where('legacy_id', '300')->firstOrFail()->type)->toBe(CategoryType::Exclude);
 
@@ -48,7 +55,7 @@ test('it imports a spiir export idempotently', function () {
     expect(Category::query()->count())->toBe(3)
         ->and(Subcategory::query()->count())->toBe(3)
         ->and(BankAccount::query()->count())->toBe(2)
-        ->and(Posting::query()->count())->toBe(5)
+        ->and(Posting::query()->count())->toBe(7)
         ->and(User::query()->count())->toBe(1);
 });
 
@@ -60,7 +67,7 @@ test('it imports a spiir export for an explicit user', function () {
 
     expect($summary['user_id'])->toBe($user->id)
         ->and(User::query()->count())->toBe(1)
-        ->and(Posting::query()->count())->toBe(5);
+        ->and(Posting::query()->count())->toBe(7);
 });
 
 test('it fails when the export path is not a directory', function () {

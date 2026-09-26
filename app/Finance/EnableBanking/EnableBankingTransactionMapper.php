@@ -51,7 +51,9 @@ class EnableBankingTransactionMapper
      */
     public function transactionId(array $transaction): string
     {
-        return (string) ($transaction['transaction_id'] ?? $transaction['entry_reference'] ?? '');
+        return (string) (filled($transaction['entry_reference'] ?? null)
+            ? $transaction['entry_reference']
+            : ($transaction['transaction_id'] ?? ''));
     }
 
     private function legacyId(BankConnectionAccount $account, string $transactionId): string
@@ -62,7 +64,7 @@ class EnableBankingTransactionMapper
     /**
      * @param  array<string, mixed>  $transaction
      */
-    private function signedAmount(array $transaction): string
+    public function signedAmount(array $transaction): string
     {
         $amount = abs((float) data_get($transaction, 'transaction_amount.amount', 0));
         $indicator = (string) ($transaction['credit_debit_indicator'] ?? '');
