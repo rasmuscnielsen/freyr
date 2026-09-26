@@ -192,6 +192,29 @@ class EnableBankingConnectionManager
                 // ask Enable Banking for the longest period the bank serves.
                 $account->last_transaction_date === null ? 'longest' : null,
             );
+
+            if ($account->last_transaction_date === null) {
+                // The longest strategy can omit recent future-dated BOOK entries
+                // already reflected in CLBD; the dated feed can include them.
+                try {
+                    $recentTransactions = $this->client->transactions(
+                        (string) $account->external_account_uid,
+                        CarbonImmutable::today()->subWeek(),
+                    );
+                } catch (RequestException $exception) {
+                    if ($exception->response->json('error') !== 'WRONG_TRANSACTIONS_PERIOD') {
+                        throw $exception;
+                    }
+
+                    $recentTransactions = [];
+                }
+
+                $transactions = collect([...$transactions, ...$recentTransactions])
+                    ->keyBy(fn (array $transaction): string => $this->transactionMapper->transactionId($transaction))
+                    ->values()
+                    ->all();
+            }
+
             $booked = $this->bookedBalance($balances);
             $postedTransactions = $this->postedTransactions($transactions, $balances);
             $counts = $this->importTransactions($account, $postedTransactions);

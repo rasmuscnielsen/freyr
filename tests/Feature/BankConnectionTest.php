@@ -10,6 +10,10 @@ use App\Models\BankSyncRun;
 use App\Models\Posting;
 use App\Models\User;
 use Carbon\CarbonImmutable;
+use Carbon\CarbonInterface;
+use GuzzleHttp\Psr7\Response as GuzzleResponse;
+use Illuminate\Http\Client\RequestException;
+use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Queue;
 use Inertia\Support\Header;
 use Inertia\Testing\AssertableInertia as Assert;
@@ -643,8 +647,8 @@ test('sync imports past transactions idempotently and skips future scheduled tra
     (new SyncBankConnectionAccountJob($remoteAccount))->handle(app(EnableBankingConnectionManager::class));
 
     // The first sync asks Enable Banking for the longest available history.
-    expect($client->transactionDateFroms)->toBe([null])
-        ->and($client->transactionStrategies)->toBe(['longest'])
+    expect($client->transactionDateFroms)->toBe([null, '2026-06-13'])
+        ->and($client->transactionStrategies)->toBe(['longest', null])
         ->and(Posting::query()->count())->toBe(1)
         ->and(Posting::query()->where('external_posting_id', 'future-enable-banking-transaction-id')->exists())->toBeFalse();
 
@@ -660,10 +664,85 @@ test('sync imports past transactions idempotently and skips future scheduled tra
 
     $latestRun = BankSyncRun::query()->latest('id')->firstOrFail();
 
-    expect($client->transactionDateFroms)->toBe([null, '2026-06-18'])
-        ->and($client->transactionStrategies)->toBe(['longest', null])
+    expect($client->transactionDateFroms)->toBe([null, '2026-06-13', '2026-06-18'])
+        ->and($client->transactionStrategies)->toBe(['longest', null, null])
         ->and(Posting::query()->count())->toBe(1)
         ->and($latestRun->duplicate_postings_count)->toBe(1);
+});
+
+test('first sync supplements longest history with recent booked transactions', function () {
+    $user = User::factory()->create();
+    $connection = BankConnection::factory()->for($user)->create();
+    $localAccount = BankAccount::factory()->for($user)->create();
+    $remoteAccount = BankConnectionAccount::factory()->for($connection)->linkedTo($localAccount)->create();
+
+    $past = enableBankingTransactionsPayload()[0];
+    $recentPast = $past;
+    $recentPast['transaction_id'] = 'new-provider-id';
+    $future = function (string $reference, string $amount, string $balance): array {
+        return [
+            'entry_reference' => $reference,
+            'transaction_id' => 'provider-'.$reference,
+            'transaction_amount' => ['currency' => 'DKK', 'amount' => $amount],
+            'credit_debit_indicator' => 'DBIT',
+            'status' => 'BOOK',
+            'booking_date' => '2026-06-22',
+            'balance_after_transaction' => ['currency' => 'DKK', 'amount' => $balance],
+        ];
+    };
+    $client = new FakeEnableBankingClient(
+        balances: [[
+            'balance_type' => 'CLBD',
+            'balance_amount' => ['currency' => 'DKK', 'amount' => '49853.11'],
+        ]],
+        transactions: [$past],
+        recentTransactions: [
+            $recentPast,
+            $future('large-booked', '1405.00', '49853.11'),
+            $future('small-booked', '81.55', '51258.11'),
+        ],
+    );
+    app()->instance(EnableBankingClient::class, $client);
+
+    (new SyncBankConnectionAccountJob($remoteAccount))->handle(app(EnableBankingConnectionManager::class));
+
+    $run = BankSyncRun::query()->latest('id')->firstOrFail();
+
+    expect($client->transactionStrategies)->toBe(['longest', null])
+        ->and($client->transactionDateFroms)->toBe([null, '2026-06-13'])
+        ->and($run->new_postings_count)->toBe(3)
+        ->and($run->balance_matches)->toBeTrue()
+        ->and(Posting::query()->count())->toBe(3)
+        ->and(Posting::query()->where('external_posting_id', $past['entry_reference'])->firstOrFail()->extra_data['transaction_id'])->toBe('new-provider-id');
+
+    (new SyncBankConnectionAccountJob($remoteAccount))->handle(app(EnableBankingConnectionManager::class));
+
+    expect($client->transactionStrategies)->toBe(['longest', null, null])
+        ->and($client->transactionDateFroms)->toBe([null, '2026-06-13', '2026-06-19']);
+});
+
+test('first sync keeps longest history when the recent period is unavailable', function () {
+    $user = User::factory()->create();
+    $connection = BankConnection::factory()->for($user)->create();
+    $localAccount = BankAccount::factory()->for($user)->create();
+    $remoteAccount = BankConnectionAccount::factory()->for($connection)->linkedTo($localAccount)->create();
+    $client = new class(balances: enableBankingBalancesPayload(), transactions: [enableBankingTransactionsPayload()[0]]) extends FakeEnableBankingClient
+    {
+        public function transactions(string $accountUid, ?CarbonInterface $dateFrom, ?string $strategy = null): array
+        {
+            if ($strategy === null) {
+                throw new RequestException(new Response(new GuzzleResponse(400, [], '{"error":"WRONG_TRANSACTIONS_PERIOD"}')));
+            }
+
+            return parent::transactions($accountUid, $dateFrom, $strategy);
+        }
+    };
+    app()->instance(EnableBankingClient::class, $client);
+
+    (new SyncBankConnectionAccountJob($remoteAccount))->handle(app(EnableBankingConnectionManager::class));
+
+    expect(BankSyncRun::query()->latest('id')->firstOrFail()->status)->toBe(BankSyncRun::STATUS_SUCCEEDED)
+        ->and(Posting::query()->count())->toBe(1);
 });
 
 test('sync imports future booked transactions only when their balances chain to CLBD', function () {
@@ -706,7 +785,7 @@ test('sync imports future booked transactions only when their balances chain to 
 
     (new SyncBankConnectionAccountJob($remoteAccount))->handle(app(EnableBankingConnectionManager::class));
 
-    expect($client->transactionDateFroms)->toBe([null, '2026-06-19'])
+    expect($client->transactionDateFroms)->toBe([null, '2026-06-13', '2026-06-19'])
         ->and(Posting::query()->count())->toBe(2);
 
     $finalized = array_map(function (array $transaction): array {

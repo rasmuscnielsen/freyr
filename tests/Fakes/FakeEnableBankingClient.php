@@ -21,11 +21,13 @@ class FakeEnableBankingClient extends EnableBankingClient
      * @param  array<string, mixed>  $session
      * @param  list<array<string, mixed>>  $balances
      * @param  list<array<string, mixed>>  $transactions
+     * @param  list<array<string, mixed>>|null  $recentTransactions
      */
     public function __construct(
         private readonly array $session = [],
         private readonly array $balances = [],
         private readonly array $transactions = [],
+        private readonly ?array $recentTransactions = null,
     ) {}
 
     /**
@@ -75,6 +77,6 @@ class FakeEnableBankingClient extends EnableBankingClient
         $this->transactionDateFroms[] = $dateFrom?->toDateString();
         $this->transactionStrategies[] = $strategy;
 
-        return $this->transactions;
+        return $strategy === null ? ($this->recentTransactions ?? $this->transactions) : $this->transactions;
     }
 }
