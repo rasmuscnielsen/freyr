@@ -5,6 +5,7 @@ namespace App\Finance;
 use App\Enums\SyncHistory;
 use App\Jobs\SyncBankConnectionAccountJob;
 use App\Models\BankAccount;
+use App\Models\BankConnection;
 use App\Models\BankConnectionAccount;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Str;
@@ -35,7 +36,6 @@ class BankConnectionAccountLinker
             'currency' => $remote->currency,
             'account_type' => $remote->cash_account_type,
             'account_number' => $remote->account_number,
-            'connection_type' => 'EnableBanking',
         ]);
 
         $this->link($remote, $bankAccount->id);
@@ -68,7 +68,18 @@ class BankConnectionAccountLinker
             'bank_account_id' => $bankAccountId,
         ]);
 
-        SyncBankConnectionAccountJob::dispatch($remote);
+        $remote->loadMissing('bankConnection');
+
+        // An archived connection is parked: keep the link, but leave syncing
+        // for when it is re-opened — a queued job would only record a failed
+        // run.
+        if ($remote->bankConnection->status === BankConnection::STATUS_ARCHIVED) {
+            return;
+        }
+
+        // Dispatch after commit: batch mapping wraps the link in a
+        // transaction, and a worker must never see a half-written link.
+        SyncBankConnectionAccountJob::dispatch($remote)->afterCommit();
     }
 
     /**

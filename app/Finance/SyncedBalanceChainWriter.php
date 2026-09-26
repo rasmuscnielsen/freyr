@@ -59,11 +59,10 @@ class SyncedBalanceChainWriter
      */
     private function deriveFromBookedBalance(BankAccount $bankAccount, string $bookedBalance): void
     {
-        $opening = number_format(
-            (float) $bookedBalance - (float) $bankAccount->postings()->sum('amount'),
+        $opening = bcsub(
+            number_format((float) $bookedBalance, 2, '.', ''),
+            number_format((float) $bankAccount->postings()->sum('amount'), 2, '.', ''),
             2,
-            '.',
-            '',
         );
 
         DB::update(<<<'SQL'

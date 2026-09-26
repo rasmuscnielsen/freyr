@@ -96,17 +96,28 @@ class EnableBankingConnectionManager
             // that connection so linked accounts keep their links instead of
             // duplicating.
             $target = $this->connectionForAccounts($connection, $accountPayloads) ?? $connection;
+            $authorizationId = $connection->authorization_id;
 
-            // The fresh row only ferried the new consent over — drop it before
-            // the (unique) authorization id moves onto the target connection.
             if ($target->isNot($connection)) {
-                $connection->delete();
+                if ($connection->status === BankConnection::STATUS_PENDING) {
+                    // The fresh row only ferried the new consent over — drop
+                    // it before the (unique) authorization id moves onto the
+                    // target connection.
+                    $connection->delete();
+                } else {
+                    // A real connection being renewed just happens to overlap
+                    // the target's accounts — keep it, but release the
+                    // consumed state (a replayed callback must not hit it
+                    // again with a spent code) and the fresh authorization
+                    // id, which is (unique) about to move onto the target.
+                    $connection->update(['state' => null, 'authorization_id' => null]);
+                }
             }
 
             $target->update([
                 'status' => BankConnection::STATUS_ACTIVE,
                 'state' => null,
-                'authorization_id' => $connection->authorization_id ?? $target->authorization_id,
+                'authorization_id' => $authorizationId ?? $target->authorization_id,
                 'session_id' => $sessionId,
                 'session_id_hash' => hash('sha256', $sessionId),
                 'aspsp_name' => (string) data_get($session, 'aspsp.name', $target->aspsp_name),
@@ -331,17 +342,14 @@ class EnableBankingConnectionManager
             ->first();
 
         // Identifiers can rotate between consents: fall back to the IBAN so a
-        // re-authorized account still lands on its existing row — and its link.
+        // re-authorized account still lands on its existing row — and its
+        // link. The column is encrypted, so the comparison runs on the
+        // decrypted models.
         $iban = data_get($accountPayload, 'account_id.iban');
 
         if ($account === null && filled($iban)) {
-            $account = BankConnectionAccount::query()
-                ->whereBelongsTo($connection)
-                ->whereNotNull('iban')
-                ->get()
-                ->first(
-                    fn (BankConnectionAccount $remote): bool => $remote->iban !== null && $remote->iban === $iban
-                );
+            $account = $connection->accounts()->whereNotNull('iban')->get()
+                ->first(fn (BankConnectionAccount $remote): bool => $remote->iban === $iban);
         }
 
         $attributes = [

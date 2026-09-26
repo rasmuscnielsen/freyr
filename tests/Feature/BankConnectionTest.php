@@ -1338,3 +1338,103 @@ test('batch mapping rejects remote accounts from another connection and other us
         ])
         ->assertForbidden();
 });
+
+test('an unknown callback state redirects with an error instead of failing', function () {
+    $user = User::factory()->create();
+
+    // An expired or superseded authorization link (e.g. from a pending row
+    // that was reused or pruned) should send the user back with a message.
+    $this->actingAs($user)
+        ->get(route('bank-connections.callback', [
+            'state' => 'expired-state',
+            'code' => 'authorization-code',
+        ]))
+        ->assertRedirect(route('bank-accounts.index'))
+        ->assertSessionHas('error');
+});
+
+test('renewing while authorizing a different bank login keeps the original connection', function () {
+    $user = User::factory()->create();
+    $renewing = BankConnection::factory()->for($user)->create([
+        'status' => BankConnection::STATUS_RENEWAL_REQUIRED,
+    ]);
+    $other = BankConnection::factory()->for($user)->create();
+    BankConnectionAccount::factory()
+        ->for($other)
+        ->linkedTo(BankAccount::factory()->for($user)->create())
+        ->create(['iban' => 'DK5000000000000001']);
+
+    app()->instance(EnableBankingClient::class, new FakeEnableBankingClient(
+        session: enableBankingSessionPayload(),
+    ));
+
+    $this->actingAs($user)
+        ->post(route('bank-connections.renew', $renewing));
+
+    expect($renewing->refresh()->state)->not->toBeNull();
+
+    // The session's accounts belong to the other connection, so the consent
+    // folds into it — but the renewed connection must not be deleted.
+    $this->actingAs($user)
+        ->get(route('bank-connections.callback', [
+            'state' => $renewing->state,
+            'code' => 'authorization-code',
+        ]))
+        ->assertRedirect(route('bank-accounts.index', ['setup' => $other->id]));
+
+    expect(BankConnection::query()->whereKey($renewing->id)->exists())->toBeTrue()
+        ->and($renewing->refresh()->state)->toBeNull()
+        ->and($renewing->status)->toBe(BankConnection::STATUS_RENEWAL_REQUIRED)
+        ->and($other->refresh()->status)->toBe(BankConnection::STATUS_ACTIVE)
+        ->and($other->accounts()->count())->toBe(2);
+});
+
+test('mapping accounts on an archived connection links without dispatching sync jobs', function () {
+    $user = User::factory()->create();
+    $connection = BankConnection::factory()->for($user)->create([
+        'status' => BankConnection::STATUS_ARCHIVED,
+    ]);
+    $remoteAccount = BankConnectionAccount::factory()
+        ->for($connection)
+        ->create(['user_id' => $user->id]);
+
+    Queue::fake();
+
+    $this->actingAs($user)
+        ->post(route('bank-connections.accounts.map', $connection), [
+            'accounts' => [
+                ['id' => $remoteAccount->id, 'mode' => 'create', 'name' => 'Everyday'],
+            ],
+        ])
+        ->assertRedirect();
+
+    expect($remoteAccount->refresh()->status)->toBe(BankConnectionAccount::STATUS_LINKED)
+        ->and($remoteAccount->bank_account_id)->not->toBeNull();
+
+    Queue::assertNothingPushed();
+});
+
+test('archived local accounts cannot be linked to a bank feed', function () {
+    $user = User::factory()->create();
+    $connection = BankConnection::factory()->for($user)->create();
+    $remoteAccount = BankConnectionAccount::factory()
+        ->for($connection)
+        ->create(['user_id' => $user->id]);
+    $archivedAccount = BankAccount::factory()->for($user)->create(['is_active' => false]);
+
+    Queue::fake();
+
+    $this->actingAs($user)
+        ->post(route('bank-connections.accounts.map', $connection), [
+            'accounts' => [
+                [
+                    'id' => $remoteAccount->id,
+                    'mode' => 'existing',
+                    'bank_account_id' => $archivedAccount->id,
+                ],
+            ],
+        ])
+        ->assertSessionHasErrors('accounts.0.bank_account_id');
+
+    expect($remoteAccount->refresh()->status)->toBe(BankConnectionAccount::STATUS_UNLINKED);
+});

@@ -31,7 +31,6 @@ class UpdateBankAccountRequest extends FormRequest
             'bank_name' => ['sometimes', 'nullable', 'string', 'max:255'],
             'currency' => ['sometimes', 'required', 'string', 'size:3'],
             'account_type' => ['sometimes', 'nullable', 'string', 'max:255'],
-            'account_subcategory_key' => ['sometimes', 'nullable', 'string', 'max:255'],
             'last_known_posting_date' => ['sometimes', 'nullable', 'date'],
             'is_active' => ['sometimes', 'required', 'boolean'],
             'is_favorite' => ['sometimes', 'required', 'boolean'],

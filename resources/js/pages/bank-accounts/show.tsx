@@ -237,10 +237,10 @@ export default function BankAccountShow({
 
     const subtitleParts: string[] = [];
 
-    if (account.bank_name ?? account.connection?.aspsp_name) {
-        subtitleParts.push(
-            (account.bank_name ?? account.connection?.aspsp_name) as string,
-        );
+    const bankLabel = account.bank_name || account.connection?.aspsp_name;
+
+    if (bankLabel) {
+        subtitleParts.push(bankLabel);
     }
 
     if (account.account_type) {

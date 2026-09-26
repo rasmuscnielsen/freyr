@@ -19,7 +19,6 @@ function bankAccountPayload(array $overrides = []): array
         'bank_name' => 'SampleBank',
         'currency' => 'DKK',
         'account_type' => 'Consumption',
-        'account_subcategory_key' => 'consumption',
         'last_known_posting_date' => '2026-06-05',
         'is_active' => true,
         'is_favorite' => false,

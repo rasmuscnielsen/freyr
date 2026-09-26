@@ -43,6 +43,7 @@ class MapBankConnectionAccountsRequest extends FormRequest
                 'distinct',
                 Rule::exists('bank_accounts', 'id')
                     ->where('user_id', $this->user()?->id)
+                    ->where('is_active', true)
                     // Only Spiir-imported accounts may attach to a live feed.
                     ->where(fn (Builder $query) => $query
                         ->where('legacy_id', 'not like', BankAccount::MANUAL_LEGACY_ID_PREFIX.'%')

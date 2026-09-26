@@ -27,22 +27,12 @@ class BankAccountFactory extends Factory
             'currency' => 'DKK',
             'current_balance' => fake()->randomFloat(2, 0, 100000),
             'account_type' => 'Consumption',
-            'account_subcategory_key' => 'consumption',
-            'account_group_legacy_id' => null,
             'ignore_postings_before' => null,
-            'ignore_postings_after' => null,
             'last_updated_at' => now(),
             'last_known_posting_date' => now()->toDateString(),
             'is_active' => true,
-            'inactivated_by' => null,
             'account_number' => null,
-            'owner_name' => null,
-            'supports_payment_from' => false,
-            'supports_payment_to' => false,
             'is_favorite' => false,
-            'connection_type' => null,
-            'donation_topup_count' => 0,
-            'legacy_created_at' => now(),
         ];
     }
 
@@ -50,7 +40,6 @@ class BankAccountFactory extends Factory
     {
         return $this->state(fn (array $attributes) => [
             'is_active' => false,
-            'inactivated_by' => 'User',
         ]);
     }
 

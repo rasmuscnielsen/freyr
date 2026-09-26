@@ -189,7 +189,7 @@ export function ConnectionSetupDialog({
     const canSubmit =
         !form.processing &&
         connection !== null &&
-        syncingCount > 0 &&
+        submittableAccounts.length > 0 &&
         submittableAccounts.every(isRowValid);
 
     const submit = () => {

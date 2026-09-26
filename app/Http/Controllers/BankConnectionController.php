@@ -12,6 +12,7 @@ use App\Jobs\SyncBankConnectionAccountJob;
 use App\Models\BankAccount;
 use App\Models\BankConnection;
 use App\Models\BankConnectionAccount;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -60,11 +61,19 @@ class BankConnectionController extends Controller
                 ->with('error', $request->query('error_description', $request->query('error')));
         }
 
-        $connection = $manager->completeAuthorization(
-            $request->user(),
-            (string) $request->query('state'),
-            (string) $request->query('code'),
-        );
+        try {
+            $connection = $manager->completeAuthorization(
+                $request->user(),
+                (string) $request->query('state'),
+                (string) $request->query('code'),
+            );
+        } catch (ModelNotFoundException) {
+            // The state belongs to an expired or superseded authorization —
+            // e.g. an older consent link whose pending row was reused or
+            // pruned.
+            return redirect()->route('bank-accounts.index')
+                ->with('error', 'That bank sign-in link has expired. Please connect the bank again.');
+        }
 
         $connection->accounts()
             ->where('status', BankConnectionAccount::STATUS_LINKED)

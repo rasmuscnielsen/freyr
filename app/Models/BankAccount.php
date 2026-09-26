@@ -31,22 +31,12 @@ class BankAccount extends Model
         'current_balance',
         'opening_balance',
         'account_type',
-        'account_subcategory_key',
-        'account_group_legacy_id',
         'ignore_postings_before',
-        'ignore_postings_after',
         'last_updated_at',
         'last_known_posting_date',
         'is_active',
-        'inactivated_by',
         'account_number',
-        'owner_name',
-        'supports_payment_from',
-        'supports_payment_to',
         'is_favorite',
-        'connection_type',
-        'donation_topup_count',
-        'legacy_created_at',
     ];
 
     /**
@@ -115,16 +105,12 @@ class BankAccount extends Model
     {
         return [
             'ignore_postings_before' => 'date',
-            'ignore_postings_after' => 'date',
             'last_updated_at' => 'datetime',
             'last_known_posting_date' => 'date',
             'is_active' => 'boolean',
-            'supports_payment_from' => 'boolean',
-            'supports_payment_to' => 'boolean',
             'is_favorite' => 'boolean',
             'current_balance' => 'decimal:2',
             'opening_balance' => 'decimal:2',
-            'legacy_created_at' => 'datetime',
         ];
     }
 }
