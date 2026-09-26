@@ -33,6 +33,56 @@ export function formatDayMonth(value: string | null | undefined): string {
 }
 
 /**
+ * Human-friendly timestamp for recent events like syncs: "Just now" for the
+ * last five minutes, "Today/Yesterday at 11:08" while the day is still
+ * memorable, and an absolute date beyond that — the year only when it
+ * differs from the current one.
+ */
+export function formatRelativeDateTime(value: string | null): string {
+    if (value === null) {
+        return 'Never';
+    }
+
+    const date = new Date(value.replace(' ', 'T'));
+    const now = new Date();
+    const minutesAgo = (now.getTime() - date.getTime()) / 60_000;
+
+    if (minutesAgo >= 0 && minutesAgo < 5) {
+        return 'Just now';
+    }
+
+    const time = new Intl.DateTimeFormat(undefined, {
+        hour: 'numeric',
+        minute: '2-digit',
+    }).format(date);
+
+    const startOfDay = (day: Date) =>
+        new Date(day.getFullYear(), day.getMonth(), day.getDate()).getTime();
+    const daysAgo = Math.round(
+        (startOfDay(now) - startOfDay(date)) / 86_400_000,
+    );
+
+    if (daysAgo <= 0) {
+        return `Today at ${time}`;
+    }
+
+    if (daysAgo === 1) {
+        return `Yesterday at ${time}`;
+    }
+
+    const options: Intl.DateTimeFormatOptions = {
+        day: 'numeric',
+        month: 'short',
+    };
+
+    if (date.getFullYear() !== now.getFullYear()) {
+        options.year = 'numeric';
+    }
+
+    return new Intl.DateTimeFormat(undefined, options).format(date);
+}
+
+/**
  * Formats a `Y-m` or `Y-m-d` string as a month label, e.g. "Jul 2025".
  */
 export function formatMonth(value: string): string {

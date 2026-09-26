@@ -22,7 +22,6 @@ class BankAccountResource extends JsonResource
             'currency' => $this->currency,
             'current_balance' => $this->current_balance === null ? null : (float) $this->current_balance,
             'account_type' => $this->account_type,
-            'account_subcategory_key' => $this->account_subcategory_key,
             'last_updated_at' => $this->last_updated_at?->toJSON(),
             'last_known_posting_date' => $this->last_known_posting_date?->toDateString(),
             'has_bank_connection' => $this->hasBankConnection(),

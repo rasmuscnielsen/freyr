@@ -3,6 +3,7 @@
 namespace App\Console\Commands;
 
 use App\Jobs\SyncBankConnectionAccountJob;
+use App\Models\BankConnection;
 use App\Models\BankConnectionAccount;
 use Illuminate\Console\Attributes\Description;
 use Illuminate\Console\Attributes\Signature;
@@ -22,6 +23,8 @@ class SyncConnectedBankAccountsCommand extends Command
         BankConnectionAccount::query()
             ->where('status', BankConnectionAccount::STATUS_LINKED)
             ->whereNotNull('bank_account_id')
+            ->whereHas('bankAccount', fn ($query) => $query->where('is_active', true))
+            ->whereHas('bankConnection', fn ($query) => $query->where('status', '!=', BankConnection::STATUS_ARCHIVED))
             ->orderBy('id')
             ->lazyById()
             ->each(function (BankConnectionAccount $bankConnectionAccount) use (&$count): void {

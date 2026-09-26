@@ -3,15 +3,17 @@
 namespace App\Models;
 
 use Database\Factories\BankConnectionFactory;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Prunable;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class BankConnection extends Model
 {
     /** @use HasFactory<BankConnectionFactory> */
-    use HasFactory;
+    use HasFactory, Prunable;
 
     public const string PROVIDER_ENABLE_BANKING = 'enable_banking';
 
@@ -24,6 +26,8 @@ class BankConnection extends Model
     public const string STATUS_FAILED = 'failed';
 
     public const string STATUS_REVOKED = 'revoked';
+
+    public const string STATUS_ARCHIVED = 'archived';
 
     /**
      * @var list<string>
@@ -53,6 +57,7 @@ class BankConnection extends Model
      */
     protected $hidden = [
         'session_id',
+        'state',
         'raw_session_payload',
     ];
 
@@ -84,6 +89,19 @@ class BankConnection extends Model
     {
         return $this->status === self::STATUS_RENEWAL_REQUIRED
             || ($this->access_valid_until !== null && $this->access_valid_until->isPast());
+    }
+
+    /**
+     * Pending authorizations are only useful while their consent flow can
+     * still complete; after two days the row is an abandoned corpse.
+     *
+     * @return Builder<BankConnection>
+     */
+    public function prunable(): Builder
+    {
+        return static::query()
+            ->where('status', self::STATUS_PENDING)
+            ->where('created_at', '<', now()->subDays(2));
     }
 
     /**

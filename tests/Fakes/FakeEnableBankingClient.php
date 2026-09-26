@@ -8,9 +8,14 @@ use Carbon\CarbonInterface;
 class FakeEnableBankingClient extends EnableBankingClient
 {
     /**
-     * @var list<string>
+     * @var list<string|null>
      */
     public array $transactionDateFroms = [];
+
+    /**
+     * @var list<string|null>
+     */
+    public array $transactionStrategies = [];
 
     /**
      * @param  array<string, mixed>  $session
@@ -65,9 +70,10 @@ class FakeEnableBankingClient extends EnableBankingClient
     /**
      * @return list<array<string, mixed>>
      */
-    public function transactions(string $accountUid, CarbonInterface $dateFrom): array
+    public function transactions(string $accountUid, ?CarbonInterface $dateFrom, ?string $strategy = null): array
     {
-        $this->transactionDateFroms[] = $dateFrom->toDateString();
+        $this->transactionDateFroms[] = $dateFrom?->toDateString();
+        $this->transactionStrategies[] = $strategy;
 
         return $this->transactions;
     }

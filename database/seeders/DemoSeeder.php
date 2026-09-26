@@ -71,12 +71,7 @@ class DemoSeeder extends Seeder
                     'bank_name' => 'Fjord Bank',
                     'currency' => 'EUR',
                     'account_type' => 'Consumption',
-                    'account_subcategory_key' => 'consumption',
                     'account_number' => '5479123456',
-                    'owner_name' => $user->name,
-                    'supports_payment_from' => true,
-                    'supports_payment_to' => true,
-                    'connection_type' => BankConnectionAccount::SOURCE_ENABLE_BANKING,
                 ]),
             'budget' => BankAccount::factory()
                 ->for($user)
@@ -88,12 +83,7 @@ class DemoSeeder extends Seeder
                     'bank_name' => 'Fjord Bank',
                     'currency' => 'EUR',
                     'account_type' => 'Budget',
-                    'account_subcategory_key' => 'budget',
                     'account_number' => '5479654321',
-                    'owner_name' => $user->name,
-                    'supports_payment_from' => true,
-                    'supports_payment_to' => true,
-                    'connection_type' => BankConnectionAccount::SOURCE_ENABLE_BANKING,
                 ]),
             'savings' => BankAccount::factory()
                 ->for($user)
@@ -105,11 +95,7 @@ class DemoSeeder extends Seeder
                     'bank_name' => 'Summit Savings',
                     'currency' => 'EUR',
                     'account_type' => 'Savings',
-                    'account_subcategory_key' => 'savings',
                     'account_number' => '6677000123',
-                    'owner_name' => $user->name,
-                    'supports_payment_to' => true,
-                    'connection_type' => BankConnectionAccount::SOURCE_ENABLE_BANKING,
                 ]),
             'travel' => BankAccount::factory()
                 ->for($user)
@@ -122,10 +108,7 @@ class DemoSeeder extends Seeder
                     'bank_name' => 'Nomad',
                     'currency' => 'EUR',
                     'account_type' => 'Consumption',
-                    'account_subcategory_key' => 'consumption',
                     'account_number' => '8811223344',
-                    'owner_name' => $user->name,
-                    'connection_type' => null,
                 ]),
         ]);
     }
