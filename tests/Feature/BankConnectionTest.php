@@ -10,6 +10,11 @@ use App\Models\BankSyncRun;
 use App\Models\Posting;
 use App\Models\User;
 use Carbon\CarbonImmutable;
+use Carbon\CarbonInterface;
+use GuzzleHttp\Psr7\Response as GuzzleResponse;
+use Illuminate\Http\Client\RequestException;
+use Illuminate\Http\Client\Response;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use Inertia\Support\Header;
 use Inertia\Testing\AssertableInertia as Assert;
@@ -643,8 +648,8 @@ test('sync imports past transactions idempotently and skips future scheduled tra
     (new SyncBankConnectionAccountJob($remoteAccount))->handle(app(EnableBankingConnectionManager::class));
 
     // The first sync asks Enable Banking for the longest available history.
-    expect($client->transactionDateFroms)->toBe([null])
-        ->and($client->transactionStrategies)->toBe(['longest'])
+    expect($client->transactionDateFroms)->toBe([null, '2026-06-13'])
+        ->and($client->transactionStrategies)->toBe(['longest', null])
         ->and(Posting::query()->count())->toBe(1)
         ->and(Posting::query()->where('external_posting_id', 'future-enable-banking-transaction-id')->exists())->toBeFalse();
 
@@ -660,10 +665,85 @@ test('sync imports past transactions idempotently and skips future scheduled tra
 
     $latestRun = BankSyncRun::query()->latest('id')->firstOrFail();
 
-    expect($client->transactionDateFroms)->toBe([null, '2026-06-18'])
-        ->and($client->transactionStrategies)->toBe(['longest', null])
+    expect($client->transactionDateFroms)->toBe([null, '2026-06-13', '2026-06-18'])
+        ->and($client->transactionStrategies)->toBe(['longest', null, null])
         ->and(Posting::query()->count())->toBe(1)
         ->and($latestRun->duplicate_postings_count)->toBe(1);
+});
+
+test('first sync supplements longest history with recent booked transactions', function () {
+    $user = User::factory()->create();
+    $connection = BankConnection::factory()->for($user)->create();
+    $localAccount = BankAccount::factory()->for($user)->create();
+    $remoteAccount = BankConnectionAccount::factory()->for($connection)->linkedTo($localAccount)->create();
+
+    $past = enableBankingTransactionsPayload()[0];
+    $recentPast = $past;
+    $recentPast['transaction_id'] = 'new-provider-id';
+    $future = function (string $reference, string $amount, string $balance): array {
+        return [
+            'entry_reference' => $reference,
+            'transaction_id' => 'provider-'.$reference,
+            'transaction_amount' => ['currency' => 'DKK', 'amount' => $amount],
+            'credit_debit_indicator' => 'DBIT',
+            'status' => 'BOOK',
+            'booking_date' => '2026-06-22',
+            'balance_after_transaction' => ['currency' => 'DKK', 'amount' => $balance],
+        ];
+    };
+    $client = new FakeEnableBankingClient(
+        balances: [[
+            'balance_type' => 'CLBD',
+            'balance_amount' => ['currency' => 'DKK', 'amount' => '49853.11'],
+        ]],
+        transactions: [$past],
+        recentTransactions: [
+            $recentPast,
+            $future('large-booked', '1405.00', '49853.11'),
+            $future('small-booked', '81.55', '51258.11'),
+        ],
+    );
+    app()->instance(EnableBankingClient::class, $client);
+
+    (new SyncBankConnectionAccountJob($remoteAccount))->handle(app(EnableBankingConnectionManager::class));
+
+    $run = BankSyncRun::query()->latest('id')->firstOrFail();
+
+    expect($client->transactionStrategies)->toBe(['longest', null])
+        ->and($client->transactionDateFroms)->toBe([null, '2026-06-13'])
+        ->and($run->new_postings_count)->toBe(3)
+        ->and($run->balance_matches)->toBeTrue()
+        ->and(Posting::query()->count())->toBe(3)
+        ->and(Posting::query()->where('external_posting_id', $past['entry_reference'])->firstOrFail()->extra_data['transaction_id'])->toBe('new-provider-id');
+
+    (new SyncBankConnectionAccountJob($remoteAccount))->handle(app(EnableBankingConnectionManager::class));
+
+    expect($client->transactionStrategies)->toBe(['longest', null, null])
+        ->and($client->transactionDateFroms)->toBe([null, '2026-06-13', '2026-06-19']);
+});
+
+test('first sync keeps longest history when the recent period is unavailable', function () {
+    $user = User::factory()->create();
+    $connection = BankConnection::factory()->for($user)->create();
+    $localAccount = BankAccount::factory()->for($user)->create();
+    $remoteAccount = BankConnectionAccount::factory()->for($connection)->linkedTo($localAccount)->create();
+    $client = new class(balances: enableBankingBalancesPayload(), transactions: [enableBankingTransactionsPayload()[0]]) extends FakeEnableBankingClient
+    {
+        public function transactions(string $accountUid, ?CarbonInterface $dateFrom, ?string $strategy = null): array
+        {
+            if ($strategy === null) {
+                throw new RequestException(new Response(new GuzzleResponse(400, [], '{"error":"WRONG_TRANSACTIONS_PERIOD"}')));
+            }
+
+            return parent::transactions($accountUid, $dateFrom, $strategy);
+        }
+    };
+    app()->instance(EnableBankingClient::class, $client);
+
+    (new SyncBankConnectionAccountJob($remoteAccount))->handle(app(EnableBankingConnectionManager::class));
+
+    expect(BankSyncRun::query()->latest('id')->firstOrFail()->status)->toBe(BankSyncRun::STATUS_SUCCEEDED)
+        ->and(Posting::query()->count())->toBe(1);
 });
 
 test('sync imports future booked transactions only when their balances chain to CLBD', function () {
@@ -706,7 +786,7 @@ test('sync imports future booked transactions only when their balances chain to 
 
     (new SyncBankConnectionAccountJob($remoteAccount))->handle(app(EnableBankingConnectionManager::class));
 
-    expect($client->transactionDateFroms)->toBe([null, '2026-06-19'])
+    expect($client->transactionDateFroms)->toBe([null, '2026-06-13', '2026-06-19'])
         ->and(Posting::query()->count())->toBe(2);
 
     $finalized = array_map(function (array $transaction): array {
@@ -807,6 +887,106 @@ test('archived accounts are never synced', function () {
     expect($run->status)->toBe(BankSyncRun::STATUS_FAILED)
         ->and($run->error_code)->toBe('account_archived')
         ->and($connection->refresh()->status)->toBe(BankConnection::STATUS_ACTIVE);
+});
+
+test('sync skips a bank account deleted while transactions are fetched', function () {
+    $user = User::factory()->create();
+    $connection = BankConnection::factory()->for($user)->create();
+    $bankAccount = BankAccount::factory()->for($user)->create();
+    $remoteAccount = BankConnectionAccount::factory()->for($connection)->linkedTo($bankAccount)->create();
+    $client = new FakeEnableBankingClient(
+        balances: enableBankingBalancesPayload(),
+        transactions: [enableBankingTransactionsPayload()[0]],
+        onTransactions: function () use ($remoteAccount, $bankAccount): void {
+            DB::transaction(function () use ($remoteAccount, $bankAccount): void {
+                $remoteAccount->update(['status' => BankConnectionAccount::STATUS_UNLINKED]);
+                $bankAccount->delete();
+            });
+        },
+    );
+    app()->instance(EnableBankingClient::class, $client);
+
+    (new SyncBankConnectionAccountJob($remoteAccount))->handle(app(EnableBankingConnectionManager::class));
+
+    $run = BankSyncRun::query()->latest('id')->firstOrFail();
+    expect($run->status)->toBe(BankSyncRun::STATUS_SKIPPED)
+        ->and($run->error_code)->toBe('account_unlinked')
+        ->and($connection->refresh()->status)->toBe(BankConnection::STATUS_ACTIVE)
+        ->and($remoteAccount->refresh()->status)->toBe(BankConnectionAccount::STATUS_UNLINKED)
+        ->and(Posting::query()->count())->toBe(0);
+});
+
+test('provider failure after an account is deleted does not fail the connection', function () {
+    $user = User::factory()->create();
+    $connection = BankConnection::factory()->for($user)->create();
+    $bankAccount = BankAccount::factory()->for($user)->create();
+    $remoteAccount = BankConnectionAccount::factory()->for($connection)->linkedTo($bankAccount)->create();
+    $client = new FakeEnableBankingClient(
+        balances: enableBankingBalancesPayload(),
+        onTransactions: function () use ($remoteAccount, $bankAccount): void {
+            DB::transaction(function () use ($remoteAccount, $bankAccount): void {
+                $remoteAccount->update(['status' => BankConnectionAccount::STATUS_UNLINKED]);
+                $bankAccount->delete();
+            });
+
+            throw new RuntimeException('provider failure');
+        },
+    );
+    app()->instance(EnableBankingClient::class, $client);
+
+    (new SyncBankConnectionAccountJob($remoteAccount))->handle(app(EnableBankingConnectionManager::class));
+
+    expect(BankSyncRun::query()->latest('id')->firstOrFail()->status)->toBe(BankSyncRun::STATUS_SKIPPED)
+        ->and($connection->refresh()->status)->toBe(BankConnection::STATUS_ACTIVE)
+        ->and($connection->failure_message)->toBeNull();
+});
+
+test('a failed sync stores a safe message while retaining encrypted diagnostic detail', function () {
+    $user = User::factory()->create();
+    $connection = BankConnection::factory()->for($user)->create();
+    $bankAccount = BankAccount::factory()->for($user)->create();
+    $remoteAccount = BankConnectionAccount::factory()->for($connection)->linkedTo($bankAccount)->create();
+    $client = new class extends FakeEnableBankingClient
+    {
+        public function balances(string $accountUid): array
+        {
+            throw new RuntimeException('SQLSTATE[23503] secret-transfer-data');
+        }
+    };
+    app()->instance(EnableBankingClient::class, $client);
+
+    (new SyncBankConnectionAccountJob($remoteAccount))->handle(app(EnableBankingConnectionManager::class));
+
+    $run = BankSyncRun::query()->latest('id')->firstOrFail();
+    expect($connection->refresh()->failure_message)->toBe('Bank sync failed. Please try again.')
+        ->and($run->error_message)->toBe('Bank sync failed. Please try again.')
+        ->and($run->raw_error['message'])->toContain('secret-transfer-data');
+});
+
+test('a failed bank import rolls back postings written earlier in the same sync', function () {
+    $user = User::factory()->create();
+    $connection = BankConnection::factory()->for($user)->create();
+    $bankAccount = BankAccount::factory()->for($user)->create();
+    $remoteAccount = BankConnectionAccount::factory()->for($connection)->linkedTo($bankAccount)->create();
+    $first = enableBankingTransactionsPayload()[0];
+    $second = $first;
+    $second['entry_reference'] = 'second-booked';
+    $second['transaction_id'] = 'second-provider-id';
+    $second['transaction_amount']['amount'] = '10.00';
+    $second['balance_after_transaction']['amount'] = '51329.66';
+    Posting::factory()->forAccount(BankAccount::factory()->for($user)->create())->create([
+        'legacy_id' => 'enable-banking:'.$remoteAccount->external_account_uid_hash.':second-booked',
+    ]);
+    app()->instance(EnableBankingClient::class, new FakeEnableBankingClient(
+        balances: enableBankingBalancesPayload(),
+        transactions: [$first, $second],
+    ));
+
+    (new SyncBankConnectionAccountJob($remoteAccount))->handle(app(EnableBankingConnectionManager::class));
+
+    expect(BankSyncRun::query()->latest('id')->firstOrFail()->status)->toBe(BankSyncRun::STATUS_FAILED)
+        ->and(Posting::query()->where('external_posting_id', $first['entry_reference'])->exists())->toBeFalse()
+        ->and(Posting::query()->count())->toBe(1);
 });
 
 test('archived connections stop syncing but keep their accounts and can be reopened', function () {
@@ -1441,6 +1621,19 @@ test('an unknown callback state redirects with an error instead of failing', fun
         ]))
         ->assertRedirect(route('bank-accounts.index'))
         ->assertSessionHas('error');
+});
+
+test('bank callback does not display an arbitrary provider error description', function () {
+    $user = User::factory()->create();
+
+    $this->actingAs($user)
+        ->get(route('bank-connections.callback', [
+            'state' => 'denied-state',
+            'error' => 'access_denied',
+            'error_description' => 'SQLSTATE[23503] secret-provider-data',
+        ]))
+        ->assertRedirect(route('bank-accounts.index'))
+        ->assertSessionHas('error', 'Bank sign-in was cancelled. Please try again.');
 });
 
 test('renewing while authorizing a different bank login keeps the original connection', function () {

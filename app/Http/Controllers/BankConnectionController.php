@@ -58,7 +58,7 @@ class BankConnectionController extends Controller
                 ->delete();
 
             return redirect()->route('bank-accounts.index')
-                ->with('error', $request->query('error_description', $request->query('error')));
+                ->with('error', 'Bank sign-in was cancelled. Please try again.');
         }
 
         try {

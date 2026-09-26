@@ -50,17 +50,15 @@ class SpiirImportController extends Controller
         return back();
     }
 
-    public function show(string $import): JsonResponse
+    public function show(Request $request, string $import): JsonResponse
     {
         $status = Cache::get(ImportSpiirExport::cacheKey($import));
 
-        abort_if($status === null, 404);
+        abort_if($status === null || ($status['user_id'] ?? null) !== $request->user()->id, 404);
 
         return response()->json([
             'id' => $import,
-            'status' => $status['status'] ?? 'pending',
-            'summary' => $status['summary'] ?? null,
-            'error' => $status['error'] ?? null,
+            ...self::publicStatus($status),
         ]);
     }
 
@@ -80,6 +78,21 @@ class SpiirImportController extends Controller
 
         $status = Cache::get(ImportSpiirExport::cacheKey($importId));
 
-        return $status === null ? null : ['id' => $importId] + $status;
+        return $status === null || ($status['user_id'] ?? null) !== $request->user()->id
+            ? null
+            : ['id' => $importId, ...self::publicStatus($status)];
+    }
+
+    /**
+     * @param  array<string, mixed>  $status
+     * @return array{status: string, summary: mixed, error: ?string}
+     */
+    private static function publicStatus(array $status): array
+    {
+        return [
+            'status' => $status['status'] ?? 'pending',
+            'summary' => $status['summary'] ?? null,
+            'error' => ($status['status'] ?? null) === 'failed' ? ImportSpiirExport::FAILED_MESSAGE : null,
+        ];
     }
 }

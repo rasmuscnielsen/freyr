@@ -18,6 +18,10 @@ class BankSyncRun extends Model
 
     public const string STATUS_FAILED = 'failed';
 
+    public const string STATUS_SKIPPED = 'skipped';
+
+    public const string GENERIC_ERROR_MESSAGE = 'Bank sync failed. Please try again.';
+
     /**
      * @var list<string>
      */

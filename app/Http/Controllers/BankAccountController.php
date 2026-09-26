@@ -240,8 +240,12 @@ class BankAccountController extends Controller
                     'aspsp_country' => $connection->aspsp_country,
                     'access_valid_until' => $connection->access_valid_until?->toIso8601String(),
                     'last_successful_sync_at' => $connection->last_successful_sync_at?->toDateTimeString(),
-                    'failure_code' => $connection->failure_code,
-                    'failure_message' => $connection->failure_message,
+                    'failure_code' => null,
+                    'failure_message' => match ($connection->status) {
+                        BankConnection::STATUS_FAILED => BankSyncRun::GENERIC_ERROR_MESSAGE,
+                        BankConnection::STATUS_RENEWAL_REQUIRED => 'The bank connection needs renewal.',
+                        default => null,
+                    },
                     'needs_renewal' => $connection->needsRenewal(),
                     'linked_accounts_count' => $connection->accounts
                         ->where('status', BankConnectionAccount::STATUS_LINKED)
@@ -311,8 +315,14 @@ class BankAccountController extends Controller
                 'new_postings_count' => $run->new_postings_count,
                 'updated_postings_count' => $run->updated_postings_count,
                 'duplicate_postings_count' => $run->duplicate_postings_count,
-                'error_code' => $run->error_code,
-                'error_message' => $run->error_message,
+                'error_code' => null,
+                'error_message' => match (true) {
+                    $run->status === BankSyncRun::STATUS_SKIPPED => 'The bank account was unlinked before sync completed.',
+                    $run->status === BankSyncRun::STATUS_FAILED && $run->error_code === 'account_archived' => 'The bank account is archived.',
+                    $run->status === BankSyncRun::STATUS_FAILED && $run->error_code === 'connection_archived' => 'The bank connection is archived.',
+                    $run->status === BankSyncRun::STATUS_FAILED => BankSyncRun::GENERIC_ERROR_MESSAGE,
+                    default => null,
+                },
                 'balance_matches' => $run->balance_matches,
                 'balance_delta' => $run->balanceDelta(),
             ])

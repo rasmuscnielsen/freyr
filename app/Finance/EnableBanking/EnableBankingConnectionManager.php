@@ -164,16 +164,20 @@ class EnableBankingConnectionManager
         // dispatch.
         $skippedReason = $connection->status === BankConnection::STATUS_ARCHIVED
             ? 'connection_archived'
-            : ($account->bankAccount?->is_active === true ? null : 'account_archived');
+            : ($account->bank_account_id === null
+                ? 'account_unlinked'
+                : ($account->bankAccount?->is_active === true ? null : 'account_archived'));
 
         if ($skippedReason !== null) {
             $run->update([
-                'status' => BankSyncRun::STATUS_FAILED,
+                'status' => $skippedReason === 'account_unlinked' ? BankSyncRun::STATUS_SKIPPED : BankSyncRun::STATUS_FAILED,
                 'finished_at' => now(),
                 'error_code' => $skippedReason,
-                'error_message' => $skippedReason === 'connection_archived'
-                    ? 'The bank connection is archived.'
-                    : 'The bank account is archived.',
+                'error_message' => match ($skippedReason) {
+                    'connection_archived' => 'The bank connection is archived.',
+                    'account_unlinked' => 'The bank account was unlinked before sync completed.',
+                    default => 'The bank account is archived.',
+                },
             ]);
 
             return $run;
@@ -192,14 +196,55 @@ class EnableBankingConnectionManager
                 // ask Enable Banking for the longest period the bank serves.
                 $account->last_transaction_date === null ? 'longest' : null,
             );
+
+            if ($account->last_transaction_date === null) {
+                // The longest strategy can omit recent future-dated BOOK entries
+                // already reflected in CLBD; the dated feed can include them.
+                try {
+                    $recentTransactions = $this->client->transactions(
+                        (string) $account->external_account_uid,
+                        CarbonImmutable::today()->subWeek(),
+                    );
+                } catch (RequestException $exception) {
+                    if ($exception->response->json('error') !== 'WRONG_TRANSACTIONS_PERIOD') {
+                        throw $exception;
+                    }
+
+                    $recentTransactions = [];
+                }
+
+                $transactions = collect([...$transactions, ...$recentTransactions])
+                    ->keyBy(fn (array $transaction): string => $this->transactionMapper->transactionId($transaction))
+                    ->values()
+                    ->all();
+            }
+
             $booked = $this->bookedBalance($balances);
             $postedTransactions = $this->postedTransactions($transactions, $balances);
-            $counts = $this->importTransactions($account, $postedTransactions);
             $lastTransactionDate = collect($postedTransactions)
                 ->map(fn (array $transaction): CarbonImmutable => $this->transactionMapper->transactionDate($transaction))
                 ->max();
 
-            DB::transaction(function () use ($account, $connection, $run, $booked, $counts, $lastTransactionDate): void {
+            DB::transaction(function () use ($account, $connection, $run, $booked, $postedTransactions, $lastTransactionDate): void {
+                $lockedAccount = BankConnectionAccount::query()
+                    ->whereKey($account->id)
+                    ->lockForUpdate()
+                    ->first();
+
+                if ($lockedAccount?->bank_account_id !== $account->bank_account_id
+                    || $lockedAccount->status !== BankConnectionAccount::STATUS_LINKED) {
+                    $run->update([
+                        'status' => BankSyncRun::STATUS_SKIPPED,
+                        'finished_at' => now(),
+                        'error_code' => 'account_unlinked',
+                        'error_message' => 'The bank account was unlinked before sync completed.',
+                    ]);
+
+                    return;
+                }
+
+                $account->refresh();
+                $counts = $this->importTransactions($account, $postedTransactions);
                 $this->updateBankAccountBalances($account, $booked, $lastTransactionDate);
 
                 if ($account->bankAccount instanceof BankAccount) {
@@ -575,27 +620,49 @@ class EnableBankingConnectionManager
             : BankConnection::STATUS_FAILED;
         $errorCode = $exception instanceof RequestException
             ? (string) ($exception->response->json('error') ?? $exception->response->json('code') ?? $exception->response->status())
-            : $exception->getCode();
+            : (string) $exception->getCode();
+        $errorCode = preg_match('/\A[A-Z0-9_]{1,64}\z/', $errorCode) ? $errorCode : 'external_error';
+        $message = $connectionStatus === BankConnection::STATUS_RENEWAL_REQUIRED
+            ? 'The bank connection needs renewal.'
+            : BankSyncRun::GENERIC_ERROR_MESSAGE;
 
-        DB::transaction(function () use ($run, $account, $exception, $connectionStatus, $errorCode): void {
-            $account->update([
-                'status' => $connectionStatus === BankConnection::STATUS_RENEWAL_REQUIRED
-                    ? BankConnectionAccount::STATUS_RENEWAL_REQUIRED
-                    : $account->status,
-            ]);
+        DB::transaction(function () use ($run, $account, $exception, $connectionStatus, $errorCode, $message): void {
+            $lockedAccount = BankConnectionAccount::query()
+                ->whereKey($account->id)
+                ->lockForUpdate()
+                ->first();
+
+            if ($lockedAccount?->bank_account_id !== $account->bank_account_id
+                || $lockedAccount->status !== BankConnectionAccount::STATUS_LINKED) {
+                $run->update([
+                    'status' => BankSyncRun::STATUS_SKIPPED,
+                    'finished_at' => now(),
+                    'error_code' => 'account_unlinked',
+                    'error_message' => 'The bank account was unlinked before sync completed.',
+                ]);
+
+                return;
+            }
+
+            if ($connectionStatus === BankConnection::STATUS_RENEWAL_REQUIRED) {
+                BankConnectionAccount::query()
+                    ->whereKey($account->id)
+                    ->whereNotNull('bank_account_id')
+                    ->update(['status' => BankConnectionAccount::STATUS_RENEWAL_REQUIRED]);
+            }
 
             $account->bankConnection->update([
                 'status' => $connectionStatus,
                 'last_failed_sync_at' => now(),
                 'failure_code' => (string) $errorCode,
-                'failure_message' => $exception->getMessage(),
+                'failure_message' => $message,
             ]);
 
             $run->update([
                 'status' => BankSyncRun::STATUS_FAILED,
                 'finished_at' => now(),
                 'error_code' => (string) $errorCode,
-                'error_message' => $exception->getMessage(),
+                'error_message' => $message,
                 'raw_error' => [
                     'class' => $exception::class,
                     'message' => $exception->getMessage(),

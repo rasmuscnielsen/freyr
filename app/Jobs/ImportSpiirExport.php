@@ -14,6 +14,8 @@ class ImportSpiirExport implements ShouldQueue
 {
     use Queueable;
 
+    public const string FAILED_MESSAGE = 'The import could not be completed.';
+
     public int $timeout = 900;
 
     public int $tries = 1;
@@ -49,7 +51,7 @@ class ImportSpiirExport implements ShouldQueue
         } catch (Throwable $exception) {
             report($exception);
 
-            $this->storeStatus($key, ['status' => 'failed', 'error' => $exception->getMessage()]);
+            $this->storeStatus($key, ['status' => 'failed', 'error' => self::FAILED_MESSAGE]);
         } finally {
             Storage::disk('local')->deleteDirectory($directory);
         }
