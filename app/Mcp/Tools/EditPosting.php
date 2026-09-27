@@ -3,7 +3,9 @@
 namespace App\Mcp\Tools;
 
 use App\Finance\AccountBalanceRecalculator;
+use App\Finance\MoneyMath;
 use App\Http\Resources\PostingResource;
+use App\Jobs\ConvertReportingAmountsJob;
 use App\Models\Posting;
 use Illuminate\Contracts\JsonSchema\JsonSchema;
 use Laravel\Mcp\Request;
@@ -80,7 +82,28 @@ class EditPosting extends FreyrTool
             $validated['categorized_by'] = null;
         }
 
-        $posting->update(collect($validated)->except('id')->all());
+        // The editable amount is the account-currency movement; the reporting
+        // pair is re-derived, which invalidates foreign-currency amounts for
+        // the conversion job.
+        $monetaryChanged = array_key_exists('amount', $validated) || array_key_exists('date', $validated);
+
+        if (array_key_exists('amount', $validated)) {
+            $validated['original_amount'] = MoneyMath::round((string) $validated['amount']);
+            $validated['original_currency'] = $posting->bankAccount->currency;
+            unset($validated['amount']);
+        }
+
+        $posting->fill(collect($validated)->except('id')->all());
+
+        if ($monetaryChanged) {
+            $posting->applyReportingAmount($posting->user->reporting_currency ?? $posting->bankAccount->currency);
+        }
+
+        $posting->save();
+
+        if ($monetaryChanged && $posting->amount === null && $posting->original_amount !== null) {
+            ConvertReportingAmountsJob::dispatch($posting->user_id)->afterCommit();
+        }
 
         if (! $posting->bankAccount->hasBankConnection()) {
             app(AccountBalanceRecalculator::class)->recalculate($posting->bankAccount);

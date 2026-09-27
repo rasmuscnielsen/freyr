@@ -3,8 +3,10 @@
 namespace App\Http\Controllers;
 
 use App\Finance\AccountBalanceRecalculator;
+use App\Finance\MoneyMath;
 use App\Http\Requests\StorePostingRequest;
 use App\Http\Requests\UpdatePostingRequest;
+use App\Jobs\ConvertReportingAmountsJob;
 use App\Models\BankAccount;
 use App\Models\Posting;
 use Illuminate\Http\RedirectResponse;
@@ -20,22 +22,55 @@ class BankAccountPostingController extends Controller
 
     public function store(StorePostingRequest $request, BankAccount $bankAccount): RedirectResponse
     {
-        $bankAccount->postings()->create([
-            ...$request->validated(),
+        $validated = $request->validated();
+        $accountAmount = MoneyMath::round((string) $validated['amount']);
+
+        // The entered amount is the account-currency movement; the reporting
+        // pair follows the owner's reporting currency.
+        $posting = new Posting([
+            ...$validated,
             'user_id' => $bankAccount->user_id,
-            'currency' => $bankAccount->currency,
+            'original_amount' => $accountAmount,
+            'original_currency' => $bankAccount->currency,
         ]);
+        $posting->applyReportingAmount($bankAccount->user->reporting_currency ?? $bankAccount->currency);
+        $bankAccount->postings()->save($posting);
 
         $this->balanceRecalculator->recalculate($bankAccount);
+
+        if ($posting->amount === null && $posting->original_amount !== null) {
+            ConvertReportingAmountsJob::dispatch($bankAccount->user_id)->afterCommit();
+        }
 
         return back();
     }
 
     public function update(UpdatePostingRequest $request, BankAccount $bankAccount, Posting $posting): RedirectResponse
     {
-        $posting->update($request->validated());
+        $validated = $request->validated();
+
+        if (array_key_exists('amount', $validated)) {
+            $validated['original_amount'] = MoneyMath::round((string) $validated['amount']);
+            $validated['original_currency'] = $bankAccount->currency;
+        }
+
+        $monetaryChanged = array_key_exists('amount', $validated) || array_key_exists('date', $validated);
+
+        $posting->fill($validated);
+
+        // Amount or date edits invalidate a foreign-currency reporting amount;
+        // the conversion job refills it at the new booking date.
+        if ($monetaryChanged) {
+            $posting->applyReportingAmount($bankAccount->user->reporting_currency ?? $bankAccount->currency);
+        }
+
+        $posting->save();
 
         $this->balanceRecalculator->recalculate($bankAccount);
+
+        if ($monetaryChanged && $posting->amount === null && $posting->original_amount !== null) {
+            ConvertReportingAmountsJob::dispatch($bankAccount->user_id)->afterCommit();
+        }
 
         return back();
     }

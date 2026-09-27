@@ -41,6 +41,7 @@ class BankSyncRun extends Model
         'expected_balance',
         'computed_balance',
         'balance_matches',
+        'balance_match_basis',
         'error_code',
         'error_message',
         'raw_error',

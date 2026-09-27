@@ -3,8 +3,6 @@
 use App\Enums\CategoryType;
 use App\Finance\SpiirExportImporter;
 use App\Models\BankAccount;
-use App\Models\BankConnection;
-use App\Models\BankConnectionAccount;
 use App\Models\Category;
 use App\Models\Posting;
 use App\Models\Subcategory;
@@ -28,13 +26,31 @@ test('it imports a spiir export idempotently', function () {
 
     $travelCard = BankAccount::query()->where('legacy_id', 'acc-2')->firstOrFail();
     expect($travelCard->currency)->toBe('EUR')
-        ->and($travelCard->bank_name)->toBe('Other bank');
+        ->and($travelCard->bank_name)->toBe('Other bank')
+        // A reporting-currency source balance cannot anchor EUR history —
+        // the account balance stays honestly unknown.
+        ->and($travelCard->opening_balance)->toBeNull()
+        ->and($travelCard->current_balance)->toBeNull();
 
     $salary = Posting::query()->where('legacy_id', 'post-1')->firstOrFail();
     expect((float) $salary->amount)->toBe(30000.0)
         ->and((float) $salary->balance)->toBe(31500.50)
         ->and($salary->date->toDateString())->toBe('2024-01-01')
         ->and($salary->categorizedSubcategory->name)->toBe('Salary');
+
+    // The foreign account keeps the EUR account movement in the original
+    // pair and the export's DKK figure as the reporting amount.
+    $transferIn = Posting::query()->where('legacy_id', 'post-4')->firstOrFail();
+    expect((float) $transferIn->original_amount)->toBe(134.20)
+        ->and($transferIn->original_currency)->toBe('EUR')
+        ->and((float) $transferIn->amount)->toBe(1000.0)
+        ->and($transferIn->currency)->toBe('DKK')
+        ->and($transferIn->balance)->toBeNull();
+
+    $cafe = Posting::query()->where('legacy_id', 'post-5')->firstOrFail();
+    expect((float) $cafe->original_amount)->toBe(-12.50)
+        ->and($cafe->original_currency)->toBe('EUR')
+        ->and((float) $cafe->amount)->toBe(-93.20);
 
     $transferOut = Posting::query()->where('legacy_id', 'post-3')->firstOrFail();
     $transferIn = Posting::query()->where('legacy_id', 'post-4')->firstOrFail();

@@ -30,11 +30,21 @@ class AccountBalanceRecalculator
                 ->lockForUpdate()
                 ->firstOrFail();
 
+            // Running balances are built from account-currency movements
+            // (original_amount), never reporting amounts. An unknown opening
+            // or an unknown movement makes every later balance unknown too —
+            // null is honest, a fabricated figure is not.
             DB::update(<<<'SQL'
                 UPDATE postings
                 SET balance = chain.running_balance
                 FROM (
-                    SELECT id, CAST(? AS NUMERIC) + SUM(amount) OVER (ORDER BY date, id) AS running_balance
+                    SELECT id,
+                        CASE
+                            WHEN SUM(CASE WHEN original_amount IS NULL THEN 1 ELSE 0 END)
+                                     OVER (ORDER BY date, id) > 0
+                            THEN NULL
+                            ELSE CAST(? AS NUMERIC) + SUM(original_amount) OVER (ORDER BY date, id)
+                        END AS running_balance
                     FROM postings
                     WHERE bank_account_id = ?
                 ) AS chain
@@ -74,16 +84,23 @@ class AccountBalanceRecalculator
             return;
         }
 
-        $amountsThroughAnchor = (float) $bankAccount->postings()
-            ->where(function ($query) use ($anchor): void {
-                $query
-                    ->where('date', '<', $anchor->date)
-                    ->orWhere(fn ($nested) => $nested->where('date', $anchor->date)->where('id', '<=', $anchor->id));
-            })
-            ->sum('amount');
+        $throughAnchor = fn ($query) => $query->where(function ($nested) use ($anchor): void {
+            $nested
+                ->where('date', '<', $anchor->date)
+                ->orWhere(fn ($inner) => $inner->where('date', $anchor->date)->where('id', '<=', $anchor->id));
+        });
+
+        // An unknown account movement before the anchor makes the implied
+        // opening unknowable — leave it null rather than fabricate one.
+        if ($bankAccount->postings()->where($throughAnchor)->whereNull('original_amount')->exists()) {
+            return;
+        }
+
+        $amountsThroughAnchor = (string) ($bankAccount->postings()->where($throughAnchor)->sum('original_amount') ?: '0');
 
         $bankAccount->update([
-            'opening_balance' => number_format((float) $anchor->balance - $amountsThroughAnchor, 2, '.', ''),
+            'opening_balance' => MoneyMath::round(bcsub((string) $anchor->balance, $amountsThroughAnchor, 10)),
+            'opening_balance_origin' => 'imported',
         ]);
     }
 }

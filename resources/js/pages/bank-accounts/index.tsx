@@ -56,6 +56,7 @@ import {
 } from '@/components/ui/select';
 import { formatDate, formatRelativeDateTime } from '@/lib/dates';
 import { formatMoney as formatSharedMoney } from '@/lib/money';
+import { useRegion } from '@/lib/region';
 import { cn } from '@/lib/utils';
 import {
     destroy as destroyAccount,
@@ -178,12 +179,18 @@ const emptyForm: AccountForm = {
     currency: '',
 };
 
-function formatMoney(amount: number | null, currency: string): string {
+function formatMoney(
+    amount: number | null,
+    currency: string,
+    locale?: string,
+): string {
     if (amount === null) {
         return 'Not synced';
     }
 
-    return formatSharedMoney(amount, currency, { maximumFractionDigits: 0 });
+    return formatSharedMoney(amount, currency, locale, {
+        maximumFractionDigits: 0,
+    });
 }
 
 function daysUntil(value: string | null): number | null {
@@ -575,6 +582,7 @@ function BankCard({
     onConnect: (account: Account) => void;
     onDelete: (account: Account) => void;
 }) {
+    const { locale, timezone } = useRegion();
     const expiryDays = daysUntil(connection.access_valid_until);
     const expired = expiryDays !== null && expiryDays < 0;
     const expiringSoon =
@@ -696,6 +704,7 @@ function BankCard({
                                             {formatMoney(
                                                 entry.total,
                                                 entry.currency,
+                                                locale,
                                             )}
                                         </div>
                                     ))}
@@ -777,6 +786,8 @@ function BankCard({
                                 Last sync:{' '}
                                 {formatRelativeDateTime(
                                     connection.last_successful_sync_at,
+                                    timezone,
+                                    locale,
                                 )}
                             </span>
                         </div>
@@ -807,6 +818,7 @@ function BankCard({
                             {formatSharedMoney(
                                 Number(connection.balance_mismatch.delta),
                                 connection.balance_mismatch.currency,
+                                locale,
                             )}
                         </AlertDescription>
                     </Alert>
@@ -908,6 +920,7 @@ function ManualAccountsCard({
     onConnect: (account: Account) => void;
     onDelete: (account: Account) => void;
 }) {
+    const { locale } = useRegion();
     const subtotals = balancesByCurrency(accounts);
 
     return (
@@ -941,6 +954,7 @@ function ManualAccountsCard({
                                         {formatMoney(
                                             entry.total,
                                             entry.currency,
+                                            locale,
                                         )}
                                     </div>
                                 ))}
@@ -995,6 +1009,7 @@ function AccountRow({
     onConnect: () => void;
     onDelete: () => void;
 }) {
+    const { locale } = useRegion();
     const linkedConnection = account.connection_accounts[0] ?? null;
     const needsRenewal = account.connection_accounts.some(
         (connectionAccount) => connectionAccount.needs_renewal,
@@ -1093,7 +1108,9 @@ function AccountRow({
                     Last posting
                 </div>
                 <div className="text-sm tabular-nums">
-                    {lastPostingDate ? formatDate(lastPostingDate) : '—'}
+                    {lastPostingDate
+                        ? formatDate(lastPostingDate, locale)
+                        : '—'}
                 </div>
             </div>
 
@@ -1105,6 +1122,7 @@ function AccountRow({
                         : formatMoney(
                               account.current_balance,
                               account.currency,
+                              locale,
                           )}
                 </div>
             </div>

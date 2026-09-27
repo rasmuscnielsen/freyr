@@ -26,6 +26,7 @@ import {
 import { Spinner } from '@/components/ui/spinner';
 import { formatDate, formatRelativeDateTime } from '@/lib/dates';
 import { formatMoney as formatSharedMoney } from '@/lib/money';
+import { useRegion } from '@/lib/region';
 import { cn } from '@/lib/utils';
 import { index as bankAccountsIndex } from '@/routes/bank-accounts';
 import {
@@ -81,7 +82,7 @@ type AuditPosting = {
     id: number;
     date: string;
     description: string;
-    amount: number;
+    amount: number | null;
     balance: number | null;
 };
 
@@ -103,9 +104,9 @@ type Posting = {
     id: number;
     date: string | null;
     description: string;
-    amount: number;
+    original_amount: number | null;
+    original_currency: string;
     balance: number | null;
-    currency: string;
     comment: string | null;
     is_extraordinary: boolean;
     categorized_subcategory_id: number | null;
@@ -160,19 +161,25 @@ function postingToForm(posting: Posting): PostingFormValues {
     return {
         date: posting.date ?? '',
         description: posting.description,
-        amount: posting.amount.toFixed(2),
+        amount: posting.original_amount?.toFixed(2) ?? '',
         categorized_subcategory_id: posting.categorized_subcategory_id,
         comment: posting.comment ?? '',
         is_extraordinary: posting.is_extraordinary,
     };
 }
 
-function formatMoney(amount: number | null, currency: string): string {
+function formatMoney(
+    amount: number | null,
+    currency: string,
+    locale?: string,
+): string {
     if (amount === null) {
         return '—';
     }
 
-    return formatSharedMoney(amount, currency, { maximumFractionDigits: 2 });
+    return formatSharedMoney(amount, currency, locale, {
+        maximumFractionDigits: 2,
+    });
 }
 
 function daysUntil(value: string | null): number | null {
@@ -226,7 +233,8 @@ export default function BankAccountShow({
             ),
         [categories],
     );
-    const money = new Intl.NumberFormat(undefined, {
+    const { locale, timezone } = useRegion();
+    const money = new Intl.NumberFormat(locale, {
         style: 'currency',
         currency: account.currency,
         minimumFractionDigits: 2,
@@ -251,7 +259,7 @@ export default function BankAccountShow({
 
     if (!account.is_manual) {
         subtitleParts.push(
-            `Synced ${formatRelativeDateTime(account.last_synced_at)}`,
+            `Synced ${formatRelativeDateTime(account.last_synced_at, timezone, locale)}`,
         );
     }
 
@@ -288,6 +296,7 @@ export default function BankAccountShow({
                             {formatMoney(
                                 account.current_balance,
                                 account.currency,
+                                locale,
                             )}
                         </div>
                         {account.is_manual && (
@@ -301,6 +310,7 @@ export default function BankAccountShow({
                                 {formatSharedMoney(
                                     Number(account.balance_diff),
                                     account.currency,
+                                    locale,
                                 )}
                             </Badge>
                         )}
@@ -345,6 +355,7 @@ export default function BankAccountShow({
                                 {formatSharedMoney(
                                     Number(account.balance_diff),
                                     account.currency,
+                                    locale,
                                 )}
                                 .
                             </span>
@@ -421,7 +432,10 @@ export default function BankAccountShow({
                                             }
                                         >
                                             <td className="px-3 py-3 whitespace-nowrap text-muted-foreground tabular-nums">
-                                                {formatDate(posting.date)}
+                                                {formatDate(
+                                                    posting.date,
+                                                    locale,
+                                                )}
                                             </td>
                                             <td className="px-3 py-3 font-medium">
                                                 <span className="flex items-center gap-1.5">
@@ -449,11 +463,19 @@ export default function BankAccountShow({
                                             <td
                                                 className={cn(
                                                     'px-3 py-3 text-right font-medium whitespace-nowrap tabular-nums',
-                                                    posting.amount >= 0 &&
+                                                    posting.original_amount !==
+                                                        null &&
+                                                        posting.original_amount >=
+                                                            0 &&
                                                         'text-chart-income',
                                                 )}
                                             >
-                                                {money.format(posting.amount)}
+                                                {posting.original_amount ===
+                                                null
+                                                    ? '—'
+                                                    : money.format(
+                                                          posting.original_amount,
+                                                      )}
                                             </td>
                                             <td className="hidden px-3 py-3 text-right whitespace-nowrap text-muted-foreground tabular-nums md:table-cell">
                                                 {posting.balance === null
@@ -549,6 +571,8 @@ export default function BankAccountShow({
                                         <span className="text-muted-foreground">
                                             {formatRelativeDateTime(
                                                 run.started_at,
+                                                timezone,
+                                                locale,
                                             )}
                                         </span>
                                         {run.balance_matches === false && (
@@ -557,6 +581,7 @@ export default function BankAccountShow({
                                                 {formatSharedMoney(
                                                     Number(run.balance_delta),
                                                     account.currency,
+                                                    locale,
                                                 )}
                                             </Badge>
                                         )}
@@ -679,6 +704,8 @@ function BalanceAuditDialog({
     open: boolean;
     onClose: () => void;
 }) {
+    const { locale } = useRegion();
+
     useEffect(() => {
         if (open && audit === undefined) {
             router.reload({ only: ['balanceAudit'] });
@@ -714,6 +741,7 @@ function BalanceAuditDialog({
                                         {formatSharedMoney(
                                             Number(audit.total_delta),
                                             account.currency,
+                                            locale,
                                         )}
                                     </span>
                                 </>
@@ -743,7 +771,10 @@ function BalanceAuditDialog({
                                         </Badge>
                                         {chainBreak.date && (
                                             <span className="text-sm text-muted-foreground">
-                                                {formatDate(chainBreak.date)}
+                                                {formatDate(
+                                                    chainBreak.date,
+                                                    locale,
+                                                )}
                                             </span>
                                         )}
                                         {chainBreak.delta !== null && (
@@ -751,6 +782,7 @@ function BalanceAuditDialog({
                                                 {formatSharedMoney(
                                                     Number(chainBreak.delta),
                                                     account.currency,
+                                                    locale,
                                                 )}
                                             </span>
                                         )}
@@ -773,6 +805,7 @@ function BalanceAuditDialog({
                                                             <td className="py-1.5 pr-3 whitespace-nowrap text-muted-foreground tabular-nums">
                                                                 {formatDate(
                                                                     posting.date,
+                                                                    locale,
                                                                 )}
                                                             </td>
                                                             <td className="py-1.5 pr-3">
@@ -781,10 +814,14 @@ function BalanceAuditDialog({
                                                                 }
                                                             </td>
                                                             <td className="py-1.5 pr-3 text-right whitespace-nowrap tabular-nums">
-                                                                {formatSharedMoney(
-                                                                    posting.amount,
-                                                                    account.currency,
-                                                                )}
+                                                                {posting.amount ===
+                                                                null
+                                                                    ? '—'
+                                                                    : formatSharedMoney(
+                                                                          posting.amount,
+                                                                          account.currency,
+                                                                          locale,
+                                                                      )}
                                                             </td>
                                                             <td className="py-1.5 text-right whitespace-nowrap text-muted-foreground tabular-nums">
                                                                 {posting.balance ===
@@ -793,6 +830,7 @@ function BalanceAuditDialog({
                                                                     : formatSharedMoney(
                                                                           posting.balance,
                                                                           account.currency,
+                                                                          locale,
                                                                       )}
                                                             </td>
                                                         </tr>
@@ -826,6 +864,8 @@ function DeletePostingDialog({
     posting: Posting | null;
     onClose: () => void;
 }) {
+    const { locale } = useRegion();
+
     const remove = () => {
         if (posting === null) {
             return;
@@ -854,7 +894,7 @@ function DeletePostingDialog({
                     <DialogDescription>
                         {posting === null
                             ? ''
-                            : `"${posting.description}" (${formatSharedMoney(posting.amount, posting.currency)}) will be permanently removed from ${account.name}.`}
+                            : `"${posting.description}" (${posting.original_amount === null ? '—' : formatSharedMoney(posting.original_amount, account.currency, locale)}) will be permanently removed from ${account.name}.`}
                     </DialogDescription>
                 </DialogHeader>
                 <DialogFooter>

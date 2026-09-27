@@ -22,6 +22,7 @@ import {
 } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { formatRelativeDateTime } from '@/lib/dates';
+import { useRegion } from '@/lib/region';
 import { cn } from '@/lib/utils';
 import { update as updateAccount } from '@/routes/bank-accounts';
 import { map as mapAccounts } from '@/routes/bank-connections/accounts';
@@ -307,6 +308,7 @@ function SetupRow({
     errors: Record<string, string | undefined>;
     onChange: (patch: Partial<RowState>) => void;
 }) {
+    const { locale, timezone } = useRegion();
     const isLinked =
         account.status === 'linked' && account.bank_account !== null;
     const isArchived = isLinked && account.bank_account?.is_active === false;
@@ -422,6 +424,8 @@ function SetupRow({
                                         Last sync:{' '}
                                         {formatRelativeDateTime(
                                             account.last_synced_at,
+                                            timezone,
+                                            locale,
                                         )}
                                     </span>
                                 </>

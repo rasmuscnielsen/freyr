@@ -16,7 +16,7 @@ use Laravel\Fortify\TwoFactorAuthenticatable;
 use Laravel\Passport\Contracts\OAuthenticatable;
 use Laravel\Passport\HasApiTokens;
 
-#[Fillable(['name', 'email', 'email_verified_at', 'password', 'is_platform_admin'])]
+#[Fillable(['name', 'email', 'email_verified_at', 'password', 'is_platform_admin', 'country_code', 'timezone', 'reporting_currency', 'region_completed_at'])]
 #[Hidden(['password', 'two_factor_secret', 'two_factor_recovery_codes', 'remember_token'])]
 class User extends Authenticatable implements OAuthenticatable, PasskeyUser
 {
@@ -35,6 +35,7 @@ class User extends Authenticatable implements OAuthenticatable, PasskeyUser
             'password' => 'hashed',
             'two_factor_confirmed_at' => 'datetime',
             'is_platform_admin' => 'boolean',
+            'region_completed_at' => 'datetime',
         ];
     }
 
@@ -46,6 +47,37 @@ class User extends Authenticatable implements OAuthenticatable, PasskeyUser
     public function isPlatformAdmin(): bool
     {
         return (bool) $this->is_platform_admin;
+    }
+
+    /**
+     * Region preferences are complete once the personal setup step has run —
+     * `region_completed_at` doubles as the reporting-currency lock: ordinary
+     * settings edits may still change country and timezone, but never the
+     * reporting currency.
+     */
+    public function hasCompletedRegionSetup(): bool
+    {
+        return $this->region_completed_at !== null;
+    }
+
+    /**
+     * The BCP 47 locale used for number formatting, derived from the selected
+     * country (e.g. Denmark -> `da-DK`). Falls back to `en-US`.
+     */
+    public function numberLocale(): string
+    {
+        return config("regions.countries.{$this->country_code}.locale") ?? 'en-US';
+    }
+
+    /**
+     * The IANA timezones valid for the selected country — the first entry is
+     * the territory's canonical zone.
+     *
+     * @return list<string>
+     */
+    public function countryTimezones(): array
+    {
+        return config("regions.timezones.{$this->country_code}") ?? [];
     }
 
     /**

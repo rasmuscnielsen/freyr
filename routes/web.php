@@ -11,12 +11,18 @@ use App\Http\Controllers\Platform\RegistrationController;
 use App\Http\Controllers\Platform\SettingsController;
 use App\Http\Controllers\Platform\SubcategoryController;
 use App\Http\Controllers\PostingController;
+use App\Http\Controllers\RegionSetupController;
 use App\Http\Controllers\SpiirImportController;
 use Illuminate\Support\Facades\Route;
 
 Route::redirect('/', '/login')->name('home');
 
-Route::middleware(['auth', 'verified'])->group(function () {
+Route::middleware('auth')->prefix('region-setup')->name('region-setup.')->group(function () {
+    Route::get('/', [RegionSetupController::class, 'edit'])->name('edit');
+    Route::post('/', [RegionSetupController::class, 'store'])->name('store');
+});
+
+Route::middleware(['auth', 'verified', 'requires-region-setup'])->group(function () {
     Route::get('dashboard', DashboardController::class)->name('dashboard');
     Route::get('bank-connections', [BankConnectionController::class, 'index'])->name('bank-connections.index');
     Route::post('bank-connections', [BankConnectionController::class, 'store'])->name('bank-connections.store');
@@ -30,17 +36,18 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::patch('bank-connection-accounts/{bankConnectionAccount}', [BankConnectionAccountController::class, 'update'])->name('bank-connection-accounts.update');
     Route::post('bank-connection-accounts/{bankConnectionAccount}/sync', [BankConnectionAccountController::class, 'sync'])->name('bank-connection-accounts.sync');
     Route::patch('postings', [PostingController::class, 'bulkUpdate'])->name('postings.bulk-update');
+    Route::post('postings/retry-conversions', [PostingController::class, 'retryConversions'])->name('postings.retry-conversions');
     Route::resource('postings', PostingController::class)->only(['index', 'update']);
     Route::resource('bank-accounts', BankAccountController::class)->only(['index', 'show', 'store', 'update', 'destroy']);
     Route::resource('bank-accounts.postings', BankAccountPostingController::class)->only(['store', 'update', 'destroy'])->scoped();
 });
 
-Route::middleware(['auth', 'platform-admin'])->group(function () {
+Route::middleware(['auth', 'platform-admin', 'requires-region-setup'])->group(function () {
     Route::post('spiir-import', [SpiirImportController::class, 'store'])->name('spiir-import.store');
     Route::get('spiir-import/{import}', [SpiirImportController::class, 'show'])->name('spiir-import.show');
 });
 
-Route::middleware(['auth', 'verified', 'platform-admin'])->prefix('platform')->name('platform.')->group(function () {
+Route::middleware(['auth', 'verified', 'platform-admin', 'requires-region-setup'])->prefix('platform')->name('platform.')->group(function () {
     Route::get('categories', [CategoryController::class, 'index'])->name('categories.index');
     Route::post('categories', [CategoryController::class, 'store'])->name('categories.store');
     Route::patch('categories/{category}', [CategoryController::class, 'update'])->name('categories.update');

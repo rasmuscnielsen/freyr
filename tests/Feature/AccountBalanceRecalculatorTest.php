@@ -21,9 +21,9 @@ function makeManualAccount(array $attributes = []): BankAccount
 
 test('recalculate rewrites the running balance chain ordered by date then id', function () {
     $account = makeManualAccount();
-    $first = Posting::factory()->forAccount($account)->create(['date' => '2026-01-01', 'amount' => '100.00', 'balance' => null]);
-    $third = Posting::factory()->forAccount($account)->create(['date' => '2026-02-01', 'amount' => '-30.00', 'balance' => null]);
-    $second = Posting::factory()->forAccount($account)->create(['date' => '2026-01-15', 'amount' => '-25.50', 'balance' => null]);
+    $first = Posting::factory()->forAccount($account)->create(['date' => '2026-01-01', 'original_amount' => '100.00', 'amount' => '100.00', 'balance' => null]);
+    $third = Posting::factory()->forAccount($account)->create(['date' => '2026-02-01', 'original_amount' => '-30.00', 'amount' => '-30.00', 'balance' => null]);
+    $second = Posting::factory()->forAccount($account)->create(['date' => '2026-01-15', 'original_amount' => '-25.50', 'amount' => '-25.50', 'balance' => null]);
 
     recalculator()->recalculate($account);
 
@@ -36,7 +36,7 @@ test('recalculate rewrites the running balance chain ordered by date then id', f
 
 test('recalculate starts the chain from the opening balance', function () {
     $account = makeManualAccount(['opening_balance' => '1000.00']);
-    Posting::factory()->forAccount($account)->create(['date' => '2026-01-01', 'amount' => '-100.00', 'balance' => null]);
+    Posting::factory()->forAccount($account)->create(['date' => '2026-01-01', 'original_amount' => '-100.00', 'amount' => '-100.00', 'balance' => null]);
 
     recalculator()->recalculate($account);
 
@@ -45,8 +45,8 @@ test('recalculate starts the chain from the opening balance', function () {
 
 test('recalculate breaks same-day ties by id', function () {
     $account = makeManualAccount();
-    $earlier = Posting::factory()->forAccount($account)->create(['date' => '2026-03-01', 'amount' => '50.00', 'balance' => null]);
-    $later = Posting::factory()->forAccount($account)->create(['date' => '2026-03-01', 'amount' => '-20.00', 'balance' => null]);
+    $earlier = Posting::factory()->forAccount($account)->create(['date' => '2026-03-01', 'original_amount' => '50.00', 'amount' => '50.00', 'balance' => null]);
+    $later = Posting::factory()->forAccount($account)->create(['date' => '2026-03-01', 'original_amount' => '-20.00', 'amount' => '-20.00', 'balance' => null]);
 
     recalculator()->recalculate($account);
 
@@ -65,12 +65,12 @@ test('recalculate with no postings falls back to the opening balance', function 
 
 test('recalculate is idempotent and stable across edits', function () {
     $account = makeManualAccount();
-    $posting = Posting::factory()->forAccount($account)->create(['date' => '2026-01-01', 'amount' => '100.00', 'balance' => null]);
+    $posting = Posting::factory()->forAccount($account)->create(['date' => '2026-01-01', 'original_amount' => '100.00', 'amount' => '100.00', 'balance' => null]);
 
     recalculator()->recalculate($account);
     expect((float) $account->refresh()->current_balance)->toBe(100.00);
 
-    $posting->update(['amount' => '50.00']);
+    $posting->update(['original_amount' => '50.00']);
     recalculator()->recalculate($account);
 
     expect((float) $posting->refresh()->balance)->toBe(50.00)
@@ -90,8 +90,8 @@ test('seedOpeningBalanceFromImportedChain infers the balance before the first po
     $account = makeManualAccount();
     // Imported chain that opened at 500: +100 => 600, -50 => 550, but the
     // oldest row carries no balance (e.g. a Spiir split artifact).
-    Posting::factory()->forAccount($account)->create(['date' => '2026-01-01', 'amount' => '100.00', 'balance' => null]);
-    Posting::factory()->forAccount($account)->create(['date' => '2026-01-10', 'amount' => '-50.00', 'balance' => '550.00']);
+    Posting::factory()->forAccount($account)->create(['date' => '2026-01-01', 'original_amount' => '100.00', 'amount' => '100.00', 'balance' => null]);
+    Posting::factory()->forAccount($account)->create(['date' => '2026-01-10', 'original_amount' => '-50.00', 'amount' => '-50.00', 'balance' => '550.00']);
 
     recalculator()->seedOpeningBalanceFromImportedChain($account);
 

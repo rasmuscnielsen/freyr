@@ -23,6 +23,7 @@ import {
 } from '@/components/ui/select';
 import { formatDate, formatDayMonth } from '@/lib/dates';
 import { formatMoney } from '@/lib/money';
+import { useRegion } from '@/lib/region';
 import { cn } from '@/lib/utils';
 import {
     bulkUpdate as bulkUpdatePostings,
@@ -64,8 +65,10 @@ type Posting = {
     description: string;
     original_description: string | null;
     comment: string | null;
-    amount: number;
+    amount: number | null;
     currency: string;
+    original_amount: number | null;
+    original_currency: string | null;
     is_extraordinary: boolean;
     bank_account: {
         id: number;
@@ -192,6 +195,7 @@ export default function Postings({
     const [rawSelectedIds, setRawSelectedIds] = useState<Set<number>>(
         new Set(),
     );
+    const { locale } = useRegion();
     const [isPickingBulkCategory, setIsPickingBulkCategory] = useState(false);
     const [isBulkSaving, setIsBulkSaving] = useState(false);
     // Anchor for shift-click range selection.
@@ -691,14 +695,17 @@ export default function Postings({
                                             />
                                         </td>
                                         <td className="hidden px-3 py-2 whitespace-nowrap text-muted-foreground tabular-nums md:table-cell">
-                                            {formatDate(posting.date)}
+                                            {formatDate(posting.date, locale)}
                                         </td>
                                         <td className="px-3 py-2">
                                             {/* The date column is hidden on
                                                 small screens so the amount stays
                                                 in view; surface it here instead. */}
                                             <div className="text-xs text-muted-foreground md:hidden">
-                                                {formatDayMonth(posting.date)}
+                                                {formatDayMonth(
+                                                    posting.date,
+                                                    locale,
+                                                )}
                                             </div>
                                             <div className="flex items-center gap-2">
                                                 <div className="font-medium">
@@ -789,13 +796,32 @@ export default function Postings({
                                         <td
                                             className={cn(
                                                 'px-3 py-2 text-right font-medium whitespace-nowrap tabular-nums',
-                                                posting.amount >= 0 &&
+                                                (posting.amount ??
+                                                    posting.original_amount ??
+                                                    0) >= 0 &&
                                                     'text-chart-income',
                                             )}
                                         >
-                                            {formatMoney(
-                                                posting.amount,
-                                                posting.currency,
+                                            {posting.amount !== null ? (
+                                                formatMoney(
+                                                    posting.amount,
+                                                    posting.currency,
+                                                    locale,
+                                                )
+                                            ) : posting.original_amount !==
+                                              null ? (
+                                                <span className="inline-flex items-baseline gap-1">
+                                                    {formatMoney(
+                                                        posting.original_amount,
+                                                        posting.original_currency,
+                                                        locale,
+                                                    )}
+                                                    <span className="text-xs font-normal text-muted-foreground">
+                                                        pending
+                                                    </span>
+                                                </span>
+                                            ) : (
+                                                '—'
                                             )}
                                         </td>
                                     </tr>
@@ -900,12 +926,20 @@ export default function Postings({
                 onClose={() => setModalPosting(null)}
                 title="Edit posting"
                 description="Categorize the posting, add a comment, or mark it extraordinary. Date, description, and amount are managed on the account."
-                currency={modalPosting?.currency ?? 'DKK'}
+                currency={
+                    modalPosting?.original_currency ??
+                    modalPosting?.currency ??
+                    'DKK'
+                }
                 categoryOptions={comboboxOptions}
                 initial={{
                     date: modalPosting?.date ?? '',
                     description: modalPosting?.description ?? '',
-                    amount: modalPosting?.amount.toFixed(2) ?? '',
+                    amount:
+                        (
+                            modalPosting?.original_amount ??
+                            modalPosting?.amount
+                        )?.toFixed(2) ?? '',
                     categorized_subcategory_id:
                         modalPosting?.subcategory?.id ?? null,
                     comment: modalPosting?.comment ?? '',

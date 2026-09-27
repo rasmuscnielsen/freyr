@@ -20,6 +20,8 @@ class PostingFactory extends Factory
      */
     public function definition(): array
     {
+        $amount = fake()->randomFloat(2, -1000, -10);
+
         return [
             'user_id' => User::factory(),
             'bank_account_id' => BankAccount::factory(),
@@ -34,8 +36,8 @@ class PostingFactory extends Factory
             'description' => fake()->company(),
             'original_description' => null,
             'comment' => null,
-            'amount' => fake()->randomFloat(2, -1000, -10),
-            'original_amount' => null,
+            'amount' => $amount,
+            'original_amount' => $amount,
             'balance' => fake()->randomFloat(2, 0, 100000),
             'upload_batch_id' => null,
             'external_posting_id' => null,
@@ -76,23 +78,46 @@ class PostingFactory extends Factory
 
     public function income(): static
     {
-        return $this->state(fn (array $attributes): array => [
-            'amount' => fake()->randomFloat(2, 1000, 50000),
-        ]);
+        return $this->state(function (array $attributes): array {
+            $amount = fake()->randomFloat(2, 1000, 50000);
+
+            return ['amount' => $amount, 'original_amount' => $amount];
+        });
     }
 
     public function expense(): static
     {
-        return $this->state(fn (array $attributes): array => [
-            'amount' => fake()->randomFloat(2, -1000, -10),
-        ]);
+        return $this->state(function (array $attributes): array {
+            $amount = fake()->randomFloat(2, -1000, -10);
+
+            return ['amount' => $amount, 'original_amount' => $amount];
+        });
     }
 
     public function saving(): static
     {
-        return $this->state(fn (array $attributes): array => [
-            'amount' => fake()->randomFloat(2, -10000, -500),
-        ]);
+        return $this->state(function (array $attributes): array {
+            $amount = fake()->randomFloat(2, -10000, -500);
+
+            return ['amount' => $amount, 'original_amount' => $amount];
+        });
+    }
+
+    /**
+     * A posting whose account movement is known in $accountCurrency but whose
+     * reporting amount is still pending conversion.
+     */
+    public function unconverted(string $accountCurrency = 'EUR'): static
+    {
+        return $this->state(function (array $attributes) use ($accountCurrency): array {
+            $amount = fake()->randomFloat(2, -1000, -10);
+
+            return [
+                'amount' => null,
+                'original_amount' => $amount,
+                'original_currency' => $accountCurrency,
+            ];
+        });
     }
 
     public function uncategorized(): static

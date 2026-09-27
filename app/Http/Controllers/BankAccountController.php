@@ -20,6 +20,7 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Inertia\Response;
 use Throwable;
@@ -94,10 +95,12 @@ class BankAccountController extends Controller
                 ]),
             'connections' => $this->connectionsPayload($user),
             'setupConnectionId' => $this->setupConnectionId($request),
-            'availableBanks' => $this->availableBanks($enableBanking),
+            'availableBanks' => $this->availableBanks($enableBanking, $user),
             'defaults' => [
                 'aspsp_name' => config('services.enable_banking.aspsp_name'),
-                'aspsp_country' => config('services.enable_banking.aspsp_country'),
+                // Bank selection defaults to the user's country but may differ
+                // for foreign banks — the connection stores its own value.
+                'aspsp_country' => $user->country_code ?? config('services.enable_banking.aspsp_country'),
             ],
         ]);
     }
@@ -119,9 +122,11 @@ class BankAccountController extends Controller
                 'id' => $posting->id,
                 'date' => $posting->date?->toDateString(),
                 'description' => $posting->description,
-                'amount' => (float) $posting->amount,
+                // The account page shows account-currency amounts — the
+                // original pair, not the reporting conversion.
+                'original_amount' => $posting->original_amount === null ? null : (float) $posting->original_amount,
+                'original_currency' => $posting->original_currency ?? $bankAccount->currency,
                 'balance' => $posting->balance === null ? null : (float) $posting->balance,
-                'currency' => $posting->currency,
                 'comment' => $posting->comment,
                 'is_extraordinary' => $posting->is_extraordinary,
                 'categorized_subcategory_id' => $posting->categorized_subcategory_id,
@@ -195,7 +200,19 @@ class BankAccountController extends Controller
 
     public function update(UpdateBankAccountRequest $request, BankAccount $bankAccount): RedirectResponse
     {
-        $bankAccount->update($request->validated());
+        $validated = $request->validated();
+
+        // The account currency denominates the whole balance chain — it must
+        // not move once postings or a live feed exist.
+        if (array_key_exists('currency', $validated)
+            && $validated['currency'] !== $bankAccount->currency
+            && ($bankAccount->hasBankConnection() || $bankAccount->postings()->exists())) {
+            throw ValidationException::withMessages([
+                'currency' => 'The account currency cannot change once the account has postings or a bank connection.',
+            ]);
+        }
+
+        $bankAccount->update($validated);
 
         return back();
     }
@@ -332,9 +349,9 @@ class BankAccountController extends Controller
     /**
      * @return list<array{key:string,name:string,country:string}>
      */
-    private function availableBanks(EnableBankingClient $enableBanking): array
+    private function availableBanks(EnableBankingClient $enableBanking, User $user): array
     {
-        $defaultCountry = (string) config('services.enable_banking.aspsp_country', 'DK');
+        $defaultCountry = $user->country_code ?? (string) config('services.enable_banking.aspsp_country', 'DK');
 
         try {
             return Cache::remember('enable-banking.aspsps.'.strtolower($defaultCountry).'.personal.ais', now()->addHours(12), function () use ($defaultCountry, $enableBanking): array {
@@ -358,7 +375,7 @@ class BankAccountController extends Controller
             });
         } catch (Throwable) {
             $name = (string) config('services.enable_banking.aspsp_name');
-            $country = (string) config('services.enable_banking.aspsp_country');
+            $country = $defaultCountry;
 
             if ($name === '' || $country === '') {
                 return [];

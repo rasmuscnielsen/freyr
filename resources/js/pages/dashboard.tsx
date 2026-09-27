@@ -26,11 +26,12 @@ import {
     SelectTrigger,
     SelectValue,
 } from '@/components/ui/select';
-import { formatMonth } from '@/lib/dates';
+import { formatDate, formatMonth } from '@/lib/dates';
 import { formatMoney as formatSharedMoney, formatNumber } from '@/lib/money';
+import { useRegion } from '@/lib/region';
 import { cn } from '@/lib/utils';
 import { dashboard } from '@/routes';
-import { index as postingsIndex } from '@/routes/postings';
+import { index as postingsIndex, retryConversions } from '@/routes/postings';
 
 type Period = {
     selected: string;
@@ -38,6 +39,12 @@ type Period = {
     start: string;
     end: string;
     options: string[];
+};
+
+type Coverage = {
+    eligible: number;
+    converted: number;
+    missing: number;
 };
 
 type Summary = {
@@ -50,6 +57,7 @@ type Summary = {
     investments: number;
     savings: number;
     uncategorized: number;
+    coverage: Coverage;
 };
 
 type MonthlyPoint = {
@@ -62,6 +70,7 @@ type MonthlyPoint = {
     savings: number;
     uncategorized: number;
     result: number;
+    missing: number;
 };
 
 type TopSubcategory = {
@@ -81,6 +90,7 @@ type BreakdownCategory = {
     type: 'income' | 'expense';
     bucket: 'income' | BucketKey;
     total: number;
+    missing: number;
     topSubcategories: TopSubcategory[];
     topPostings: TopPosting[];
 };
@@ -91,12 +101,19 @@ type Breakdown = {
     categories: BreakdownCategory[];
 };
 
+type Balance = {
+    total: number | null;
+    currency: string | null;
+    missing_accounts: number;
+    valuation_date: string | null;
+};
+
 type DashboardProps = {
     period: Period;
     summary: Summary;
     monthly: MonthlyPoint[];
     breakdown?: Breakdown;
-    balance: number | null;
+    balance: Balance;
     primaryCurrency: string | null;
 };
 
@@ -162,23 +179,33 @@ const BUCKET_COLORS: Record<'income' | BucketKey, string> = {
     ) as Record<BucketKey, string>),
 };
 
-function formatMoney(value: number, currency: string | null): string {
-    return formatSharedMoney(value, currency, { maximumFractionDigits: 0 });
+function formatMoney(
+    value: number,
+    currency: string | null,
+    locale?: string,
+): string {
+    return formatSharedMoney(value, currency, locale, {
+        maximumFractionDigits: 0,
+    });
 }
 
 /**
  * Formats a magnitude with an explicit leading sign, e.g. "+ DKK 50.123" or
  * "− DKK 12.000". Uses a true minus sign for typographic balance.
  */
-function formatSignedMoney(value: number, currency: string | null): string {
+function formatSignedMoney(
+    value: number,
+    currency: string | null,
+    locale?: string,
+): string {
     const rounded = Math.round(value);
     const sign = rounded < 0 ? '−' : '+';
 
-    return `${sign} ${formatMoney(Math.abs(rounded), currency)}`;
+    return `${sign} ${formatMoney(Math.abs(rounded), currency, locale)}`;
 }
 
-function formatAxis(value: number): string {
-    return formatNumber(value, {
+function formatAxis(value: number, locale?: string): string {
+    return formatNumber(value, locale, {
         notation: 'compact',
         maximumFractionDigits: 1,
     });
@@ -201,11 +228,11 @@ function niceCeiling(value: number): number {
     return (nice ?? 10) * magnitude;
 }
 
-function formatMonthLabel(month: string): string {
+function formatMonthLabel(month: string, locale?: string): string {
     const [year, monthPart] = month.split('-');
     const date = new Date(Number(year), Number(monthPart) - 1, 1);
 
-    return new Intl.DateTimeFormat(undefined, {
+    return new Intl.DateTimeFormat(locale, {
         month: 'long',
         year: 'numeric',
     }).format(date);
@@ -228,7 +255,12 @@ function periodLabel(option: string): string {
  * Tooltip rows mirror the allocation legend: color dot, muted label, bold
  * share of the month's outgoing total (buckets only), muted amount.
  */
-function flowTooltip(props: unknown, currency: string | null) {
+function flowTooltip(
+    props: unknown,
+    currency: string | null,
+    points: MonthlyPoint[],
+    locale?: string,
+) {
     const { active, payload, label } = props as {
         active?: boolean;
         payload?: Array<{
@@ -250,6 +282,8 @@ function flowTooltip(props: unknown, currency: string | null) {
     const outTotal = entries
         .filter(isOutgoing)
         .reduce((sum, item) => sum + Math.abs(Number(item.value)), 0);
+    const point = points.find((item) => item.label === label);
+    const missing = point?.missing ?? 0;
 
     return (
         <div className="rounded-lg border bg-popover p-3 text-sm text-popover-foreground shadow-lg">
@@ -281,7 +315,7 @@ function flowTooltip(props: unknown, currency: string | null) {
                             <span className="text-right font-medium tabular-nums">
                                 {share !== null && (
                                     <>
-                                        {formatNumber(share, {
+                                        {formatNumber(share, locale, {
                                             maximumFractionDigits: 1,
                                         })}
                                         %
@@ -293,13 +327,24 @@ function flowTooltip(props: unknown, currency: string | null) {
                                     ? formatMoney(
                                           Math.abs(Number(item.value)),
                                           currency,
+                                          locale,
                                       )
-                                    : formatMoney(Number(item.value), currency)}
+                                    : formatMoney(
+                                          Number(item.value),
+                                          currency,
+                                          locale,
+                                      )}
                             </span>
                         </Fragment>
                     );
                 })}
             </div>
+            {missing > 0 && (
+                <div className="mt-2 border-t pt-2 text-muted-foreground">
+                    {missing} {missing === 1 ? 'posting' : 'postings'} pending
+                    conversion — month is partial.
+                </div>
+            )}
         </div>
     );
 }
@@ -312,10 +357,12 @@ function flowTooltip(props: unknown, currency: string | null) {
 function BreakdownDetail({
     category,
     currency,
+    locale,
     onSelect,
 }: {
     category: BreakdownCategory;
     currency: string | null;
+    locale?: string;
     onSelect: (category: BreakdownCategory) => void;
 }) {
     return (
@@ -323,9 +370,16 @@ function BreakdownDetail({
             <div className="mb-2 flex items-center justify-between gap-6 font-medium">
                 <span>{category.name}</span>
                 <span className="tabular-nums">
-                    {formatMoney(category.total, currency)}
+                    {formatMoney(category.total, currency, locale)}
                 </span>
             </div>
+            {category.missing > 0 && (
+                <div className="mb-2 text-muted-foreground">
+                    {category.missing}{' '}
+                    {category.missing === 1 ? 'posting' : 'postings'} pending
+                    conversion — total is partial.
+                </div>
+            )}
             {category.topSubcategories.length > 0 && (
                 <div className="space-y-1 border-t pt-2 text-muted-foreground">
                     {category.topSubcategories.map((subcategory) => (
@@ -335,7 +389,11 @@ function BreakdownDetail({
                         >
                             <span>{subcategory.name}</span>
                             <span className="font-medium text-foreground tabular-nums">
-                                {formatMoney(subcategory.amount, currency)}
+                                {formatMoney(
+                                    subcategory.amount,
+                                    currency,
+                                    locale,
+                                )}
                             </span>
                         </div>
                     ))}
@@ -356,7 +414,11 @@ function BreakdownDetail({
                                     {posting.description}
                                 </span>
                                 <span className="font-medium text-foreground tabular-nums">
-                                    {formatMoney(posting.amount, currency)}
+                                    {formatMoney(
+                                        posting.amount,
+                                        currency,
+                                        locale,
+                                    )}
                                 </span>
                             </div>
                         ))}
@@ -382,6 +444,7 @@ export default function Dashboard({
     balance,
     primaryCurrency,
 }: DashboardProps) {
+    const { locale } = useRegion();
     const [selectedMonth, setSelectedMonth] = useState<string | null>(
         breakdown?.month ?? null,
     );
@@ -489,12 +552,13 @@ export default function Dashboard({
 
     const breakdownHeading =
         selectedMonth !== null
-            ? formatMonthLabel(selectedMonth)
+            ? formatMonthLabel(selectedMonth, locale)
             : 'Average per month';
 
     const resultPositive = summary.result >= 0;
-    const hasBalance = balance !== null;
-    const heroValue = hasBalance ? balance : summary.result;
+    const hasBalance = balance.total !== null;
+    const heroValue = hasBalance ? (balance.total ?? 0) : summary.result;
+    const missingCount = summary.coverage.missing;
     // The headline metrics read as per-month averages; the hero delta stays
     // the period total.
     const monthsInPeriod = Math.max(period.months, 1);
@@ -511,7 +575,11 @@ export default function Dashboard({
                             </span>
                             <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
                                 <span className="text-4xl font-semibold tracking-tight tabular-nums sm:text-5xl">
-                                    {formatMoney(heroValue, primaryCurrency)}
+                                    {formatMoney(
+                                        heroValue,
+                                        primaryCurrency,
+                                        locale,
+                                    )}
                                 </span>
                                 <span
                                     className={cn(
@@ -524,14 +592,51 @@ export default function Dashboard({
                                     {formatSignedMoney(
                                         summary.result,
                                         primaryCurrency,
+                                        locale,
                                     )}
                                 </span>
                             </div>
                         </div>
                         <p className="text-sm text-muted-foreground">
-                            {formatMonth(period.start)} –{' '}
-                            {formatMonth(period.end)} averages
+                            {formatMonth(period.start, locale)} –{' '}
+                            {formatMonth(period.end, locale)} averages
                         </p>
+                        {hasBalance && balance.missing_accounts > 0 && (
+                            <p className="text-sm text-muted-foreground">
+                                Excludes {balance.missing_accounts}{' '}
+                                {balance.missing_accounts === 1
+                                    ? 'account'
+                                    : 'accounts'}{' '}
+                                without an exchange rate
+                                {balance.valuation_date !== null && (
+                                    <>
+                                        {' '}
+                                        · rates as of{' '}
+                                        {formatDate(
+                                            balance.valuation_date,
+                                            locale,
+                                        )}
+                                    </>
+                                )}
+                            </p>
+                        )}
+                        {missingCount > 0 && (
+                            <p className="text-sm text-muted-foreground">
+                                {formatNumber(missingCount, locale)}{' '}
+                                {missingCount === 1 ? 'posting' : 'postings'}{' '}
+                                still being converted — known subtotals are
+                                partial.{' '}
+                                <button
+                                    type="button"
+                                    className="underline underline-offset-2"
+                                    onClick={() =>
+                                        router.post(retryConversions.url())
+                                    }
+                                >
+                                    Retry now
+                                </button>
+                            </p>
+                        )}
                     </div>
                     <Select
                         value={period.selected}
@@ -556,12 +661,14 @@ export default function Dashboard({
                             label="In"
                             value={summary.in / monthsInPeriod}
                             currency={primaryCurrency}
+                            locale={locale}
                             direction="in"
                         />
                         <FlowStat
                             label="Out"
                             value={summary.out / monthsInPeriod}
                             currency={primaryCurrency}
+                            locale={locale}
                             direction="out"
                         />
                     </div>
@@ -570,6 +677,7 @@ export default function Dashboard({
                         summary={summary}
                         months={monthsInPeriod}
                         currency={primaryCurrency}
+                        locale={locale}
                         period={period}
                     />
                 </div>
@@ -621,7 +729,9 @@ export default function Dashboard({
                                         tick={mutedTick}
                                     />
                                     <YAxis
-                                        tickFormatter={formatAxis}
+                                        tickFormatter={(value: number) =>
+                                            formatAxis(value, locale)
+                                        }
                                         tabIndex={-1}
                                         tickLine={false}
                                         axisLine={false}
@@ -638,7 +748,12 @@ export default function Dashboard({
                                     />
                                     <Tooltip
                                         content={(props: unknown) =>
-                                            flowTooltip(props, primaryCurrency)
+                                            flowTooltip(
+                                                props,
+                                                primaryCurrency,
+                                                flowData,
+                                                locale,
+                                            )
                                         }
                                         cursor={{ fill: 'var(--muted)' }}
                                     />
@@ -745,12 +860,14 @@ export default function Dashboard({
                                     categories={incomeCategories}
                                     onSelect={openCategory}
                                     currency={primaryCurrency}
+                                    locale={locale}
                                 />
                                 <BreakdownGroup
                                     title="Out"
                                     categories={expenseCategories}
                                     onSelect={openCategory}
                                     currency={primaryCurrency}
+                                    locale={locale}
                                 />
                             </div>
                         )}
@@ -786,19 +903,21 @@ function FlowStat({
     label,
     value,
     currency,
+    locale,
     direction,
 }: {
     label: string;
     value: number;
     currency: string | null;
+    locale?: string;
     direction: 'in' | 'out';
 }) {
     const display =
         direction === 'out' && value !== 0
-            ? formatSignedMoney(-value, currency)
+            ? formatSignedMoney(-value, currency, locale)
             : value < 0
-              ? formatSignedMoney(value, currency)
-              : formatMoney(value, currency);
+              ? formatSignedMoney(value, currency, locale)
+              : formatMoney(value, currency, locale);
 
     return (
         <span className="flex items-center gap-2">
@@ -822,11 +941,13 @@ function BreakdownGroup({
     categories,
     onSelect,
     currency,
+    locale,
 }: {
     title: string;
     categories: BreakdownCategory[];
     onSelect: (category: BreakdownCategory) => void;
     currency: string | null;
+    locale?: string;
 }) {
     // Bars scale to the group's largest category. The longest bar fills nearly
     // the whole track, leaving room for its trailing amount to sit flush.
@@ -847,7 +968,15 @@ function BreakdownGroup({
                 </h3>
                 {categories.length > 0 && (
                     <span className="text-sm font-medium tabular-nums">
-                        {formatMoney(groupTotal, currency)}
+                        {formatMoney(groupTotal, currency, locale)}
+                        {categories.some(
+                            (category) => category.missing > 0,
+                        ) && (
+                            <span className="text-muted-foreground">
+                                {' '}
+                                (partial)
+                            </span>
+                        )}
                     </span>
                 )}
             </div>
@@ -868,6 +997,7 @@ function BreakdownGroup({
                             }
                             onSelect={onSelect}
                             currency={currency}
+                            locale={locale}
                         />
                     ))}
                 </div>
@@ -887,11 +1017,13 @@ function BreakdownRow({
     pct,
     onSelect,
     currency,
+    locale,
 }: {
     category: BreakdownCategory;
     pct: number;
     onSelect: (category: BreakdownCategory) => void;
     currency: string | null;
+    locale?: string;
 }) {
     const barColor =
         BUCKET_COLORS[category.bucket] ?? 'var(--color-chart-uncategorized)';
@@ -1017,12 +1149,16 @@ function BreakdownRow({
                         <BreakdownDetail
                             category={category}
                             currency={currency}
+                            locale={locale}
                             onSelect={onSelect}
                         />
                     </HoverCardContent>
                 </HoverCard>
                 <span className="shrink-0 text-sm text-muted-foreground tabular-nums">
-                    {formatMoney(category.total, currency)}
+                    {formatMoney(category.total, currency, locale)}
+                    {category.missing > 0 && (
+                        <span> +{category.missing} pending</span>
+                    )}
                 </span>
             </span>
         </div>
@@ -1055,11 +1191,13 @@ function AllocationBar({
     summary,
     months,
     currency,
+    locale,
     period,
 }: {
     summary: Summary;
     months: number;
     currency: string | null;
+    locale?: string;
     period: Period;
 }) {
     const out = summary.out;
@@ -1090,7 +1228,7 @@ function AllocationBar({
                         style={{
                             width: `${(segment.value / out) * 100}%`,
                         }}
-                        title={`${segment.label} · ${formatMoney(segment.value / months, currency)}`}
+                        title={`${segment.label} · ${formatMoney(segment.value / months, currency, locale)}`}
                     />
                 ))}
             </div>
@@ -1109,13 +1247,21 @@ function AllocationBar({
                                 {segment.label}
                             </span>
                             <span className="font-medium tabular-nums">
-                                {formatNumber((segment.value / out) * 100, {
-                                    maximumFractionDigits: 1,
-                                })}
+                                {formatNumber(
+                                    (segment.value / out) * 100,
+                                    locale,
+                                    {
+                                        maximumFractionDigits: 1,
+                                    },
+                                )}
                                 %
                             </span>
                             <span className="text-muted-foreground tabular-nums">
-                                {formatMoney(segment.value / months, currency)}
+                                {formatMoney(
+                                    segment.value / months,
+                                    currency,
+                                    locale,
+                                )}
                             </span>
                         </>
                     );

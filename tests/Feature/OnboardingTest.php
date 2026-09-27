@@ -55,7 +55,7 @@ test('creating the first account makes a verified platform admin and signs in', 
         ->and($user->email_verified_at)->not->toBeNull();
 
     $this->assertAuthenticatedAs($user);
-    $response->assertRedirect(route('onboarding.registration'));
+    $response->assertRedirect(route('onboarding.region'));
 });
 
 test('the onboarding welcome redirects to login once a user exists', function () {

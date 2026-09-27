@@ -9,6 +9,7 @@ use App\Models\BankConnection;
 use App\Models\BankConnectionAccount;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 
 class BankConnectionAccountLinker
 {
@@ -18,6 +19,14 @@ class BankConnectionAccountLinker
 
     public function linkExisting(BankConnectionAccount $remote, BankAccount $local, SyncHistory $history = SyncHistory::Max): void
     {
+        // The feed's account currency must match the local account's — a
+        // mismatch would corrupt the balance chain with foreign amounts.
+        if ($remote->currency !== $local->currency) {
+            throw ValidationException::withMessages([
+                'bank_account_id' => "The bank feed reports {$remote->currency} but {$local->name} is a {$local->currency} account.",
+            ]);
+        }
+
         $this->applyImportCutoff($local, $history);
 
         $this->link($remote, $local->id);

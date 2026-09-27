@@ -46,7 +46,7 @@ class BalanceChainInspector
         $postings = $bankAccount->postings()
             ->orderBy('date')
             ->orderBy('id')
-            ->get(['id', 'date', 'description', 'amount', 'balance']);
+            ->get(['id', 'date', 'description', 'original_amount', 'balance']);
 
         $breaks = [];
         $running = null;
@@ -62,7 +62,7 @@ class BalanceChainInspector
                 continue;
             }
 
-            $expectedClose = $running + (float) $dayPostings->sum('amount');
+            $expectedClose = $running + (float) $dayPostings->sum('original_amount');
 
             if ($checkpoints->isEmpty()) {
                 $running = $expectedClose;
@@ -157,9 +157,10 @@ class BalanceChainInspector
     private function duplicatesExplaining(Collection $dayPostings, float $delta): ?Collection
     {
         $duplicated = $dayPostings
-            ->groupBy(fn (Posting $posting): string => $posting->amount.'|'.$posting->description)
+            ->whereNotNull('original_amount')
+            ->groupBy(fn (Posting $posting): string => $posting->original_amount.'|'.$posting->description)
             ->filter(fn (Collection $group): bool => $group->count() >= 2)
-            ->first(fn (Collection $group): bool => $this->matches((float) $group->first()->amount, -$delta));
+            ->first(fn (Collection $group): bool => $this->matches((float) $group->first()->original_amount, -$delta));
 
         return $duplicated?->values();
     }
@@ -173,7 +174,7 @@ class BalanceChainInspector
         $amountsSinceCheckpoint = 0.0;
 
         foreach ($dayPostings as $posting) {
-            $amountsSinceCheckpoint += (float) $posting->amount;
+            $amountsSinceCheckpoint += (float) ($posting->original_amount ?? '0');
 
             if ($posting->balance === null) {
                 continue;
@@ -203,7 +204,7 @@ class BalanceChainInspector
                 'id' => $posting->id,
                 'date' => $posting->date->toDateString(),
                 'description' => $posting->description,
-                'amount' => (float) $posting->amount,
+                'amount' => $posting->original_amount === null ? null : (float) $posting->original_amount,
                 'balance' => $posting->balance === null ? null : (float) $posting->balance,
             ])
             ->values()

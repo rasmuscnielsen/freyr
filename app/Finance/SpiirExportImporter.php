@@ -5,6 +5,7 @@ namespace App\Finance;
 use App\Enums\CategoryType;
 use App\Enums\ExpenseType;
 use App\Models\BankAccount;
+use App\Models\BankConnection;
 use App\Models\Category;
 use App\Models\Posting;
 use App\Models\Subcategory;
@@ -110,11 +111,18 @@ class SpiirExportImporter
     {
         $this->importCategories($path);
 
-        return DB::transaction(function () use ($path, $user): array {
+        $reportingCurrency = $this->exportReportingCurrency($path);
+
+        return DB::transaction(function () use ($path, $user, $reportingCurrency): array {
             $user ??= $this->resolveUser($path);
 
+            // The export's reporting currency replaces the user's initial
+            // choice before any history is written — the only way the fixed
+            // currency may still move. Rolls back with the import on failure.
+            $this->applyReportingCurrency($user, $reportingCurrency);
+
             $accounts = $this->importAccounts($path, $user);
-            $postings = $this->importPostings($path, $user, $accounts);
+            $postings = $this->importPostings($path, $user, $accounts, $reportingCurrency);
             $counterEntries = $this->resolveCounterEntryPostings();
             $this->recalculateImportedBalances($accounts);
 
@@ -128,22 +136,90 @@ class SpiirExportImporter
     }
 
     /**
+     * The export's single reporting currency, read from every usable
+     * Amount/Currency pair in Posting.csv — never from account currencies or
+     * a single arbitrary row.
+     */
+    private function exportReportingCurrency(string $path): string
+    {
+        $currencies = [];
+        $unidentifiable = false;
+
+        foreach ($this->readCsv($this->resolveFile($path, 'Posting.csv')) as $row) {
+            if ($this->nullableString($row['Amount'] ?? null) === null) {
+                continue;
+            }
+
+            $currency = $this->nullableString($row['Currency'] ?? null);
+
+            if ($currency === null) {
+                $unidentifiable = true;
+
+                continue;
+            }
+
+            $currencies[$currency] = true;
+        }
+
+        if ($unidentifiable || $currencies === []) {
+            throw new RuntimeException('The Spiir export does not identify a reporting currency.');
+        }
+
+        if (count($currencies) > 1) {
+            throw new RuntimeException('The Spiir export mixes reporting currencies: '.implode(', ', array_keys($currencies)));
+        }
+
+        return (string) array_key_first($currencies);
+    }
+
+    /**
+     * Move the importing user's reporting currency to the export's currency.
+     * Only allowed while the user has no monetary history — the currency must
+     * never change underneath postings, known balances, or active sync work.
+     */
+    private function applyReportingCurrency(User $user, string $currency): void
+    {
+        if ($user->reporting_currency === $currency) {
+            return;
+        }
+
+        $hasHistory = $user->postings()->exists()
+            || $user->bankAccounts()
+                ->where(fn ($query) => $query->whereNotNull('opening_balance')->orWhereNotNull('current_balance'))
+                ->exists()
+            || $user->bankConnections()
+                ->where('status', '!=', BankConnection::STATUS_ARCHIVED)
+                ->exists();
+
+        if ($hasHistory) {
+            throw new RuntimeException(sprintf(
+                'The export reports in %s but %s already has monetary history in %s.',
+                $currency,
+                $user->email,
+                $user->reporting_currency ?? 'an unset currency',
+            ));
+        }
+
+        $user->reporting_currency = $currency;
+        $user->save();
+    }
+
+    /**
      * Imported accounts have no bank connection yet, so their balances are
      * derived: seed each account's opening balance from the imported chain
      * while the imported per-posting balances are still authoritative, then
-     * rewrite the chain so it is consistent by construction.
+     * rewrite the chain so it is consistent by construction. A foreign
+     * account without account-currency balance evidence keeps its unknown
+     * opening balance instead of a fabricated zero.
      *
-     * @param  Collection<string, int>  $accountIds
+     * @param  Collection<string, BankAccount>  $accounts
      */
-    private function recalculateImportedBalances(Collection $accountIds): void
+    private function recalculateImportedBalances(Collection $accounts): void
     {
-        BankAccount::query()
-            ->whereIn('id', $accountIds->values())
-            ->get()
-            ->each(function (BankAccount $account): void {
-                $this->balanceRecalculator->seedOpeningBalanceFromImportedChain($account);
-                $this->balanceRecalculator->recalculate($account);
-            });
+        $accounts->each(function (BankAccount $account): void {
+            $this->balanceRecalculator->seedOpeningBalanceFromImportedChain($account);
+            $this->balanceRecalculator->recalculate($account);
+        });
     }
 
     private function resolveUser(string $path): User
@@ -167,11 +243,11 @@ class SpiirExportImporter
     }
 
     /**
-     * @return Collection<string, int>
+     * @return Collection<string, BankAccount>
      */
     private function importAccounts(string $path, User $user): Collection
     {
-        $accountIds = collect();
+        $accounts = collect();
 
         foreach ($this->readCsv($this->resolveFile($path, 'Account.csv')) as $row) {
             $legacyId = $this->nullableString($row['Id'] ?? null);
@@ -189,6 +265,10 @@ class SpiirExportImporter
                     'bank_name' => $this->bankName($this->nullableString($row['BankId'] ?? null)),
                     'currency' => (string) ($row['Currency'] ?: 'DKK'),
                     'current_balance' => $this->decimal($row['LastBookedBalance'] ?? null),
+                    // Unknown, not zero: the imported balance may seed a real
+                    // opening, but only when it is in the account currency.
+                    'opening_balance' => null,
+                    'opening_balance_origin' => null,
                     'account_type' => $this->nullableString($row['AccountType'] ?? null),
                     'ignore_postings_before' => $this->date($row['IgnorePostingsBefore'] ?? null),
                     'last_updated_at' => $this->dateTime($row['LastUpdated'] ?? null),
@@ -199,19 +279,26 @@ class SpiirExportImporter
                 ],
             );
 
-            $accountIds->put($legacyId, $account->id);
+            $accounts->put($legacyId, $account);
         }
 
-        return $accountIds;
+        return $accounts;
     }
 
     /**
      * Bulk-upserts postings keyed on their legacy id, so re-running an import
      * stays idempotent without paying a select-then-write per row.
      *
-     * @param  Collection<string, int>  $accountIds
+     * The export's `Amount`/`Currency` pair is the reporting amount in the
+     * user's reporting currency. `OriginalAmount`/`OriginalCurrency` is the
+     * account movement — but only when its currency matches the account's;
+     * otherwise it is a purchase currency and the account movement stays
+     * unknown. Both source pairs and the source balance are preserved in
+     * `extra_data` before the fields are repurposed.
+     *
+     * @param  Collection<string, BankAccount>  $accounts
      */
-    private function importPostings(string $path, User $user, Collection $accountIds): int
+    private function importPostings(string $path, User $user, Collection $accounts, string $reportingCurrency): int
     {
         $subcategoryIds = Subcategory::query()->pluck('id', 'legacy_id');
         $now = now();
@@ -222,25 +309,58 @@ class SpiirExportImporter
         foreach ($this->readCsv($this->resolveFile($path, 'Posting.csv')) as $row) {
             $legacyId = $this->nullableString($row['Id'] ?? null);
             $accountLegacyId = $this->nullableString($row['AccountId'] ?? null);
-            $bankAccountId = $accountLegacyId === null ? null : $accountIds->get($accountLegacyId);
+            $account = $accountLegacyId === null ? null : $accounts->get($accountLegacyId);
 
-            if ($legacyId === null || $bankAccountId === null) {
+            if ($legacyId === null || ! $account instanceof BankAccount) {
                 continue;
             }
 
             $subcategoryLegacyId = $this->nullableString($row['SubcategoryId'] ?? null);
             $categorizedSubcategoryLegacyId = $this->nullableString($row['CategorizedSubcategoryId'] ?? null);
             $effectiveCategorizedSubcategoryLegacyId = $categorizedSubcategoryLegacyId ?? $subcategoryLegacyId;
-            $extraData = $this->json($row['ExtraData'] ?? null);
+            $extraData = $this->json($row['ExtraData'] ?? null) ?? [];
+            $extraData['spiir_source'] = [
+                'amount' => $this->nullableString($row['Amount'] ?? null),
+                'currency' => $this->nullableString($row['Currency'] ?? null),
+                'original_amount' => $this->nullableString($row['OriginalAmount'] ?? null),
+                'original_currency' => $this->nullableString($row['OriginalCurrency'] ?? null),
+                'balance' => $this->nullableString($row['Balance'] ?? null),
+            ];
+
+            $amount = $this->decimal($row['Amount'] ?? null);
+            $originalAmount = $this->decimal($row['OriginalAmount'] ?? null);
+            $originalCurrency = $this->nullableString($row['OriginalCurrency'] ?? null);
+
+            // The original pair only represents the account movement when its
+            // currency is the account currency. When it is missing but the
+            // reporting amount is already in the account currency, that same
+            // figure is the account movement.
+            if ($originalCurrency !== $account->currency) {
+                if ($row['Currency'] === $account->currency && $amount !== null) {
+                    $originalAmount = $amount;
+                    $originalCurrency = $account->currency;
+                } else {
+                    $originalAmount = null;
+                    $originalCurrency = null;
+                }
+            }
+
+            // The exported Balance column is denominated in the reporting
+            // currency — it only anchors the account chain when the account
+            // currency is the reporting currency.
+            $balance = $row['Currency'] === $account->currency
+                ? $this->decimal($row['Balance'] ?? null)
+                : null;
 
             $rows[$legacyId] = [
                 'legacy_id' => $legacyId,
                 'user_id' => $user->id,
-                'bank_account_id' => $bankAccountId,
+                'bank_account_id' => $account->id,
                 'subcategory_id' => $subcategoryLegacyId === null ? null : $subcategoryIds->get($subcategoryLegacyId),
                 'categorized_subcategory_id' => $effectiveCategorizedSubcategoryLegacyId === null ? null : $subcategoryIds->get($effectiveCategorizedSubcategoryLegacyId),
                 'counter_entry_legacy_id' => $this->nullableString($row['CounterEntryPostingId'] ?? null),
                 'split_group_legacy_id' => $this->nullableString($row['SplitGroupId'] ?? null),
+                'source' => 'spiir',
                 'date' => $this->date($row['Date'] ?? null) ?? $now->toDateString(),
                 'custom_date' => $this->date($row['CustomDate'] ?? null),
                 'description' => (string) ($row['Description'] ?: $row['OriginalDescription'] ?: 'Posting'),
@@ -248,9 +368,9 @@ class SpiirExportImporter
                 'description_embedded_at' => null,
                 'original_description' => $this->nullableString($row['OriginalDescription'] ?? null),
                 'comment' => $this->nullableString($row['Comment'] ?? null),
-                'amount' => $this->decimal($row['Amount'] ?? null) ?? '0.00',
-                'original_amount' => $this->decimal($row['OriginalAmount'] ?? null),
-                'balance' => $this->decimal($row['Balance'] ?? null),
+                'amount' => $amount,
+                'original_amount' => $originalAmount,
+                'balance' => $balance,
                 'upload_batch_id' => $this->nullableString($row['UploadBatchId'] ?? null),
                 'external_posting_id' => $this->nullableString($row['ExternalPostingId'] ?? null),
                 'document_legacy_id' => $this->nullableString($row['DocumentId'] ?? null),
@@ -258,11 +378,11 @@ class SpiirExportImporter
                 'is_account_group_duplicate' => $this->boolean($row['IsAccountGroupDuplicate'] ?? null),
                 'prevent_marking_as_counter_entry' => $this->boolean($row['PreventMarkingAsCounterEntry'] ?? null),
                 'description_changed' => $this->boolean($row['DescriptionChanged'] ?? null),
-                'extra_data' => $extraData === null ? null : json_encode($extraData),
+                'extra_data' => json_encode($extraData),
                 'posting_type' => $this->integer($row['PostingType'] ?? null),
                 'posting_sub_type' => $this->integer($row['PostingSubType'] ?? null),
-                'currency' => (string) ($row['Currency'] ?: 'DKK'),
-                'original_currency' => $this->nullableString($row['OriginalCurrency'] ?? null),
+                'currency' => $reportingCurrency,
+                'original_currency' => $originalCurrency,
                 'merchant_legacy_id' => $this->nullableString($row['MerchantId'] ?? null),
                 'country_code' => $this->nullableString($row['CountryCode'] ?? null),
                 'state' => $this->nullableString($row['State'] ?? null),
@@ -287,12 +407,16 @@ class SpiirExportImporter
             }
 
             $parent = $parents->first();
-            $childrenAmount = $children->reduce(fn (string $total, array $child): string => bcadd($total, $child['amount'], 2), '0.00');
 
-            if (bccomp($parent['amount'], $childrenAmount, 2) === 0) {
-                unset($rows[$parent['legacy_id']]);
-                Posting::query()->where('legacy_id', $parent['legacy_id'])->delete();
+            // A matching reporting sum alone does not prove the parent is
+            // redundant — the account amounts must also match when known.
+            if (! $this->splitSumsMatch($parent, $children, 'amount')
+                || ! $this->splitSumsMatch($parent, $children, 'original_amount')) {
+                continue;
             }
+
+            unset($rows[$parent['legacy_id']]);
+            Posting::query()->where('legacy_id', $parent['legacy_id'])->delete();
         }
 
         $updateColumns = array_values(array_diff(array_keys(reset($rows) ?: []), ['legacy_id', 'created_at']));
@@ -302,6 +426,29 @@ class SpiirExportImporter
         }
 
         return count($rows);
+    }
+
+    /**
+     * Whether a split parent's amount column equals the sum of its children.
+     * Unknown amounts (null) defer to the other pair's check.
+     *
+     * @param  array<string, mixed>  $parent
+     * @param  Collection<int, array<string, mixed>>  $children
+     */
+    private function splitSumsMatch(array $parent, Collection $children, string $column): bool
+    {
+        $parentAmount = $parent[$column];
+
+        if ($parentAmount === null || $children->contains(fn (array $child): bool => $child[$column] === null)) {
+            return true;
+        }
+
+        $childrenAmount = $children->reduce(
+            fn (string $total, array $child): string => bcadd($total, $child[$column], 2),
+            '0.00',
+        );
+
+        return bccomp($parentAmount, $childrenAmount, 2) === 0;
     }
 
     private function resolveCounterEntryPostings(): int

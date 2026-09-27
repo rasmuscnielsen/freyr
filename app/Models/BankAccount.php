@@ -30,6 +30,7 @@ class BankAccount extends Model
         'currency',
         'current_balance',
         'opening_balance',
+        'opening_balance_origin',
         'account_type',
         'ignore_postings_before',
         'last_updated_at',

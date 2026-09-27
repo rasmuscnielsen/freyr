@@ -1274,6 +1274,7 @@ test('sync accepts the closing checkpoint when same-day ids are out of bank orde
             'external_account_uid_hash' => $remoteAccount->external_account_uid_hash,
             'date' => $date,
             'amount' => $amount,
+            'original_amount' => $amount,
             'balance' => $balance,
         ]);
     }
@@ -1480,8 +1481,8 @@ test('removing a connection anchors the detached accounts as manual and derives 
     $localAccount = BankAccount::factory()->for($user)->create(['current_balance' => null, 'opening_balance' => 0]);
     BankConnectionAccount::factory()->for($connection)->linkedTo($localAccount)->create();
     // Synced chain that opened at 500: +100 => 600, -50 => 550.
-    Posting::factory()->forAccount($localAccount)->create(['date' => '2026-01-01', 'amount' => '100.00', 'balance' => '600.00']);
-    Posting::factory()->forAccount($localAccount)->create(['date' => '2026-01-10', 'amount' => '-50.00', 'balance' => '550.00']);
+    Posting::factory()->forAccount($localAccount)->create(['date' => '2026-01-01', 'amount' => '100.00', 'original_amount' => '100.00', 'balance' => '600.00']);
+    Posting::factory()->forAccount($localAccount)->create(['date' => '2026-01-10', 'amount' => '-50.00', 'original_amount' => '-50.00', 'balance' => '550.00']);
 
     $this->actingAs($user)
         ->delete(route('bank-connections.destroy', $connection))
@@ -1496,7 +1497,7 @@ test('ignoring a linked remote account anchors the detached account as manual', 
     $connection = BankConnection::factory()->for($user)->create();
     $localAccount = BankAccount::factory()->for($user)->create(['current_balance' => null, 'opening_balance' => 0]);
     $remoteAccount = BankConnectionAccount::factory()->for($connection)->linkedTo($localAccount)->create();
-    Posting::factory()->forAccount($localAccount)->create(['date' => '2026-01-01', 'amount' => '100.00', 'balance' => '600.00']);
+    Posting::factory()->forAccount($localAccount)->create(['date' => '2026-01-01', 'amount' => '100.00', 'original_amount' => '100.00', 'balance' => '600.00']);
 
     $this->actingAs($user)
         ->patch(route('bank-connection-accounts.update', $remoteAccount), ['mode' => 'ignore'])

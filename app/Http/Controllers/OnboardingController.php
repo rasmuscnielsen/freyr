@@ -7,6 +7,7 @@ use App\Concerns\ProfileValidationRules;
 use App\Enums\PlatformSettingKey;
 use App\Finance\SpiirExportImporter;
 use App\Http\Requests\Platform\StoreEnableBankingCredentialsRequest;
+use App\Http\Requests\RegionSetupRequest;
 use App\Models\User;
 use App\Platform\PlatformSettings;
 use Illuminate\Http\RedirectResponse;
@@ -44,6 +45,31 @@ class OnboardingController extends Controller
 
         Auth::login($user);
         $request->session()->regenerate();
+
+        return redirect()->route('onboarding.region');
+    }
+
+    public function region(Request $request): Response
+    {
+        return Inertia::render('onboarding/region', [
+            ...RegionSetupController::regionOptions(),
+            'defaultCountry' => $request->user()->country_code,
+            'defaultTimezone' => $request->user()->timezone,
+            'defaultReportingCurrency' => $request->user()->reporting_currency,
+        ]);
+    }
+
+    /**
+     * The admin's own region preferences — a personal setting even though it
+     * is collected inside the platform wizard. Storing them completes the
+     * user's region setup and locks the reporting currency.
+     */
+    public function storeRegion(RegionSetupRequest $request): RedirectResponse
+    {
+        $request->user()->update([
+            ...$request->validated(),
+            'region_completed_at' => now(),
+        ]);
 
         return redirect()->route('onboarding.registration');
     }

@@ -4,6 +4,7 @@ namespace App\Finance\EnableBanking;
 
 use App\Finance\BalanceChainInspector;
 use App\Finance\SyncedBalanceChainWriter;
+use App\Jobs\ConvertReportingAmountsJob;
 use App\Models\BankAccount;
 use App\Models\BankConnection;
 use App\Models\BankConnectionAccount;
@@ -247,11 +248,15 @@ class EnableBankingConnectionManager
                 $counts = $this->importTransactions($account, $postedTransactions);
                 $this->updateBankAccountBalances($account, $booked, $lastTransactionDate);
 
+                // A bank balance only anchors the chain or reconciles when it
+                // is denominated in the account currency.
+                $usableBooked = $this->accountCurrencyBalance($account, $booked);
+
                 if ($account->bankAccount instanceof BankAccount) {
-                    $this->balanceChainWriter->write($account->bankAccount, data_get($booked, 'balance_amount.amount'));
+                    $this->balanceChainWriter->write($account->bankAccount, data_get($usableBooked, 'balance_amount.amount'));
                 }
 
-                $reconciliation = $this->reconcileBalance($account, $booked);
+                $reconciliation = $this->reconcileBalance($account, $usableBooked);
 
                 $account->update([
                     'status' => BankConnectionAccount::STATUS_LINKED,
@@ -278,7 +283,19 @@ class EnableBankingConnectionManager
             $this->recordFailedSync($run, $account, $exception);
         }
 
-        return $run->refresh();
+        // Fill reporting amounts for any foreign-currency postings. This is
+        // deliberately outside the sync transaction and failure-proof: a
+        // conversion hiccup must never fail a committed bank sync, and a
+        // later run retries whatever is still unresolved.
+        if ($run->refresh()->status === BankSyncRun::STATUS_SUCCEEDED) {
+            try {
+                ConvertReportingAmountsJob::dispatch($connection->user_id)->afterCommit();
+            } catch (Throwable) {
+                // The next sync or a manual retry picks up the backlog.
+            }
+        }
+
+        return $run;
     }
 
     /**
@@ -522,6 +539,13 @@ class EnableBankingConnectionManager
                     unset($attributes['balance']);
                 }
 
+                // A completed reporting conversion is stable: a re-sync must
+                // not wipe it back to pending just because the bank sends the
+                // account amount again.
+                if ($attributes['amount'] === null && $posting->amount !== null) {
+                    unset($attributes['amount']);
+                }
+
                 $posting->fill($attributes);
 
                 if ($posting->isDirty()) {
@@ -550,10 +574,29 @@ class EnableBankingConnectionManager
         }
 
         $bankAccount->update([
-            'current_balance' => data_get($booked, 'balance_amount.amount'),
+            'current_balance' => data_get($this->accountCurrencyBalance($account, $booked), 'balance_amount.amount'),
             'last_updated_at' => now(),
             'last_known_posting_date' => $lastTransactionDate?->toDateString() ?? $account->last_transaction_date,
         ]);
+    }
+
+    /**
+     * The booked balance only counts when the bank reports it in the account
+     * currency — anything else must never anchor balances or reconciliation.
+     *
+     * @param  array<string, mixed>|null  $booked
+     * @return array<string, mixed>|null
+     */
+    private function accountCurrencyBalance(BankConnectionAccount $account, ?array $booked): ?array
+    {
+        if ($booked === null) {
+            return null;
+        }
+
+        $currency = data_get($booked, 'balance_amount.currency');
+        $accountCurrency = $account->bankAccount?->currency ?? $account->currency;
+
+        return $currency === null || $currency === $accountCurrency ? $booked : null;
     }
 
     /**
@@ -584,7 +627,7 @@ class EnableBankingConnectionManager
      * computed balance and `balance_matches` are left null.
      *
      * @param  array<string, mixed>|null  $booked
-     * @return array{expected_balance: ?string, computed_balance: ?string, balance_matches: ?bool}
+     * @return array{expected_balance: ?string, computed_balance: ?string, balance_matches: ?bool, balance_match_basis: ?string}
      */
     private function reconcileBalance(BankConnectionAccount $account, ?array $booked): array
     {
@@ -602,13 +645,19 @@ class EnableBankingConnectionManager
                 'expected_balance' => $expectedBalance,
                 'computed_balance' => $computedBalance,
                 'balance_matches' => null,
+                'balance_match_basis' => null,
             ];
         }
+
+        // 'derived' means the local chain was anchored from this same booked
+        // balance — a match is true by construction, not independent proof.
+        $basis = $account->bankAccount?->opening_balance_origin === 'derived' ? 'derived' : 'bank';
 
         return [
             'expected_balance' => $expectedBalance,
             'computed_balance' => $computedBalance,
             'balance_matches' => abs((float) $expectedBalance - (float) $computedBalance) <= 0.005,
+            'balance_match_basis' => $basis,
         ];
     }
 

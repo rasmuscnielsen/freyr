@@ -26,6 +26,7 @@ function chainPosting(BankAccount $account, string $date, string $amount, ?strin
     return Posting::factory()->forAccount($account)->create([
         'date' => $date,
         'amount' => $amount,
+        'original_amount' => $amount,
         'balance' => $balance,
         'description' => $description,
     ]);
