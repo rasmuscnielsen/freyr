@@ -18,6 +18,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { formatDate } from '@/lib/dates';
 import { formatMoney } from '@/lib/money';
+import { useRegion } from '@/lib/region';
 import { cn } from '@/lib/utils';
 
 export type PostingFormValues = {
@@ -57,6 +58,7 @@ export function PostingFormDialog({
     coreFieldsEditable,
     action,
 }: PostingFormDialogProps) {
+    const { locale } = useRegion();
     const form = useForm<PostingFormValues>(initial);
     const [isPickingCategory, setIsPickingCategory] = useState(false);
     const selectedCategoryLabel =
@@ -170,11 +172,12 @@ export function PostingFormDialog({
                                     {formatMoney(
                                         Number(form.data.amount),
                                         currency,
+                                        locale,
                                     )}
                                 </span>
                             </div>
                             <span className="text-muted-foreground">
-                                {formatDate(form.data.date)}
+                                {formatDate(form.data.date, locale)}
                             </span>
                         </div>
                     )}

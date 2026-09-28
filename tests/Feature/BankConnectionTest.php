@@ -712,7 +712,6 @@ test('first sync supplements longest history with recent booked transactions', f
     expect($client->transactionStrategies)->toBe(['longest', null])
         ->and($client->transactionDateFroms)->toBe([null, '2026-06-13'])
         ->and($run->new_postings_count)->toBe(3)
-        ->and($run->balance_matches)->toBeTrue()
         ->and(Posting::query()->count())->toBe(3)
         ->and(Posting::query()->where('external_posting_id', $past['entry_reference'])->firstOrFail()->extra_data['transaction_id'])->toBe('new-provider-id');
 
@@ -781,7 +780,6 @@ test('sync imports future booked transactions only when their balances chain to 
     (new SyncBankConnectionAccountJob($remoteAccount))->handle(app(EnableBankingConnectionManager::class));
 
     expect(Posting::query()->pluck('external_posting_id')->all())->toEqualCanonicalizing(['small-booked', 'large-booked'])
-        ->and(BankSyncRun::query()->latest('id')->firstOrFail()->balance_matches)->toBeTrue()
         ->and($remoteAccount->refresh()->last_transaction_date->toDateString())->toBe('2026-06-22');
 
     (new SyncBankConnectionAccountJob($remoteAccount))->handle(app(EnableBankingConnectionManager::class));
@@ -806,8 +804,7 @@ test('sync imports future booked transactions only when their balances chain to 
     (new SyncBankConnectionAccountJob($remoteAccount))->handle(app(EnableBankingConnectionManager::class));
 
     expect(Posting::query()->count())->toBe(2)
-        ->and(Posting::query()->whereDate('date', '2026-06-20')->count())->toBe(2)
-        ->and(BankSyncRun::query()->latest('id')->firstOrFail()->balance_matches)->toBeTrue();
+        ->and(Posting::query()->whereDate('date', '2026-06-20')->count())->toBe(2);
 });
 
 test('sync updates an existing transaction by entry reference when its transaction id changes', function () {
@@ -822,8 +819,10 @@ test('sync updates an existing transaction by entry reference when its transacti
         'external_posting_id' => 'old-transaction-id',
         'legacy_id' => 'enable-banking:'.$remoteAccount->external_account_uid_hash.':old-transaction-id',
         'extra_data' => ['entry_reference' => $transaction['entry_reference']],
+        'balance' => '500.00',
     ]);
     $transaction['transaction_id'] = 'new-transaction-id';
+    unset($transaction['balance_after_transaction']);
     app()->instance(EnableBankingClient::class, new FakeEnableBankingClient(
         balances: enableBankingBalancesPayload(),
         transactions: [$transaction],
@@ -833,6 +832,7 @@ test('sync updates an existing transaction by entry reference when its transacti
 
     expect(Posting::query()->count())->toBe(1)
         ->and(Posting::query()->firstOrFail()->external_posting_id)->toBe($transaction['entry_reference'])
+        ->and(Posting::query()->firstOrFail()->balance)->toBeNull()
         ->and(BankSyncRun::query()->latest('id')->firstOrFail()->updated_postings_count)->toBe(1);
 });
 
@@ -1200,174 +1200,17 @@ test('renewed callbacks preserve existing account links', function () {
     );
 });
 
-test('sync reconciles a matching balance and records the figures', function () {
+test('sync stores provider balance snapshots without synthesizing missing posting balances', function () {
     $user = User::factory()->create();
     $connection = BankConnection::factory()->for($user)->create();
-    $localAccount = BankAccount::factory()->for($user)->create();
-    $remoteAccount = BankConnectionAccount::factory()
-        ->for($connection)
-        ->linkedTo($localAccount)
-        ->create();
-    $client = new FakeEnableBankingClient(
-        balances: enableBankingBalancesPayload(),
-        transactions: enableBankingTransactionsPayload(),
-    );
-
-    app()->instance(EnableBankingClient::class, $client);
-
-    (new SyncBankConnectionAccountJob($remoteAccount))->handle(app(EnableBankingConnectionManager::class));
-
-    $run = BankSyncRun::query()->latest('id')->firstOrFail();
-
-    expect($run->status)->toBe(BankSyncRun::STATUS_SUCCEEDED)
-        ->and($run->balance_matches)->toBeTrue()
-        ->and($run->expected_balance)->toBe('51339.66')
-        ->and($run->computed_balance)->toBe('51339.66')
-        ->and($run->hasBalanceMismatch())->toBeFalse()
-        ->and($run->balanceDelta())->toBe('0.00');
-});
-
-test('sync flags a balance mismatch without failing the run', function () {
-    $user = User::factory()->create();
-    $connection = BankConnection::factory()->for($user)->create();
-    $localAccount = BankAccount::factory()->for($user)->create();
-    $remoteAccount = BankConnectionAccount::factory()
-        ->for($connection)
-        ->linkedTo($localAccount)
-        ->create();
-
-    $balances = enableBankingBalancesPayload();
-    $balances[0]['balance_amount']['amount'] = '51439.66';
-
-    $client = new FakeEnableBankingClient(
-        balances: $balances,
-        transactions: enableBankingTransactionsPayload(),
-    );
-
-    app()->instance(EnableBankingClient::class, $client);
-
-    (new SyncBankConnectionAccountJob($remoteAccount))->handle(app(EnableBankingConnectionManager::class));
-
-    $run = BankSyncRun::query()->latest('id')->firstOrFail();
-
-    expect($run->status)->toBe(BankSyncRun::STATUS_SUCCEEDED)
-        ->and($run->balance_matches)->toBeFalse()
-        ->and($run->expected_balance)->toBe('51439.66')
-        ->and($run->computed_balance)->toBe('51339.66')
-        ->and($run->hasBalanceMismatch())->toBeTrue()
-        ->and($run->balanceDelta())->toBe('100.00');
-});
-
-test('sync accepts the closing checkpoint when same-day ids are out of bank order', function () {
-    $user = User::factory()->create();
-    $connection = BankConnection::factory()->for($user)->create();
-    $localAccount = BankAccount::factory()->for($user)->create();
+    $localAccount = BankAccount::factory()->for($user)->create([
+        'current_balance' => '123.45',
+        'opening_balance' => null,
+    ]);
     $remoteAccount = BankConnectionAccount::factory()->for($connection)->linkedTo($localAccount)->create();
-
-    foreach ([
-        ['2026-06-18', '100.00', '100.00'],
-        ['2026-06-19', '-30.00', '120.00'],
-        ['2026-06-19', '50.00', '150.00'],
-    ] as [$date, $amount, $balance]) {
-        Posting::factory()->forAccount($localAccount)->create([
-            'source' => BankConnectionAccount::SOURCE_ENABLE_BANKING,
-            'external_account_uid_hash' => $remoteAccount->external_account_uid_hash,
-            'date' => $date,
-            'amount' => $amount,
-            'balance' => $balance,
-        ]);
-    }
-
-    $balances = enableBankingBalancesPayload();
-    $balances[0]['balance_amount']['amount'] = '120.00';
-    app()->instance(EnableBankingClient::class, new FakeEnableBankingClient(balances: $balances));
-
-    (new SyncBankConnectionAccountJob($remoteAccount))->handle(app(EnableBankingConnectionManager::class));
-
-    $run = BankSyncRun::query()->latest('id')->firstOrFail();
-    expect($run->balance_matches)->toBeTrue()
-        ->and($run->expected_balance)->toBe('120.00')
-        ->and($run->computed_balance)->toBe('120.00');
-});
-
-test('sync leaves reconciliation null when the bank sends neither balances nor checkpoints', function () {
-    $user = User::factory()->create();
-    $connection = BankConnection::factory()->for($user)->create();
-    $localAccount = BankAccount::factory()->for($user)->create();
-    $remoteAccount = BankConnectionAccount::factory()
-        ->for($connection)
-        ->linkedTo($localAccount)
-        ->create();
-
     $transactions = enableBankingTransactionsPayload();
-    unset($transactions[0]['balance_after_transaction']);
-
-    $client = new FakeEnableBankingClient(
-        balances: [],
-        transactions: $transactions,
-    );
-
-    app()->instance(EnableBankingClient::class, $client);
-
-    (new SyncBankConnectionAccountJob($remoteAccount))->handle(app(EnableBankingConnectionManager::class));
-
-    $run = BankSyncRun::query()->latest('id')->firstOrFail();
-
-    expect($run->status)->toBe(BankSyncRun::STATUS_SUCCEEDED)
-        ->and($run->expected_balance)->toBeNull()
-        ->and($run->computed_balance)->toBeNull()
-        ->and($run->balance_matches)->toBeNull()
-        ->and($run->hasBalanceMismatch())->toBeFalse()
-        ->and($run->balanceDelta())->toBeNull();
-});
-
-test('sync derives running balances from the booked balance when the bank sends none', function () {
-    $user = User::factory()->create();
-    $connection = BankConnection::factory()->for($user)->create();
-    $localAccount = BankAccount::factory()->for($user)->create(['opening_balance' => 0]);
-    $remoteAccount = BankConnectionAccount::factory()
-        ->for($connection)
-        ->linkedTo($localAccount)
-        ->create();
-
-    $transactions = enableBankingTransactionsPayload();
-    unset($transactions[0]['balance_after_transaction']);
-
-    $client = new FakeEnableBankingClient(
-        balances: enableBankingBalancesPayload(),
-        transactions: $transactions,
-    );
-
-    app()->instance(EnableBankingClient::class, $client);
-
-    (new SyncBankConnectionAccountJob($remoteAccount))->handle(app(EnableBankingConnectionManager::class));
-
-    // The sole booked posting is -128.00 and the bank books 51339.66, so the
-    // implied opening is 51467.66 and the chain lands exactly on the CLBD.
-    $posting = Posting::query()->firstOrFail();
-
-    expect(Posting::query()->count())->toBe(1)
-        ->and($posting->balance)->toBe('51339.66')
-        ->and($localAccount->refresh()->opening_balance)->toBe('51467.66')
-        ->and($localAccount->current_balance)->toBe('51339.66');
-
-    $run = BankSyncRun::query()->latest('id')->firstOrFail();
-
-    expect($run->computed_balance)->toBe('51339.66')
-        ->and($run->balance_matches)->toBeTrue();
-});
-
-test('sync extends the derived chain for later postings without balances', function () {
-    $user = User::factory()->create();
-    $connection = BankConnection::factory()->for($user)->create();
-    $localAccount = BankAccount::factory()->for($user)->create(['opening_balance' => 0]);
-    $remoteAccount = BankConnectionAccount::factory()
-        ->for($connection)
-        ->linkedTo($localAccount)
-        ->create();
-
-    $transactions = enableBankingTransactionsPayload();
-    unset($transactions[0]['balance_after_transaction']);
+    $transactions[1]['booking_date'] = '2026-06-18';
+    unset($transactions[1]['balance_after_transaction']);
 
     app()->instance(EnableBankingClient::class, new FakeEnableBankingClient(
         balances: enableBankingBalancesPayload(),
@@ -1376,43 +1219,14 @@ test('sync extends the derived chain for later postings without balances', funct
 
     (new SyncBankConnectionAccountJob($remoteAccount))->handle(app(EnableBankingConnectionManager::class));
 
-    // A later sync brings one new, checkpoint-less posting: -50.00 on top of
-    // the derived 51339.66 anchor, and the bank now books 51289.66.
-    $newerTransaction = [
-        'entry_reference' => '2026-06-20-10.00.00.000001',
-        'transaction_amount' => [
-            'currency' => 'DKK',
-            'amount' => '50.00',
-        ],
-        'credit_debit_indicator' => 'DBIT',
-        'status' => 'BOOK',
-        'booking_date' => '2026-06-20',
-        'value_date' => '2026-06-20',
-        'remittance_information' => ['New card purchase'],
-        'transaction_id' => 'new-enable-banking-transaction-id',
-    ];
-    $balances = enableBankingBalancesPayload();
-    $balances[0]['balance_amount']['amount'] = '51289.66';
+    $withProviderBalance = Posting::query()->where('external_posting_id', $transactions[0]['entry_reference'])->firstOrFail();
+    $withoutProviderBalance = Posting::query()->where('external_posting_id', $transactions[1]['entry_reference'])->firstOrFail();
 
-    app()->instance(EnableBankingClient::class, new FakeEnableBankingClient(
-        balances: $balances,
-        transactions: [$newerTransaction],
-    ));
-
-    (new SyncBankConnectionAccountJob($remoteAccount))->handle(app(EnableBankingConnectionManager::class));
-
-    $newPosting = Posting::query()
-        ->where('external_posting_id', '2026-06-20-10.00.00.000001')
-        ->firstOrFail();
-
-    expect($newPosting->balance)->toBe('51289.66')
-        ->and($localAccount->refresh()->opening_balance)->toBe('51467.66');
-
-    $run = BankSyncRun::query()->latest('id')->firstOrFail();
-
-    expect($run->computed_balance)->toBe('51289.66')
-        ->and($run->expected_balance)->toBe('51289.66')
-        ->and($run->balance_matches)->toBeTrue();
+    expect((float) $localAccount->refresh()->current_balance)->toBe(51339.66)
+        ->and($localAccount->opening_balance)->toBeNull()
+        ->and((float) $withProviderBalance->balance)->toBe(51339.66)
+        ->and($withoutProviderBalance->balance)->toBeNull()
+        ->and(BankSyncRun::query()->latest('id')->firstOrFail()->status)->toBe(BankSyncRun::STATUS_SUCCEEDED);
 });
 
 test('connection sync endpoint dispatches jobs for every linked account', function () {
@@ -1474,36 +1288,37 @@ test('removing a connection keeps local accounts and postings but deletes remote
         ->and(Posting::query()->where('bank_account_id', $localAccount->id)->count())->toBe(1);
 });
 
-test('removing a connection anchors the detached accounts as manual and derives their balances', function () {
+test('removing a connection preserves the provider snapshot without inferring an opening balance', function () {
     $user = User::factory()->create();
     $connection = BankConnection::factory()->for($user)->create();
-    $localAccount = BankAccount::factory()->for($user)->create(['current_balance' => null, 'opening_balance' => 0]);
+    $localAccount = BankAccount::factory()->for($user)->create(['current_balance' => '550.00', 'opening_balance' => '0.00']);
     BankConnectionAccount::factory()->for($connection)->linkedTo($localAccount)->create();
-    // Synced chain that opened at 500: +100 => 600, -50 => 550.
-    Posting::factory()->forAccount($localAccount)->create(['date' => '2026-01-01', 'amount' => '100.00', 'balance' => '600.00']);
-    Posting::factory()->forAccount($localAccount)->create(['date' => '2026-01-10', 'amount' => '-50.00', 'balance' => '550.00']);
+    // Keep source balances as imported; they are not used to infer an opening.
+    Posting::factory()->forAccount($localAccount)->create(['date' => '2026-01-01', 'amount' => '100.00', 'original_amount' => '100.00', 'balance' => '600.00']);
+    Posting::factory()->forAccount($localAccount)->create(['date' => '2026-01-10', 'amount' => '-50.00', 'original_amount' => '-50.00', 'balance' => '550.00']);
 
     $this->actingAs($user)
         ->delete(route('bank-connections.destroy', $connection))
         ->assertRedirect();
 
-    expect((float) $localAccount->refresh()->opening_balance)->toBe(500.00)
-        ->and((float) $localAccount->current_balance)->toBe(550.00);
+    expect($localAccount->refresh()->opening_balance)->toBeNull()
+        ->and((float) $localAccount->current_balance)->toBe(550.00)
+        ->and($localAccount->postings()->orderBy('date')->firstOrFail()->balance)->toBe('600.00');
 });
 
-test('ignoring a linked remote account anchors the detached account as manual', function () {
+test('ignoring a linked remote account preserves its current snapshot and clears the opening', function () {
     $user = User::factory()->create();
     $connection = BankConnection::factory()->for($user)->create();
-    $localAccount = BankAccount::factory()->for($user)->create(['current_balance' => null, 'opening_balance' => 0]);
+    $localAccount = BankAccount::factory()->for($user)->create(['current_balance' => '600.00', 'opening_balance' => '0.00']);
     $remoteAccount = BankConnectionAccount::factory()->for($connection)->linkedTo($localAccount)->create();
-    Posting::factory()->forAccount($localAccount)->create(['date' => '2026-01-01', 'amount' => '100.00', 'balance' => '600.00']);
+    Posting::factory()->forAccount($localAccount)->create(['date' => '2026-01-01', 'amount' => '100.00', 'original_amount' => '100.00', 'balance' => '600.00']);
 
     $this->actingAs($user)
         ->patch(route('bank-connection-accounts.update', $remoteAccount), ['mode' => 'ignore'])
         ->assertRedirect();
 
     expect($remoteAccount->refresh()->status)->toBe(BankConnectionAccount::STATUS_IGNORED)
-        ->and((float) $localAccount->refresh()->opening_balance)->toBe(500.00)
+        ->and($localAccount->refresh()->opening_balance)->toBeNull()
         ->and((float) $localAccount->current_balance)->toBe(600.00);
 });
 

@@ -70,19 +70,19 @@ test('dashboard aggregates income expenses using the months param for back-compa
     ['user' => $user, 'account' => $account, 'salary' => $salary, 'rent' => $rent, 'groceries' => $groceries, 'savings' => $savings, 'transfer' => $transfer] = seedBudget();
 
     Posting::factory()->forAccount($account)->categorizedAs($salary)->income()
-        ->create(['date' => '2026-01-05', 'amount' => 10000]);
+        ->create(['date' => '2026-01-05', 'amount' => 10000, 'original_amount' => 10000]);
     Posting::factory()->forAccount($account)->categorizedAs($rent)
-        ->create(['date' => '2026-01-10', 'amount' => -1500]);
+        ->create(['date' => '2026-01-10', 'amount' => -1500, 'original_amount' => -1500]);
     Posting::factory()->forAccount($account)->categorizedAs($groceries)
-        ->create(['date' => '2026-01-12', 'amount' => -1000]);
+        ->create(['date' => '2026-01-12', 'amount' => -1000, 'original_amount' => -1000]);
     // Excluded transfer: categorized under an Exclude category, omitted entirely.
     Posting::factory()->forAccount($account)->categorizedAs($transfer)
-        ->create(['date' => '2026-01-13', 'amount' => 500000]);
+        ->create(['date' => '2026-01-13', 'amount' => 500000, 'original_amount' => 500000]);
     Posting::factory()->forAccount($account)->categorizedAs($savings)
-        ->create(['date' => '2026-01-14', 'amount' => -3000]);
+        ->create(['date' => '2026-01-14', 'amount' => -3000, 'original_amount' => -3000]);
     // Extraordinary income is excluded from the overview.
     Posting::factory()->forAccount($account)->categorizedAs($salary)->income()
-        ->create(['date' => '2026-01-15', 'amount' => 20000, 'is_extraordinary' => true]);
+        ->create(['date' => '2026-01-15', 'amount' => 20000, 'original_amount' => 20000, 'is_extraordinary' => true]);
 
     $this->actingAs($user)
         ->get(route('dashboard', ['months' => 3]))
@@ -106,10 +106,10 @@ test('a refund categorized under an expense category nets against the bucket ins
     ['user' => $user, 'account' => $account, 'groceries' => $groceries] = seedBudget();
 
     Posting::factory()->forAccount($account)->categorizedAs($groceries)
-        ->create(['date' => '2026-01-10', 'amount' => -500]);
+        ->create(['date' => '2026-01-10', 'amount' => -500, 'original_amount' => -500]);
     // The purchase is returned: a positive posting in the same expense subcategory.
     Posting::factory()->forAccount($account)->categorizedAs($groceries)
-        ->create(['date' => '2026-01-20', 'amount' => 300]);
+        ->create(['date' => '2026-01-20', 'amount' => 300, 'original_amount' => 300]);
 
     $this->actingAs($user)
         ->get(route('dashboard', ['months' => 3]))
@@ -127,7 +127,7 @@ test('period options include 12m and the years from earliest posting to now', fu
         ['user' => $user, 'account' => $account, 'salary' => $salary] = seedBudget();
 
         Posting::factory()->forAccount($account)->categorizedAs($salary)->income()
-            ->create(['date' => '2024-03-05', 'amount' => 100]);
+            ->create(['date' => '2024-03-05', 'amount' => 100, 'original_amount' => 100]);
 
         $this->actingAs($user)
             ->get(route('dashboard'))
@@ -147,9 +147,9 @@ test('selecting a calendar year windows to that year but never beyond the last c
         ['user' => $user, 'account' => $account, 'salary' => $salary] = seedBudget();
 
         Posting::factory()->forAccount($account)->categorizedAs($salary)->income()
-            ->create(['date' => '2026-08-05', 'amount' => 999]);
+            ->create(['date' => '2026-08-05', 'amount' => 999, 'original_amount' => 999]);
         Posting::factory()->forAccount($account)->categorizedAs($salary)->income()
-            ->create(['date' => '2026-03-05', 'amount' => 500]);
+            ->create(['date' => '2026-03-05', 'amount' => 500, 'original_amount' => 500]);
 
         $this->actingAs($user)
             ->get(route('dashboard', ['period' => '2026']))
@@ -182,9 +182,9 @@ test('dashboard uses completed months when latest import is in current partial m
         ['user' => $user, 'account' => $account, 'salary' => $salary] = seedBudget();
 
         Posting::factory()->forAccount($account)->categorizedAs($salary)->income()
-            ->create(['date' => '2025-06-30', 'amount' => 100]);
+            ->create(['date' => '2025-06-30', 'amount' => 100, 'original_amount' => 100]);
         Posting::factory()->forAccount($account)->categorizedAs($salary)->income()
-            ->create(['date' => '2026-06-05', 'amount' => 999]);
+            ->create(['date' => '2026-06-05', 'amount' => 999, 'original_amount' => 999]);
 
         $this->actingAs($user)
             ->get(route('dashboard', ['period' => '12m']))
@@ -207,11 +207,11 @@ test('breakdown includes income and expense categories with top subcategories fo
         ['user' => $user, 'account' => $account, 'salary' => $salary, 'rent' => $rent, 'groceries' => $groceries] = seedBudget();
 
         Posting::factory()->forAccount($account)->categorizedAs($salary)->income()
-            ->create(['date' => '2026-01-05', 'amount' => 10000]);
+            ->create(['date' => '2026-01-05', 'amount' => 10000, 'original_amount' => 10000]);
         Posting::factory()->forAccount($account)->categorizedAs($rent)
-            ->create(['date' => '2026-01-10', 'amount' => -3000]);
+            ->create(['date' => '2026-01-10', 'amount' => -3000, 'original_amount' => -3000]);
         Posting::factory()->forAccount($account)->categorizedAs($groceries)
-            ->create(['date' => '2026-01-12', 'amount' => -1000]);
+            ->create(['date' => '2026-01-12', 'amount' => -1000, 'original_amount' => -1000]);
 
         // Deferred prop: request it explicitly via a partial reload (JSON response).
         $response = $this->actingAs($user)
@@ -255,9 +255,9 @@ test('breakdown category bucket follows where most of its money lands', function
 
         // Variable spending outweighs the fixed bill within the same category.
         Posting::factory()->forAccount($account)->categorizedAs($rent)
-            ->create(['date' => '2026-01-10', 'amount' => -500]);
+            ->create(['date' => '2026-01-10', 'amount' => -500, 'original_amount' => -500]);
         Posting::factory()->forAccount($account)->categorizedAs($groceries)
-            ->create(['date' => '2026-01-12', 'amount' => -1500]);
+            ->create(['date' => '2026-01-12', 'amount' => -1500, 'original_amount' => -1500]);
 
         $this->actingAs($user)
             ->get(route('dashboard', ['months' => 12]), breakdownPartialHeaders())
@@ -276,11 +276,11 @@ test('breakdown month selection returns totals for that month only', function ()
         ['user' => $user, 'account' => $account, 'salary' => $salary, 'groceries' => $groceries] = seedBudget();
 
         Posting::factory()->forAccount($account)->categorizedAs($salary)->income()
-            ->create(['date' => '2026-02-05', 'amount' => 8000]);
+            ->create(['date' => '2026-02-05', 'amount' => 8000, 'original_amount' => 8000]);
         Posting::factory()->forAccount($account)->categorizedAs($groceries)
-            ->create(['date' => '2026-02-12', 'amount' => -2000]);
+            ->create(['date' => '2026-02-12', 'amount' => -2000, 'original_amount' => -2000]);
         Posting::factory()->forAccount($account)->categorizedAs($groceries)
-            ->create(['date' => '2026-01-12', 'amount' => -9999]);
+            ->create(['date' => '2026-01-12', 'amount' => -9999, 'original_amount' => -9999]);
 
         $response = $this->actingAs($user)
             ->get(
@@ -305,7 +305,7 @@ test('breakdown month outside the selected period is ignored', function () {
     ['user' => $user, 'account' => $account, 'groceries' => $groceries] = seedBudget();
 
     Posting::factory()->forAccount($account)->categorizedAs($groceries)
-        ->create(['date' => '2026-02-12', 'amount' => -2000]);
+        ->create(['date' => '2026-02-12', 'amount' => -2000, 'original_amount' => -2000]);
 
     $this->actingAs($user)
         ->get(
@@ -325,9 +325,9 @@ test('breakdown can target the in-progress preview month', function () {
         // Current (incomplete) month plus a completed-month posting that
         // must not leak into the selected-month breakdown.
         Posting::factory()->forAccount($account)->categorizedAs($groceries)
-            ->create(['date' => '2026-04-12', 'amount' => -2000]);
+            ->create(['date' => '2026-04-12', 'amount' => -2000, 'original_amount' => -2000]);
         Posting::factory()->forAccount($account)->categorizedAs($groceries)
-            ->create(['date' => '2026-03-12', 'amount' => -500]);
+            ->create(['date' => '2026-03-12', 'amount' => -500, 'original_amount' => -500]);
 
         $response = $this->actingAs($user)
             ->get(
@@ -359,7 +359,7 @@ test('recategorizing a posting moves it between buckets', function () {
 
     // A fixed bill lands in the bills bucket.
     $posting = Posting::factory()->forAccount($account)->categorizedAs($rent)
-        ->create(['date' => '2026-01-10', 'amount' => -900]);
+        ->create(['date' => '2026-01-10', 'amount' => -900, 'original_amount' => -900]);
 
     $this->actingAs($user)
         ->get(route('dashboard', ['months' => 3]))
@@ -382,9 +382,9 @@ test('savings and investment categories land in their own buckets', function () 
     ['user' => $user, 'account' => $account, 'savings' => $savings, 'investment' => $investment] = seedBudget();
 
     Posting::factory()->forAccount($account)->categorizedAs($savings)
-        ->create(['date' => '2026-01-10', 'amount' => -400]);
+        ->create(['date' => '2026-01-10', 'amount' => -400, 'original_amount' => -400]);
     Posting::factory()->forAccount($account)->categorizedAs($investment)
-        ->create(['date' => '2026-01-11', 'amount' => -250]);
+        ->create(['date' => '2026-01-11', 'amount' => -250, 'original_amount' => -250]);
 
     $this->actingAs($user)
         ->get(route('dashboard', ['months' => 3]))
@@ -399,11 +399,11 @@ test('excluded categories are omitted from the overview', function () {
     ['user' => $user, 'account' => $account, 'salary' => $salary, 'transfer' => $transfer] = seedBudget();
 
     Posting::factory()->forAccount($account)->categorizedAs($salary)->income()
-        ->create(['date' => '2026-01-05', 'amount' => 5000]);
+        ->create(['date' => '2026-01-05', 'amount' => 5000, 'original_amount' => 5000]);
     Posting::factory()->forAccount($account)->categorizedAs($transfer)
-        ->create(['date' => '2026-01-06', 'amount' => -5000]);
+        ->create(['date' => '2026-01-06', 'amount' => -5000, 'original_amount' => -5000]);
     Posting::factory()->forAccount($account)->categorizedAs($transfer)
-        ->create(['date' => '2026-01-07', 'amount' => 5000]);
+        ->create(['date' => '2026-01-07', 'amount' => 5000, 'original_amount' => 5000]);
 
     $this->actingAs($user)
         ->get(route('dashboard', ['months' => 3]))
@@ -418,10 +418,10 @@ test('uncategorized postings bucket by sign', function () {
 
     // Negative uncategorized spending goes to the uncategorized bucket.
     Posting::factory()->forAccount($account)->uncategorized()
-        ->create(['date' => '2026-01-10', 'amount' => -320]);
+        ->create(['date' => '2026-01-10', 'amount' => -320, 'original_amount' => -320]);
     // Positive uncategorized inflow reads as income.
     Posting::factory()->forAccount($account)->uncategorized()
-        ->create(['date' => '2026-01-11', 'amount' => 180]);
+        ->create(['date' => '2026-01-11', 'amount' => 180, 'original_amount' => 180]);
 
     $this->actingAs($user)
         ->get(route('dashboard', ['months' => 3]))
@@ -436,9 +436,9 @@ test('extraordinary postings are excluded from every bucket', function () {
     ['user' => $user, 'account' => $account, 'groceries' => $groceries] = seedBudget();
 
     Posting::factory()->forAccount($account)->categorizedAs($groceries)
-        ->create(['date' => '2026-01-10', 'amount' => -500]);
+        ->create(['date' => '2026-01-10', 'amount' => -500, 'original_amount' => -500]);
     Posting::factory()->forAccount($account)->categorizedAs($groceries)
-        ->create(['date' => '2026-01-11', 'amount' => -9999, 'is_extraordinary' => true]);
+        ->create(['date' => '2026-01-11', 'amount' => -9999, 'original_amount' => -9999, 'is_extraordinary' => true]);
 
     $this->actingAs($user)
         ->get(route('dashboard', ['months' => 3]))
@@ -447,8 +447,8 @@ test('extraordinary postings are excluded from every bucket', function () {
             ->where('summary.out', 500));
 });
 
-test('the balance prop sums active accounts in the primary currency', function () {
-    $user = User::factory()->create();
+test('the balance prop sums active accounts in the reporting currency', function () {
+    $user = User::factory()->create(['reporting_currency' => 'EUR']);
     BankAccount::factory()->for($user)->create([
         'currency' => 'EUR',
         'is_active' => true,
@@ -465,11 +465,12 @@ test('the balance prop sums active accounts in the primary currency', function (
         'is_active' => true,
         'current_balance' => 250,
     ]);
-    // Inactive and non-primary-currency accounts are ignored.
+    // Inactive accounts are ignored entirely.
     BankAccount::factory()->for($user)->inactive()->create([
         'currency' => 'EUR',
         'current_balance' => 5000,
     ]);
+    // A foreign account without a cached rate is counted as missing.
     BankAccount::factory()->for($user)->create([
         'currency' => 'USD',
         'is_active' => true,
@@ -481,5 +482,7 @@ test('the balance prop sums active accounts in the primary currency', function (
         ->assertOk()
         ->assertInertia(fn (Assert $page) => $page
             ->where('primaryCurrency', 'EUR')
-            ->where('balance', 1250));
+            ->where('balance.total', 1250)
+            ->where('balance.currency', 'EUR')
+            ->where('balance.missing_accounts', 2));
 });

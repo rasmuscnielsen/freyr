@@ -30,6 +30,7 @@ class UpdateBankAccountRequest extends FormRequest
             'bank_key' => ['sometimes', 'nullable', 'string', 'max:255'],
             'bank_name' => ['sometimes', 'nullable', 'string', 'max:255'],
             'currency' => ['sometimes', 'required', 'string', 'size:3'],
+            'opening_balance' => ['sometimes', 'numeric', 'decimal:0,2', 'between:-9999999999999.99,9999999999999.99'],
             'account_type' => ['sometimes', 'nullable', 'string', 'max:255'],
             'last_known_posting_date' => ['sometimes', 'nullable', 'date'],
             'is_active' => ['sometimes', 'required', 'boolean'],

@@ -3,6 +3,7 @@
 use App\Http\Middleware\EnsureNoUsers;
 use App\Http\Middleware\EnsureOnboardingNotCompleted;
 use App\Http\Middleware\EnsurePlatformAdmin;
+use App\Http\Middleware\EnsureRegionSetupCompleted;
 use App\Http\Middleware\HandleAppearance;
 use App\Http\Middleware\HandleInertiaRequests;
 use App\Http\Middleware\RedirectToOnboarding;
@@ -33,6 +34,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'platform-admin' => EnsurePlatformAdmin::class,
             'no-users' => EnsureNoUsers::class,
             'onboarding-not-completed' => EnsureOnboardingNotCompleted::class,
+            'requires-region-setup' => EnsureRegionSetupCompleted::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

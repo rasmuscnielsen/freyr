@@ -38,9 +38,6 @@ class BankSyncRun extends Model
         'new_postings_count',
         'updated_postings_count',
         'duplicate_postings_count',
-        'expected_balance',
-        'computed_balance',
-        'balance_matches',
         'error_code',
         'error_message',
         'raw_error',
@@ -78,30 +75,6 @@ class BankSyncRun extends Model
     }
 
     /**
-     * Whether the sync reconciled but the local figure disagreed with the bank.
-     *
-     * Returns false when reconciliation could not be performed (balance_matches null).
-     */
-    public function hasBalanceMismatch(): bool
-    {
-        return $this->balance_matches === false;
-    }
-
-    /**
-     * Signed difference between the bank-reported and locally computed balance.
-     *
-     * Returns null when either side of the comparison is unavailable.
-     */
-    public function balanceDelta(): ?string
-    {
-        if ($this->expected_balance === null || $this->computed_balance === null) {
-            return null;
-        }
-
-        return number_format((float) $this->expected_balance - (float) $this->computed_balance, 2, '.', '');
-    }
-
-    /**
      * Get the attributes that should be cast.
      *
      * @return array<string, string>
@@ -113,9 +86,6 @@ class BankSyncRun extends Model
             'date_to' => 'date',
             'started_at' => 'datetime',
             'finished_at' => 'datetime',
-            'expected_balance' => 'decimal:2',
-            'computed_balance' => 'decimal:2',
-            'balance_matches' => 'boolean',
             'raw_error' => 'encrypted:array',
         ];
     }

@@ -34,7 +34,24 @@ class UserFactory extends Factory
             'two_factor_recovery_codes' => null,
             'two_factor_confirmed_at' => null,
             'is_platform_admin' => false,
+            'country_code' => 'DK',
+            'timezone' => 'Europe/Copenhagen',
+            'reporting_currency' => 'DKK',
+            'region_completed_at' => now(),
         ];
+    }
+
+    /**
+     * Indicate that the user has not completed the personal region setup.
+     */
+    public function withoutRegionSetup(): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'country_code' => null,
+            'timezone' => null,
+            'reporting_currency' => null,
+            'region_completed_at' => null,
+        ]);
     }
 
     /**

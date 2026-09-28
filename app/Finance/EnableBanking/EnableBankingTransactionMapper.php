@@ -2,6 +2,7 @@
 
 namespace App\Finance\EnableBanking;
 
+use App\Finance\MoneyMath;
 use App\Models\BankConnectionAccount;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Arr;
@@ -15,8 +16,21 @@ class EnableBankingTransactionMapper
     public function postingAttributes(BankConnectionAccount $account, array $transaction): array
     {
         $transactionId = $this->transactionId($transaction);
-        $amount = $this->signedAmount($transaction);
-        $currency = (string) data_get($transaction, 'transaction_amount.currency', $account->currency);
+        $accountAmount = $this->signedAmount($transaction);
+        // transaction_amount is denominated in the account currency, so it
+        // fills the original (account) pair. The reporting amount is copied
+        // immediately only when the account already moves in the owner's
+        // reporting currency; foreign postings stay null for the conversion
+        // job.
+        $accountCurrency = (string) data_get($transaction, 'transaction_amount.currency', $account->currency);
+        $reportingCurrency = $account->bankConnection->user->reporting_currency ?? $accountCurrency;
+
+        // A running balance only counts when it is denominated in the
+        // account currency — a foreign figure must not anchor the chain.
+        $balanceCurrency = data_get($transaction, 'balance_after_transaction.currency');
+        $balance = $balanceCurrency === null || $balanceCurrency === $account->currency
+            ? $this->decimal(data_get($transaction, 'balance_after_transaction.amount'))
+            : null;
 
         return [
             'user_id' => $account->bankConnection->user_id,
@@ -26,13 +40,13 @@ class EnableBankingTransactionMapper
             'date' => $this->transactionDate($transaction)->toDateString(),
             'description' => $this->description($transaction),
             'original_description' => $this->description($transaction),
-            'amount' => $amount,
-            'original_amount' => $amount,
-            'balance' => $this->decimal(data_get($transaction, 'balance_after_transaction.amount')),
+            'amount' => $accountCurrency === $reportingCurrency ? $accountAmount : null,
+            'original_amount' => $accountAmount,
+            'balance' => $balance,
             'external_posting_id' => $transactionId,
             'external_account_uid_hash' => $account->external_account_uid_hash,
-            'currency' => $currency,
-            'original_currency' => $currency,
+            'currency' => $reportingCurrency,
+            'original_currency' => $accountCurrency,
             'state' => $this->nullableString($transaction['status'] ?? null),
             'extra_data' => $transaction,
         ];
@@ -66,14 +80,15 @@ class EnableBankingTransactionMapper
      */
     public function signedAmount(array $transaction): string
     {
-        $amount = abs((float) data_get($transaction, 'transaction_amount.amount', 0));
-        $indicator = (string) ($transaction['credit_debit_indicator'] ?? '');
+        $raw = trim((string) data_get($transaction, 'transaction_amount.amount', '0'));
+        $amount = is_numeric($raw) ? $raw : '0';
+        $amount = bccomp($amount, '0', 10) < 0 ? bcmul($amount, '-1', 10) : $amount;
 
-        if ($indicator === 'DBIT') {
-            $amount *= -1;
+        if (($transaction['credit_debit_indicator'] ?? '') === 'DBIT') {
+            $amount = bcmul($amount, '-1', 10);
         }
 
-        return number_format($amount, 2, '.', '');
+        return MoneyMath::round($amount);
     }
 
     /**
@@ -91,11 +106,11 @@ class EnableBankingTransactionMapper
 
     private function decimal(mixed $value): ?string
     {
-        if ($value === null || $value === '') {
+        if ($value === null || $value === '' || ! is_numeric($value)) {
             return null;
         }
 
-        return number_format((float) $value, 2, '.', '');
+        return MoneyMath::round((string) $value);
     }
 
     private function nullableString(mixed $value): ?string

@@ -7,106 +7,85 @@ use App\Models\BankConnectionAccount;
 use App\Models\Posting;
 use App\Models\User;
 
-function recalculator(): AccountBalanceRecalculator
+function recalculateManualAccount(BankAccount $account): void
 {
-    return app(AccountBalanceRecalculator::class);
+    app(AccountBalanceRecalculator::class)->recalculate($account);
 }
 
-function makeManualAccount(array $attributes = []): BankAccount
+function manualBalanceAccount(array $attributes = []): BankAccount
 {
     return BankAccount::factory()
         ->for(User::factory()->create())
-        ->create(['current_balance' => null, 'opening_balance' => 0, ...$attributes]);
+        ->create(['current_balance' => null, 'opening_balance' => '0.00', ...$attributes]);
 }
 
-test('recalculate rewrites the running balance chain ordered by date then id', function () {
-    $account = makeManualAccount();
-    $first = Posting::factory()->forAccount($account)->create(['date' => '2026-01-01', 'amount' => '100.00', 'balance' => null]);
-    $third = Posting::factory()->forAccount($account)->create(['date' => '2026-02-01', 'amount' => '-30.00', 'balance' => null]);
-    $second = Posting::factory()->forAccount($account)->create(['date' => '2026-01-15', 'amount' => '-25.50', 'balance' => null]);
+test('manual account total uses its opening balance and original currency movements without writing posting balances', function () {
+    $account = manualBalanceAccount(['opening_balance' => '1000.00']);
+    $first = Posting::factory()->forAccount($account)->create([
+        'date' => '2026-01-01',
+        'original_amount' => '100.00',
+        'balance' => '9999.00',
+    ]);
+    Posting::factory()->forAccount($account)->create([
+        'date' => '2026-02-01',
+        'original_amount' => '-30.00',
+        'balance' => null,
+    ]);
 
-    recalculator()->recalculate($account);
+    recalculateManualAccount($account);
 
-    expect((float) $first->refresh()->balance)->toBe(100.00)
-        ->and((float) $second->refresh()->balance)->toBe(74.50)
-        ->and((float) $third->refresh()->balance)->toBe(44.50)
-        ->and((float) $account->refresh()->current_balance)->toBe(44.50)
-        ->and($account->last_known_posting_date->toDateString())->toBe('2026-02-01');
+    expect((float) $account->refresh()->current_balance)->toBe(1070.00)
+        ->and($account->last_known_posting_date->toDateString())->toBe('2026-02-01')
+        ->and((float) $first->refresh()->balance)->toBe(9999.00);
 });
 
-test('recalculate starts the chain from the opening balance', function () {
-    $account = makeManualAccount(['opening_balance' => '1000.00']);
-    Posting::factory()->forAccount($account)->create(['date' => '2026-01-01', 'amount' => '-100.00', 'balance' => null]);
+test('a changed opening balance updates the manual total even with no postings', function () {
+    $account = manualBalanceAccount(['opening_balance' => '250.00']);
 
-    recalculator()->recalculate($account);
-
-    expect((float) $account->refresh()->current_balance)->toBe(900.00);
-});
-
-test('recalculate breaks same-day ties by id', function () {
-    $account = makeManualAccount();
-    $earlier = Posting::factory()->forAccount($account)->create(['date' => '2026-03-01', 'amount' => '50.00', 'balance' => null]);
-    $later = Posting::factory()->forAccount($account)->create(['date' => '2026-03-01', 'amount' => '-20.00', 'balance' => null]);
-
-    recalculator()->recalculate($account);
-
-    expect((float) $earlier->refresh()->balance)->toBe(50.00)
-        ->and((float) $later->refresh()->balance)->toBe(30.00);
-});
-
-test('recalculate with no postings falls back to the opening balance', function () {
-    $account = makeManualAccount(['opening_balance' => '250.00', 'last_known_posting_date' => null]);
-
-    recalculator()->recalculate($account);
+    recalculateManualAccount($account);
 
     expect((float) $account->refresh()->current_balance)->toBe(250.00)
         ->and($account->last_known_posting_date)->toBeNull();
 });
 
-test('recalculate is idempotent and stable across edits', function () {
-    $account = makeManualAccount();
-    $posting = Posting::factory()->forAccount($account)->create(['date' => '2026-01-01', 'amount' => '100.00', 'balance' => null]);
+test('an unknown movement makes a manually calculated total unknown', function () {
+    $account = manualBalanceAccount([
+        'opening_balance' => '100.00',
+        'current_balance' => '140.00',
+    ]);
+    Posting::factory()->forAccount($account)->create(['original_amount' => '50.00']);
+    Posting::factory()->forAccount($account)->create(['original_amount' => null]);
 
-    recalculator()->recalculate($account);
-    expect((float) $account->refresh()->current_balance)->toBe(100.00);
+    recalculateManualAccount($account);
 
-    $posting->update(['amount' => '50.00']);
-    recalculator()->recalculate($account);
-
-    expect((float) $posting->refresh()->balance)->toBe(50.00)
-        ->and((float) $account->refresh()->current_balance)->toBe(50.00);
+    expect($account->refresh()->current_balance)->toBeNull();
 });
 
-test('recalculate refuses accounts with a bank connection', function () {
+test('an account without an opening balance keeps its imported balance snapshot', function () {
+    $account = manualBalanceAccount([
+        'opening_balance' => null,
+        'current_balance' => '500.00',
+        'last_updated_at' => '2026-01-01 12:00:00',
+    ]);
+    Posting::factory()->forAccount($account)->create(['original_amount' => '-25.00']);
+
+    recalculateManualAccount($account);
+
+    expect((float) $account->refresh()->current_balance)->toBe(500.00)
+        ->and($account->last_updated_at->toDateTimeString())->toBe('2026-01-01 12:00:00');
+});
+
+test('a connected account keeps its provider balance snapshot', function () {
     $user = User::factory()->create();
-    $account = BankAccount::factory()->for($user)->create();
+    $account = BankAccount::factory()->for($user)->create([
+        'current_balance' => '500.00',
+        'opening_balance' => '100.00',
+    ]);
     $connection = BankConnection::factory()->for($user)->create();
     BankConnectionAccount::factory()->for($connection)->linkedTo($account)->create();
+    Posting::factory()->forAccount($account)->create(['original_amount' => '-25.00']);
 
-    recalculator()->recalculate($account);
-})->throws(InvalidArgumentException::class);
+    recalculateManualAccount($account);
 
-test('seedOpeningBalanceFromImportedChain infers the balance before the first posting', function () {
-    $account = makeManualAccount();
-    // Imported chain that opened at 500: +100 => 600, -50 => 550, but the
-    // oldest row carries no balance (e.g. a Spiir split artifact).
-    Posting::factory()->forAccount($account)->create(['date' => '2026-01-01', 'amount' => '100.00', 'balance' => null]);
-    Posting::factory()->forAccount($account)->create(['date' => '2026-01-10', 'amount' => '-50.00', 'balance' => '550.00']);
-
-    recalculator()->seedOpeningBalanceFromImportedChain($account);
-
-    expect((float) $account->refresh()->opening_balance)->toBe(500.00);
-
-    recalculator()->recalculate($account);
-
-    expect((float) $account->refresh()->current_balance)->toBe(550.00);
-});
-
-test('seedOpeningBalanceFromImportedChain leaves accounts without balanced postings untouched', function () {
-    $account = makeManualAccount(['opening_balance' => 0]);
-    Posting::factory()->forAccount($account)->create(['balance' => null]);
-
-    recalculator()->seedOpeningBalanceFromImportedChain($account);
-
-    expect((float) $account->refresh()->opening_balance)->toBe(0.00);
+    expect((float) $account->refresh()->current_balance)->toBe(500.00);
 });

@@ -3,6 +3,8 @@
 namespace App\Http\Controllers;
 
 use App\Enums\Bucket;
+use App\Finance\Fx\ExchangeRateStore;
+use App\Finance\MoneyMath;
 use App\Models\BankAccount;
 use App\Models\Posting;
 use Carbon\CarbonImmutable;
@@ -90,6 +92,17 @@ class DashboardController extends Controller
             }
 
             $point = $monthly[$month];
+
+            // Only postings with a resolved reporting amount aggregate. An
+            // eligible-but-unresolved posting is counted as missing so the
+            // month can be labeled partial instead of looking empty.
+            if ($posting->amount === null) {
+                $point['missing']++;
+                $monthly[$month] = $point;
+
+                continue;
+            }
+
             $key = $entry['bucket']->value;
             $point[$key] += $entry['bucket'] === Bucket::Income
                 ? (float) $posting->amount
@@ -104,6 +117,10 @@ class DashboardController extends Controller
         );
 
         $summary = $this->buildSummary($summaryMonthly);
+        $summaryPostings = $overviewPostings
+            ->filter(fn (array $entry): bool => CarbonImmutable::parse($entry['posting']->date)->betweenIncluded($start, $end))
+            ->pluck('posting');
+        $summary['coverage'] = $this->coverage($summaryPostings);
 
         // Selectable months follow the chart's range, which includes the
         // in-progress preview month; the period average stays bounded by
@@ -120,8 +137,8 @@ class DashboardController extends Controller
             ],
             'summary' => $summary,
             'monthly' => $monthly->values(),
-            'balance' => $this->totalBalance($request),
-            'primaryCurrency' => $this->primaryCurrency($request),
+            'balance' => $this->consolidatedBalance($request),
+            'primaryCurrency' => $request->user()->reporting_currency,
             'breakdown' => Inertia::defer(fn (): array => $this->buildBreakdown(
                 $overviewPostings,
                 $start,
@@ -149,6 +166,23 @@ class DashboardController extends Controller
             'savings' => 0.0,
             'uncategorized' => 0.0,
             'result' => 0.0,
+            'missing' => 0,
+        ];
+    }
+
+    /**
+     * Reporting-currency coverage over a posting collection: how many
+     * postings are eligible for a reporting amount and how many have one.
+     *
+     * @param  Collection<int, Posting>  $postings
+     * @return array{eligible: int, converted: int, missing: int}
+     */
+    private function coverage(Collection $postings): array
+    {
+        return [
+            'eligible' => $postings->count(),
+            'converted' => $postings->whereNotNull('amount')->count(),
+            'missing' => $postings->whereNull('amount')->count(),
         ];
     }
 
@@ -204,46 +238,66 @@ class DashboardController extends Controller
     }
 
     /**
-     * Total balance across the user's active accounts in the primary currency,
-     * preferring the last booked balance and falling back to the last available
-     * one. Null when no active account matches the primary currency.
+     * Consolidated current balance in the reporting currency. Each active
+     * account's balance is taken in its own currency and converted at the
+     * newest cached rate — never by summing historical conversions and never
+     * by calling the provider while rendering.
+     *
+     * @return array{total: ?float, currency: ?string, missing_accounts: int, valuation_date: ?string}
      */
-    private function totalBalance(Request $request): ?float
+    private function consolidatedBalance(Request $request): array
     {
-        $primaryCurrency = $this->primaryCurrency($request);
-
-        if ($primaryCurrency === null) {
-            return null;
-        }
-
+        $quote = $request->user()->reporting_currency;
         $accounts = BankAccount::query()
             ->whereBelongsTo($request->user())
             ->where('is_active', true)
-            ->where('currency', $primaryCurrency)
-            ->get(['current_balance']);
+            ->get(['currency', 'current_balance']);
 
-        if ($accounts->isEmpty()) {
-            return null;
+        $total = '0';
+        $missing = 0;
+        $used = false;
+        $valuationDates = [];
+
+        foreach ($accounts as $account) {
+            if ($account->current_balance === null) {
+                $missing++;
+
+                continue;
+            }
+
+            if ($quote !== null && $account->currency === $quote) {
+                $total = bcadd($total, (string) $account->current_balance, 2);
+                $used = true;
+
+                continue;
+            }
+
+            if ($quote === null) {
+                $missing++;
+
+                continue;
+            }
+
+            $rate = app(ExchangeRateStore::class)->rateFor($account->currency, $quote, CarbonImmutable::today());
+
+            if ($rate === null) {
+                $missing++;
+
+                continue;
+            }
+
+            $total = bcadd($total, MoneyMath::round(bcmul((string) $account->current_balance, $rate['rate'], 20)), 2);
+            $valuationDates[] = $rate['effective_date'];
+            $used = true;
         }
 
-        return round($accounts->sum(fn (BankAccount $account): float => $account->current_balance === null ? 0.0 : (float) $account->current_balance), 2);
-    }
-
-    /**
-     * The currency the dashboard aggregates are displayed in: the most common
-     * currency across the user's active accounts. Aggregating across mixed
-     * currencies is not supported yet.
-     */
-    private function primaryCurrency(Request $request): ?string
-    {
-        return BankAccount::query()
-            ->whereBelongsTo($request->user())
-            ->where('is_active', true)
-            ->select('currency')
-            ->selectRaw('count(*) as account_count')
-            ->groupBy('currency')
-            ->orderByDesc('account_count')
-            ->value('currency');
+        return [
+            'total' => $used ? (float) $total : null,
+            'currency' => $quote,
+            'missing_accounts' => $missing,
+            // The oldest effective rate caps how fresh the valuation can claim to be.
+            'valuation_date' => $valuationDates === [] ? null : min($valuationDates),
+        ];
     }
 
     /**
@@ -340,8 +394,11 @@ class DashboardController extends Controller
                     ->groupBy(fn (array $entry): string => (string) ($entry['posting']->categorizedSubcategory?->category?->id ?? 'uncategorized'))
                     ->map(function (Collection $entries) use ($type, $divisor): array {
                         $postings = $entries->map(fn (array $entry): Posting => $entry['posting']);
+                        // Unresolved postings are visible via the missing
+                        // count but excluded from every monetary figure.
+                        $converted = $postings->whereNotNull('amount')->values();
                         $category = $postings->first()?->categorizedSubcategory?->category;
-                        $total = (float) $postings->sum(fn (Posting $posting): float => (float) $posting->amount);
+                        $total = (float) $converted->sum(fn (Posting $posting): float => (float) $posting->amount);
 
                         // A category can span buckets (fixed and variable
                         // subcategories); the row is colored by wherever most
@@ -355,7 +412,7 @@ class DashboardController extends Controller
                             ->keys()
                             ->first();
 
-                        $topSubcategories = $postings
+                        $topSubcategories = $converted
                             ->groupBy(fn (Posting $posting): string => $posting->categorizedSubcategory?->name ?? 'Uncategorized')
                             ->map(fn (Collection $items, string $name): array => [
                                 'name' => $name,
@@ -367,7 +424,7 @@ class DashboardController extends Controller
                             ->values()
                             ->take(5);
 
-                        $topPostings = $postings
+                        $topPostings = $converted
                             ->sortByDesc(fn (Posting $posting): float => abs((float) $posting->amount))
                             ->take(5)
                             ->map(fn (Posting $posting): array => [
@@ -383,6 +440,7 @@ class DashboardController extends Controller
                             'type' => $type,
                             'bucket' => $dominantBucket,
                             'total' => round(abs($total) / $divisor, 2),
+                            'missing' => $postings->whereNull('amount')->count(),
                             'topSubcategories' => $topSubcategories->all(),
                             'topPostings' => $topPostings->all(),
                         ];

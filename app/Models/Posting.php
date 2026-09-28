@@ -137,10 +137,28 @@ class Posting extends Model
         $category = $this->categorizedSubcategory?->category;
 
         if ($category === null) {
-            return (float) $this->amount >= 0 ? Bucket::Income : Bucket::Uncategorized;
+            // Sign comes from the account-currency movement so a pending
+            // reporting conversion (amount null) still classifies correctly.
+            $amount = $this->original_amount ?? $this->amount ?? '0';
+
+            return (float) $amount >= 0 ? Bucket::Income : Bucket::Uncategorized;
         }
 
         return Bucket::forCategory($category->type, $this->categorizedSubcategory?->expense_type);
+    }
+
+    /**
+     * Apply the reporting-amount rule for the owning user's reporting
+     * currency: a posting in that currency is copied over immediately, a
+     * foreign amount stays null until the conversion job fills it.
+     */
+    public function applyReportingAmount(string $reportingCurrency): void
+    {
+        $this->currency = $reportingCurrency;
+
+        $this->amount = $this->original_currency === $reportingCurrency && $this->original_amount !== null
+            ? $this->original_amount
+            : null;
     }
 
     /**

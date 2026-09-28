@@ -8,7 +8,7 @@ import {
     Trash2,
     TriangleAlert,
 } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import type { CategoryComboboxOption } from '@/components/postings/category-combobox';
 import { PostingFormDialog } from '@/components/postings/posting-form-dialog';
 import type { PostingFormValues } from '@/components/postings/posting-form-dialog';
@@ -23,9 +23,9 @@ import {
     DialogHeader,
     DialogTitle,
 } from '@/components/ui/dialog';
-import { Spinner } from '@/components/ui/spinner';
 import { formatDate, formatRelativeDateTime } from '@/lib/dates';
 import { formatMoney as formatSharedMoney } from '@/lib/money';
+import { useRegion } from '@/lib/region';
 import { cn } from '@/lib/utils';
 import { index as bankAccountsIndex } from '@/routes/bank-accounts';
 import {
@@ -46,8 +46,6 @@ type SyncRun = {
     duplicate_postings_count: number;
     error_code: string | null;
     error_message: string | null;
-    balance_matches: boolean | null;
-    balance_delta: string | null;
 };
 
 type Connection = {
@@ -66,6 +64,7 @@ type Account = {
     currency: string;
     account_type: string | null;
     current_balance: number | null;
+    opening_balance: number | null;
     last_known_posting_date: string | null;
     last_updated_at: string | null;
     is_active: boolean;
@@ -74,38 +73,14 @@ type Account = {
     postings_count: number;
     last_synced_at: string | null;
     connection: Connection | null;
-    balance_diff: string | null;
-};
-
-type AuditPosting = {
-    id: number;
-    date: string;
-    description: string;
-    amount: number;
-    balance: number | null;
-};
-
-type BalanceBreak = {
-    kind: 'gap' | 'possible_duplicate' | 'suspect_day' | 'tail_lag';
-    date: string | null;
-    delta: string | null;
-    postings: AuditPosting[];
-};
-
-type BalanceAudit = {
-    is_consistent: boolean;
-    total_delta: string | null;
-    checked_postings: number;
-    breaks: BalanceBreak[];
 };
 
 type Posting = {
     id: number;
     date: string | null;
     description: string;
-    amount: number;
-    balance: number | null;
-    currency: string;
+    original_amount: number | null;
+    original_currency: string;
     comment: string | null;
     is_extraordinary: boolean;
     categorized_subcategory_id: number | null;
@@ -138,7 +113,6 @@ type ShowProps = {
     postings: Paginator<Posting>;
     syncRuns: SyncRun[];
     categories: Category[];
-    balanceAudit?: BalanceAudit | null;
 };
 
 function emptyPostingForm(): PostingFormValues {
@@ -160,19 +134,25 @@ function postingToForm(posting: Posting): PostingFormValues {
     return {
         date: posting.date ?? '',
         description: posting.description,
-        amount: posting.amount.toFixed(2),
+        amount: posting.original_amount?.toFixed(2) ?? '',
         categorized_subcategory_id: posting.categorized_subcategory_id,
         comment: posting.comment ?? '',
         is_extraordinary: posting.is_extraordinary,
     };
 }
 
-function formatMoney(amount: number | null, currency: string): string {
+function formatMoney(
+    amount: number | null,
+    currency: string,
+    locale?: string,
+): string {
     if (amount === null) {
         return '—';
     }
 
-    return formatSharedMoney(amount, currency, { maximumFractionDigits: 2 });
+    return formatSharedMoney(amount, currency, locale, {
+        maximumFractionDigits: 2,
+    });
 }
 
 function daysUntil(value: string | null): number | null {
@@ -208,14 +188,12 @@ export default function BankAccountShow({
     postings,
     syncRuns,
     categories,
-    balanceAudit,
 }: ShowProps) {
     const [isCreatingPosting, setIsCreatingPosting] = useState(false);
     const [editingPosting, setEditingPosting] = useState<Posting | null>(null);
     const [deletingPosting, setDeletingPosting] = useState<Posting | null>(
         null,
     );
-    const [isAuditOpen, setIsAuditOpen] = useState(false);
     const categoryOptions = useMemo<CategoryComboboxOption[]>(
         () =>
             categories.flatMap((category) =>
@@ -226,7 +204,8 @@ export default function BankAccountShow({
             ),
         [categories],
     );
-    const money = new Intl.NumberFormat(undefined, {
+    const { locale, timezone } = useRegion();
+    const money = new Intl.NumberFormat(locale, {
         style: 'currency',
         currency: account.currency,
         minimumFractionDigits: 2,
@@ -251,7 +230,7 @@ export default function BankAccountShow({
 
     if (!account.is_manual) {
         subtitleParts.push(
-            `Synced ${formatRelativeDateTime(account.last_synced_at)}`,
+            `Synced ${formatRelativeDateTime(account.last_synced_at, timezone, locale)}`,
         );
     }
 
@@ -288,21 +267,20 @@ export default function BankAccountShow({
                             {formatMoney(
                                 account.current_balance,
                                 account.currency,
+                                locale,
                             )}
                         </div>
                         {account.is_manual && (
                             <div className="text-xs text-muted-foreground">
-                                Manual account
+                                {account.opening_balance === null
+                                    ? 'Balance snapshot'
+                                    : 'Calculated total'}
                             </div>
                         )}
-                        {account.balance_diff !== null && (
-                            <Badge variant="destructive" className="mt-1">
-                                Off by{' '}
-                                {formatSharedMoney(
-                                    Number(account.balance_diff),
-                                    account.currency,
-                                )}
-                            </Badge>
+                        {!account.is_manual && (
+                            <div className="text-xs text-muted-foreground">
+                                Balance snapshot
+                            </div>
                         )}
                     </div>
                 </div>
@@ -331,33 +309,6 @@ export default function BankAccountShow({
                             </AlertDescription>
                         </Alert>
                     )}
-
-                {account.balance_diff !== null && (
-                    <Alert variant="destructive">
-                        <TriangleAlert className="size-4" />
-                        <AlertTitle>
-                            Postings don't add up to the bank balance
-                        </AlertTitle>
-                        <AlertDescription className="flex flex-wrap items-center gap-3">
-                            <span>
-                                The bank-reported balance differs from the
-                                running total of your postings by{' '}
-                                {formatSharedMoney(
-                                    Number(account.balance_diff),
-                                    account.currency,
-                                )}
-                                .
-                            </span>
-                            <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => setIsAuditOpen(true)}
-                            >
-                                Show details
-                            </Button>
-                        </AlertDescription>
-                    </Alert>
-                )}
 
                 <div className="flex items-center justify-between">
                     <h2 className="text-sm font-medium">Postings</h2>
@@ -389,9 +340,6 @@ export default function BankAccountShow({
                                     <th className="px-3 py-2.5 text-right text-xs font-medium text-muted-foreground">
                                         Amount
                                     </th>
-                                    <th className="hidden px-3 py-2.5 text-right text-xs font-medium text-muted-foreground md:table-cell">
-                                        Balance
-                                    </th>
                                     {account.is_manual && (
                                         <th className="px-3 py-2.5 text-right text-xs font-medium text-muted-foreground">
                                             <span className="sr-only">
@@ -405,7 +353,9 @@ export default function BankAccountShow({
                                 {postings.data.length === 0 ? (
                                     <tr>
                                         <td
-                                            colSpan={account.is_manual ? 6 : 5}
+                                            colSpan={
+                                                4 + (account.is_manual ? 1 : 0)
+                                            }
                                             className="px-3 py-8 text-center text-muted-foreground"
                                         >
                                             No postings for this account yet.
@@ -421,7 +371,10 @@ export default function BankAccountShow({
                                             }
                                         >
                                             <td className="px-3 py-3 whitespace-nowrap text-muted-foreground tabular-nums">
-                                                {formatDate(posting.date)}
+                                                {formatDate(
+                                                    posting.date,
+                                                    locale,
+                                                )}
                                             </td>
                                             <td className="px-3 py-3 font-medium">
                                                 <span className="flex items-center gap-1.5">
@@ -449,17 +402,18 @@ export default function BankAccountShow({
                                             <td
                                                 className={cn(
                                                     'px-3 py-3 text-right font-medium whitespace-nowrap tabular-nums',
-                                                    posting.amount >= 0 &&
+                                                    posting.original_amount !==
+                                                        null &&
+                                                        posting.original_amount >=
+                                                            0 &&
                                                         'text-chart-income',
                                                 )}
                                             >
-                                                {money.format(posting.amount)}
-                                            </td>
-                                            <td className="hidden px-3 py-3 text-right whitespace-nowrap text-muted-foreground tabular-nums md:table-cell">
-                                                {posting.balance === null
+                                                {posting.original_amount ===
+                                                null
                                                     ? '—'
                                                     : money.format(
-                                                          posting.balance,
+                                                          posting.original_amount,
                                                       )}
                                             </td>
                                             {account.is_manual && (
@@ -549,22 +503,10 @@ export default function BankAccountShow({
                                         <span className="text-muted-foreground">
                                             {formatRelativeDateTime(
                                                 run.started_at,
+                                                timezone,
+                                                locale,
                                             )}
                                         </span>
-                                        {run.balance_matches === false && (
-                                            <Badge variant="destructive">
-                                                Balance mismatch Δ{' '}
-                                                {formatSharedMoney(
-                                                    Number(run.balance_delta),
-                                                    account.currency,
-                                                )}
-                                            </Badge>
-                                        )}
-                                        {run.balance_matches === true && (
-                                            <Badge variant="outline">
-                                                Balance reconciled
-                                            </Badge>
-                                        )}
                                     </div>
                                     <span className="text-muted-foreground">
                                         {run.error_message ??
@@ -576,15 +518,6 @@ export default function BankAccountShow({
                     </div>
                 )}
             </div>
-
-            {!account.is_manual && (
-                <BalanceAuditDialog
-                    account={account}
-                    audit={balanceAudit}
-                    open={isAuditOpen}
-                    onClose={() => setIsAuditOpen(false)}
-                />
-            )}
 
             <PostingFormDialog
                 key={
@@ -642,181 +575,6 @@ export default function BankAccountShow({
     );
 }
 
-const breakKindLabels: Record<
-    BalanceBreak['kind'],
-    { title: string; explanation: string }
-> = {
-    gap: {
-        title: 'Missing transaction',
-        explanation:
-            'The running balance jumps here — a transaction of about this amount appears to be missing (or extra) before this day.',
-    },
-    possible_duplicate: {
-        title: 'Possible duplicate',
-        explanation:
-            'These identical postings would explain the difference if one of them was imported twice.',
-    },
-    suspect_day: {
-        title: 'Inconsistent day',
-        explanation:
-            "This day's postings contradict their own running balances — one of them is likely wrong.",
-    },
-    tail_lag: {
-        title: 'Bank balance is ahead',
-        explanation:
-            'The bank-reported balance is ahead of the newest posting. This is often just pending or not-yet-synced transactions.',
-    },
-};
-
-function BalanceAuditDialog({
-    account,
-    audit,
-    open,
-    onClose,
-}: {
-    account: Account;
-    audit: BalanceAudit | null | undefined;
-    open: boolean;
-    onClose: () => void;
-}) {
-    useEffect(() => {
-        if (open && audit === undefined) {
-            router.reload({ only: ['balanceAudit'] });
-        }
-    }, [open, audit]);
-
-    return (
-        <Dialog open={open} onOpenChange={(nextOpen) => !nextOpen && onClose()}>
-            <DialogContent className="sm:max-w-2xl">
-                <DialogHeader>
-                    <DialogTitle>Balance check</DialogTitle>
-                    <DialogDescription>
-                        Compares the running balance of your postings against
-                        the bank-reported balance and points at where the chain
-                        stops adding up.
-                    </DialogDescription>
-                </DialogHeader>
-
-                {audit == null ? (
-                    <div className="flex items-center gap-2 py-6 text-sm text-muted-foreground">
-                        <Spinner />
-                        Checking postings...
-                    </div>
-                ) : (
-                    <div className="flex max-h-[60vh] flex-col gap-4 overflow-y-auto">
-                        <div className="text-sm text-muted-foreground">
-                            Checked {audit.checked_postings} postings.
-                            {audit.total_delta !== null && (
-                                <>
-                                    {' '}
-                                    Total difference:{' '}
-                                    <span className="font-medium text-foreground tabular-nums">
-                                        {formatSharedMoney(
-                                            Number(audit.total_delta),
-                                            account.currency,
-                                        )}
-                                    </span>
-                                </>
-                            )}
-                        </div>
-
-                        {audit.is_consistent ? (
-                            <Alert>
-                                <AlertTitle>Everything adds up</AlertTitle>
-                                <AlertDescription>
-                                    No breaks were found in the running balance
-                                    chain.
-                                </AlertDescription>
-                            </Alert>
-                        ) : (
-                            audit.breaks.map((chainBreak, index) => (
-                                <div
-                                    key={`${chainBreak.kind}-${chainBreak.date}-${index}`}
-                                    className="rounded-md border p-3"
-                                >
-                                    <div className="flex flex-wrap items-center gap-2">
-                                        <Badge variant="destructive">
-                                            {
-                                                breakKindLabels[chainBreak.kind]
-                                                    .title
-                                            }
-                                        </Badge>
-                                        {chainBreak.date && (
-                                            <span className="text-sm text-muted-foreground">
-                                                {formatDate(chainBreak.date)}
-                                            </span>
-                                        )}
-                                        {chainBreak.delta !== null && (
-                                            <span className="text-sm font-medium tabular-nums">
-                                                {formatSharedMoney(
-                                                    Number(chainBreak.delta),
-                                                    account.currency,
-                                                )}
-                                            </span>
-                                        )}
-                                    </div>
-                                    <p className="mt-1 text-sm text-muted-foreground">
-                                        {
-                                            breakKindLabels[chainBreak.kind]
-                                                .explanation
-                                        }
-                                    </p>
-                                    {chainBreak.postings.length > 0 && (
-                                        <table className="mt-2 w-full text-sm">
-                                            <tbody>
-                                                {chainBreak.postings.map(
-                                                    (posting) => (
-                                                        <tr
-                                                            key={posting.id}
-                                                            className="border-t"
-                                                        >
-                                                            <td className="py-1.5 pr-3 whitespace-nowrap text-muted-foreground tabular-nums">
-                                                                {formatDate(
-                                                                    posting.date,
-                                                                )}
-                                                            </td>
-                                                            <td className="py-1.5 pr-3">
-                                                                {
-                                                                    posting.description
-                                                                }
-                                                            </td>
-                                                            <td className="py-1.5 pr-3 text-right whitespace-nowrap tabular-nums">
-                                                                {formatSharedMoney(
-                                                                    posting.amount,
-                                                                    account.currency,
-                                                                )}
-                                                            </td>
-                                                            <td className="py-1.5 text-right whitespace-nowrap text-muted-foreground tabular-nums">
-                                                                {posting.balance ===
-                                                                null
-                                                                    ? '—'
-                                                                    : formatSharedMoney(
-                                                                          posting.balance,
-                                                                          account.currency,
-                                                                      )}
-                                                            </td>
-                                                        </tr>
-                                                    ),
-                                                )}
-                                            </tbody>
-                                        </table>
-                                    )}
-                                </div>
-                            ))
-                        )}
-                    </div>
-                )}
-
-                <DialogFooter>
-                    <Button variant="outline" onClick={onClose}>
-                        Close
-                    </Button>
-                </DialogFooter>
-            </DialogContent>
-        </Dialog>
-    );
-}
-
 function DeletePostingDialog({
     account,
     posting,
@@ -826,6 +584,8 @@ function DeletePostingDialog({
     posting: Posting | null;
     onClose: () => void;
 }) {
+    const { locale } = useRegion();
+
     const remove = () => {
         if (posting === null) {
             return;
@@ -854,7 +614,7 @@ function DeletePostingDialog({
                     <DialogDescription>
                         {posting === null
                             ? ''
-                            : `"${posting.description}" (${formatSharedMoney(posting.amount, posting.currency)}) will be permanently removed from ${account.name}.`}
+                            : `"${posting.description}" (${posting.original_amount === null ? '—' : formatSharedMoney(posting.original_amount, account.currency, locale)}) will be permanently removed from ${account.name}.`}
                     </DialogDescription>
                 </DialogHeader>
                 <DialogFooter>

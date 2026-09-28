@@ -2,6 +2,7 @@
 
 namespace Database\Seeders;
 
+use App\Finance\AccountBalanceRecalculator;
 use App\Models\BankAccount;
 use App\Models\BankConnection;
 use App\Models\BankConnectionAccount;
@@ -72,6 +73,7 @@ class DemoSeeder extends Seeder
                     'currency' => 'EUR',
                     'account_type' => 'Consumption',
                     'account_number' => '5479123456',
+                    'opening_balance' => null,
                 ]),
             'budget' => BankAccount::factory()
                 ->for($user)
@@ -84,6 +86,7 @@ class DemoSeeder extends Seeder
                     'currency' => 'EUR',
                     'account_type' => 'Budget',
                     'account_number' => '5479654321',
+                    'opening_balance' => null,
                 ]),
             'savings' => BankAccount::factory()
                 ->for($user)
@@ -96,6 +99,7 @@ class DemoSeeder extends Seeder
                     'currency' => 'EUR',
                     'account_type' => 'Savings',
                     'account_number' => '6677000123',
+                    'opening_balance' => '3675.00',
                 ]),
             'travel' => BankAccount::factory()
                 ->for($user)
@@ -109,6 +113,7 @@ class DemoSeeder extends Seeder
                     'currency' => 'EUR',
                     'account_type' => 'Consumption',
                     'account_number' => '8811223344',
+                    'opening_balance' => '215.00',
                 ]),
         ]);
     }
@@ -192,12 +197,6 @@ class DemoSeeder extends Seeder
     {
         $today = CarbonImmutable::today();
         $endMonth = $today->startOfMonth()->subMonth();
-        $balances = [
-            'everyday' => 1142.00,
-            'budget' => 850.00,
-            'savings' => 3675.00,
-            'travel' => 215.00,
-        ];
         $sequences = [
             'everyday' => 1,
             'budget' => 1,
@@ -209,51 +208,51 @@ class DemoSeeder extends Seeder
             $month = $endMonth->subMonths($monthOffset);
             $monthIndex = 11 - $monthOffset;
 
-            $this->post($accounts['everyday'], $subcategories['salary'], $month->day(1), 'Salary from Freyr Labs', 3850.00, $balances, $sequences);
-            $this->post($accounts['everyday'], $subcategories['emergency_fund'], $month->day(2), 'Transfer to emergency fund', -400.00, $balances, $sequences);
-            $this->post($accounts['savings'], $subcategories['internal_transfer'], $month->day(2), 'Transfer from everyday account', 400.00, $balances, $sequences);
-            $this->post($accounts['everyday'], $subcategories['internal_transfer'], $month->day(2), 'Transfer to bills account', -1450.00, $balances, $sequences);
-            $this->post($accounts['budget'], $subcategories['internal_transfer'], $month->day(2), 'Transfer from everyday account', 1450.00, $balances, $sequences);
+            $this->post($accounts['everyday'], $subcategories['salary'], $month->day(1), 'Salary from Freyr Labs', 3850.00, $sequences);
+            $this->post($accounts['everyday'], $subcategories['emergency_fund'], $month->day(2), 'Transfer to emergency fund', -400.00, $sequences);
+            $this->post($accounts['savings'], $subcategories['internal_transfer'], $month->day(2), 'Transfer from everyday account', 400.00, $sequences);
+            $this->post($accounts['everyday'], $subcategories['internal_transfer'], $month->day(2), 'Transfer to bills account', -1450.00, $sequences);
+            $this->post($accounts['budget'], $subcategories['internal_transfer'], $month->day(2), 'Transfer from everyday account', 1450.00, $sequences);
 
-            $this->post($accounts['budget'], $subcategories['rent'], $month->day(3), 'Apartment rent', -1180.00, $balances, $sequences);
-            $this->post($accounts['budget'], $subcategories['utilities'], $month->day(5), 'Electricity and heating', -$this->monthlyAmount([95.40, 128.10, 84.60, 141.25], $monthIndex), $balances, $sequences);
-            $this->post($accounts['budget'], $subcategories['internet'], $month->day(7), 'Fiber internet', -39.00, $balances, $sequences);
-            $this->post($accounts['budget'], $subcategories['insurance'], $month->day(8), 'Home insurance', -32.50, $balances, $sequences);
-            $this->post($accounts['everyday'], $subcategories['phone'], $month->day(9), 'Mobile subscription', -19.00, $balances, $sequences);
+            $this->post($accounts['budget'], $subcategories['rent'], $month->day(3), 'Apartment rent', -1180.00, $sequences);
+            $this->post($accounts['budget'], $subcategories['utilities'], $month->day(5), 'Electricity and heating', -$this->monthlyAmount([95.40, 128.10, 84.60, 141.25], $monthIndex), $sequences);
+            $this->post($accounts['budget'], $subcategories['internet'], $month->day(7), 'Fiber internet', -39.00, $sequences);
+            $this->post($accounts['budget'], $subcategories['insurance'], $month->day(8), 'Home insurance', -32.50, $sequences);
+            $this->post($accounts['everyday'], $subcategories['phone'], $month->day(9), 'Mobile subscription', -19.00, $sequences);
 
             foreach ([6, 13, 20, 27] as $index => $day) {
-                $this->post($accounts['everyday'], $subcategories['groceries'], $this->dateInMonth($month, $day), $this->monthlyMerchant(['Fresh Market', 'Lidl', 'Green Grocer', 'Corner Deli'], $monthIndex + $index), -$this->monthlyAmount([52.20, 68.40, 83.85, 61.10, 90.55], $monthIndex + $index), $balances, $sequences);
+                $this->post($accounts['everyday'], $subcategories['groceries'], $this->dateInMonth($month, $day), $this->monthlyMerchant(['Fresh Market', 'Lidl', 'Green Grocer', 'Corner Deli'], $monthIndex + $index), -$this->monthlyAmount([52.20, 68.40, 83.85, 61.10, 90.55], $monthIndex + $index), $sequences);
             }
 
-            $this->post($accounts['everyday'], $subcategories['transport'], $month->day(10), 'Metro card top-up', -49.00, $balances, $sequences);
-            $this->post($accounts['everyday'], $subcategories['restaurants'], $month->day(14), $this->monthlyMerchant(['Trattoria Roma', 'Burger Collective', 'Sushi House'], $monthIndex), -$this->monthlyAmount([48.00, 36.50, 72.50, 51.00], $monthIndex), $balances, $sequences);
-            $this->post($accounts['everyday'], $subcategories['takeaway'], $month->day(16), 'Pizza delivery', -$this->monthlyAmount([24.50, 31.00, 19.75], $monthIndex), $balances, $sequences);
-            $this->post($accounts['everyday'], $subcategories['coffee'], $month->day(18), 'Café Luna', -6.40, $balances, $sequences);
-            $this->post($accounts['everyday'], $subcategories['streaming'], $month->day(21), 'Netflix', -12.99, $balances, $sequences);
-            $this->post($accounts['everyday'], $subcategories['subscriptions'], $month->day(21), 'Spotify', -10.99, $balances, $sequences);
-            $this->post($accounts['everyday'], $subcategories['fitness'], $month->day(2), 'FitLife gym membership', -29.90, $balances, $sequences);
-            $this->post($accounts['everyday'], $subcategories['pharmacy'], $month->day(22), 'City Pharmacy', -$this->monthlyAmount([8.80, 16.40, 12.60, 21.40], $monthIndex), $balances, $sequences);
+            $this->post($accounts['everyday'], $subcategories['transport'], $month->day(10), 'Metro card top-up', -49.00, $sequences);
+            $this->post($accounts['everyday'], $subcategories['restaurants'], $month->day(14), $this->monthlyMerchant(['Trattoria Roma', 'Burger Collective', 'Sushi House'], $monthIndex), -$this->monthlyAmount([48.00, 36.50, 72.50, 51.00], $monthIndex), $sequences);
+            $this->post($accounts['everyday'], $subcategories['takeaway'], $month->day(16), 'Pizza delivery', -$this->monthlyAmount([24.50, 31.00, 19.75], $monthIndex), $sequences);
+            $this->post($accounts['everyday'], $subcategories['coffee'], $month->day(18), 'Café Luna', -6.40, $sequences);
+            $this->post($accounts['everyday'], $subcategories['streaming'], $month->day(21), 'Netflix', -12.99, $sequences);
+            $this->post($accounts['everyday'], $subcategories['subscriptions'], $month->day(21), 'Spotify', -10.99, $sequences);
+            $this->post($accounts['everyday'], $subcategories['fitness'], $month->day(2), 'FitLife gym membership', -29.90, $sequences);
+            $this->post($accounts['everyday'], $subcategories['pharmacy'], $month->day(22), 'City Pharmacy', -$this->monthlyAmount([8.80, 16.40, 12.60, 21.40], $monthIndex), $sequences);
 
             if ($monthIndex % 3 === 0) {
-                $this->post($accounts['everyday'], $subcategories['clothing'], $month->day(24), $this->monthlyMerchant(['Zara', 'Uniqlo', 'H&M'], $monthIndex), -$this->monthlyAmount([64.00, 92.00, 38.00], $monthIndex), $balances, $sequences);
+                $this->post($accounts['everyday'], $subcategories['clothing'], $month->day(24), $this->monthlyMerchant(['Zara', 'Uniqlo', 'H&M'], $monthIndex), -$this->monthlyAmount([64.00, 92.00, 38.00], $monthIndex), $sequences);
             }
 
             if ($monthIndex % 4 === 1) {
-                $this->post($accounts['everyday'], $subcategories['home'], $month->day(25), 'IKEA', -$this->monthlyAmount([42.00, 112.00, 67.50], $monthIndex), $balances, $sequences);
+                $this->post($accounts['everyday'], $subcategories['home'], $month->day(25), 'IKEA', -$this->monthlyAmount([42.00, 112.00, 67.50], $monthIndex), $sequences);
             }
 
             if ($monthIndex % 5 === 2) {
-                $this->post($accounts['everyday'], $subcategories['doctor'], $month->day(15), 'Dental check-up', -85.00, $balances, $sequences);
+                $this->post($accounts['everyday'], $subcategories['doctor'], $month->day(15), 'Dental check-up', -85.00, $sequences);
             }
 
-            $this->post($accounts['everyday'], $subcategories['investments'], $month->day(28), 'Monthly index fund deposit', -250.00, $balances, $sequences);
+            $this->post($accounts['everyday'], $subcategories['investments'], $month->day(28), 'Monthly index fund deposit', -250.00, $sequences);
         }
 
-        $this->post($accounts['everyday'], $subcategories['electronics'], $endMonth->day(17), 'Laptop repair', -389.90, $balances, $sequences, ['is_extraordinary' => true]);
-        $this->post($accounts['everyday'], null, $endMonth->day(29), 'PayPal payment 4312', -22.80, $balances, $sequences, ['categorized_by' => null]);
+        $this->post($accounts['everyday'], $subcategories['electronics'], $endMonth->day(17), 'Laptop repair', -389.90, $sequences, ['is_extraordinary' => true]);
+        $this->post($accounts['everyday'], null, $endMonth->day(29), 'PayPal payment 4312', -22.80, $sequences, ['categorized_by' => null]);
 
-        $this->post($accounts['travel'], $subcategories['travel'], $endMonth->subMonths(10)->day(12), 'Flight to Lisbon', -138.00, $balances, $sequences);
-        $this->post($accounts['travel'], $subcategories['restaurants'], $endMonth->subMonths(10)->day(13), 'Lisbon dinner', -77.00, $balances, $sequences);
+        $this->post($accounts['travel'], $subcategories['travel'], $endMonth->subMonths(10)->day(12), 'Flight to Lisbon', -138.00, $sequences);
+        $this->post($accounts['travel'], $subcategories['restaurants'], $endMonth->subMonths(10)->day(13), 'Lisbon dinner', -77.00, $sequences);
     }
 
     /**
@@ -285,26 +284,18 @@ class DemoSeeder extends Seeder
      */
     private function refreshAccountBalances(Collection $accounts): void
     {
-        $accounts->each(function (BankAccount $account): void {
-            $latestPosting = $account->postings()
-                ->orderByDesc('date')
-                ->orderByDesc('id')
-                ->first();
+        foreach ($accounts as $account) {
+            if ($account->opening_balance !== null && ! $account->hasBankConnection()) {
+                app(AccountBalanceRecalculator::class)->recalculate($account);
 
-            if ($latestPosting === null) {
-                return;
+                continue;
             }
 
-            $account->update([
-                'current_balance' => $latestPosting->balance,
-                'last_known_posting_date' => $latestPosting->date,
-                'last_updated_at' => now(),
-            ]);
-        });
+            $account->update(['last_known_posting_date' => $account->postings()->max('date')]);
+        }
     }
 
     /**
-     * @param  array<string, float>  $balances
      * @param  array<string, int>  $sequences
      * @param  array<string, mixed>  $overrides
      */
@@ -314,12 +305,10 @@ class DemoSeeder extends Seeder
         CarbonImmutable $date,
         string $description,
         float $amount,
-        array &$balances,
         array &$sequences,
         array $overrides = [],
     ): Posting {
         $accountKey = Str::after($account->legacy_id, 'seed-account-');
-        $balances[$accountKey] += $amount;
         $sequence = $sequences[$accountKey]++;
 
         $factory = Posting::factory()->forAccount($account);
@@ -340,7 +329,6 @@ class DemoSeeder extends Seeder
             'original_description' => strtoupper($description),
             'amount' => $amount,
             'original_amount' => $amount,
-            'balance' => round($balances[$accountKey], 2),
             'currency' => $account->currency,
             'original_currency' => $account->currency,
             'country_code' => null,

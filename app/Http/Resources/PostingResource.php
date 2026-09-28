@@ -21,7 +21,7 @@ class PostingResource extends JsonResource
             'description' => $this->description,
             'original_description' => $this->original_description,
             'comment' => $this->comment,
-            'amount' => (float) $this->amount,
+            'amount' => $this->amount === null ? null : (float) $this->amount,
             'original_amount' => $this->original_amount === null ? null : (float) $this->original_amount,
             'balance' => $this->balance === null ? null : (float) $this->balance,
             'currency' => $this->currency,

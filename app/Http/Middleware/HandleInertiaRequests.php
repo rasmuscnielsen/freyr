@@ -43,6 +43,13 @@ class HandleInertiaRequests extends Middleware
                 'user' => $request->user(),
                 'isPlatformAdmin' => $request->user()?->isPlatformAdmin() ?? false,
             ],
+            'region' => $request->user() === null ? null : [
+                'country' => $request->user()->country_code,
+                'timezone' => $request->user()->timezone,
+                'reportingCurrency' => $request->user()->reporting_currency,
+                'locale' => $request->user()->numberLocale(),
+                'setupCompleted' => $request->user()->hasCompletedRegionSetup(),
+            ],
             'sidebarOpen' => ! $request->hasCookie('sidebar_state') || $request->cookie('sidebar_state') === 'true',
         ];
     }

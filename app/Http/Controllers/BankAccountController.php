@@ -2,8 +2,10 @@
 
 namespace App\Http\Controllers;
 
-use App\Finance\BalanceChainInspector;
+use App\Finance\AccountBalanceRecalculator;
 use App\Finance\EnableBanking\EnableBankingClient;
+use App\Finance\Fx\ExchangeRateStore;
+use App\Finance\MoneyMath;
 use App\Http\Requests\StoreBankAccountRequest;
 use App\Http\Requests\UpdateBankAccountRequest;
 use App\Models\BankAccount;
@@ -13,6 +15,7 @@ use App\Models\BankSyncRun;
 use App\Models\Category;
 use App\Models\Posting;
 use App\Models\User;
+use Carbon\CarbonImmutable;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Arr;
@@ -20,6 +23,7 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Inertia\Response;
 use Throwable;
@@ -38,6 +42,8 @@ class BankAccountController extends Controller
             ->orderBy('name')
             ->get();
 
+        $reportingBalances = $this->reportingBalances($user, $accounts);
+
         return Inertia::render('bank-accounts/index', [
             'accounts' => $accounts->map(fn (BankAccount $account): array => [
                 'id' => $account->id,
@@ -46,6 +52,8 @@ class BankAccountController extends Controller
                 'bank_name' => $account->bank_name,
                 'currency' => $account->currency,
                 'current_balance' => $account->current_balance === null ? null : (float) $account->current_balance,
+                'opening_balance' => $account->opening_balance === null ? null : (float) $account->opening_balance,
+                'reporting_balance' => $reportingBalances[$account->id] ?? null,
                 'last_known_posting_date' => $account->last_known_posting_date?->toDateString(),
                 'is_active' => $account->is_active,
                 'is_favorite' => $account->is_favorite,
@@ -94,15 +102,17 @@ class BankAccountController extends Controller
                 ]),
             'connections' => $this->connectionsPayload($user),
             'setupConnectionId' => $this->setupConnectionId($request),
-            'availableBanks' => $this->availableBanks($enableBanking),
+            'availableBanks' => $this->availableBanks($enableBanking, $user),
             'defaults' => [
                 'aspsp_name' => config('services.enable_banking.aspsp_name'),
-                'aspsp_country' => config('services.enable_banking.aspsp_country'),
+                // Bank selection defaults to the user's country but may differ
+                // for foreign banks — the connection stores its own value.
+                'aspsp_country' => $user->country_code ?? config('services.enable_banking.aspsp_country'),
             ],
         ]);
     }
 
-    public function show(Request $request, BankAccount $bankAccount, BalanceChainInspector $inspector): Response
+    public function show(Request $request, BankAccount $bankAccount): Response
     {
         abort_unless($request->user()?->is($bankAccount->user), 403);
 
@@ -119,9 +129,10 @@ class BankAccountController extends Controller
                 'id' => $posting->id,
                 'date' => $posting->date?->toDateString(),
                 'description' => $posting->description,
-                'amount' => (float) $posting->amount,
-                'balance' => $posting->balance === null ? null : (float) $posting->balance,
-                'currency' => $posting->currency,
+                // The account page shows account-currency amounts — the
+                // original pair, not the reporting conversion.
+                'original_amount' => $posting->original_amount === null ? null : (float) $posting->original_amount,
+                'original_currency' => $posting->original_currency ?? $bankAccount->currency,
                 'comment' => $posting->comment,
                 'is_extraordinary' => $posting->is_extraordinary,
                 'categorized_subcategory_id' => $posting->categorized_subcategory_id,
@@ -134,8 +145,6 @@ class BankAccountController extends Controller
         $connectionAccount = $bankAccount->bankConnectionAccounts->first();
         $connection = $connectionAccount?->bankConnection;
         $isManual = ! $bankAccount->hasBankConnection();
-        $balanceAudit = $isManual ? null : $inspector->inspect($bankAccount);
-        $balanceDelta = $balanceAudit['total_delta'] ?? null;
 
         return Inertia::render('bank-accounts/show', [
             'account' => [
@@ -145,6 +154,7 @@ class BankAccountController extends Controller
                 'currency' => $bankAccount->currency,
                 'account_type' => $bankAccount->account_type,
                 'current_balance' => $bankAccount->current_balance === null ? null : (float) $bankAccount->current_balance,
+                'opening_balance' => $bankAccount->opening_balance === null ? null : (float) $bankAccount->opening_balance,
                 'last_known_posting_date' => $bankAccount->last_known_posting_date?->toDateString(),
                 'last_updated_at' => $bankAccount->last_updated_at?->toDateTimeString(),
                 'is_active' => $bankAccount->is_active,
@@ -160,11 +170,16 @@ class BankAccountController extends Controller
                     'needs_renewal' => $connection->needsRenewal(),
                     'access_valid_until' => $connection->access_valid_until?->toIso8601String(),
                 ],
-                'balance_diff' => $balanceDelta === '0.00' ? null : $balanceDelta,
             ],
             'postings' => $postings,
-            'balanceAudit' => Inertia::optional(fn (): ?array => $balanceAudit),
-            'syncRuns' => $this->syncRunsPayload($bankAccount->syncRuns()->latest('id')->limit(5)->get()),
+            'syncRuns' => $this->syncRunsPayload(BankSyncRun::query()
+                ->where(function ($query) use ($bankAccount): void {
+                    $query->where('bank_account_id', $bankAccount->id)
+                        ->orWhereIn('bank_connection_account_id', $bankAccount->bankConnectionAccounts->pluck('id'));
+                })
+                ->latest('id')
+                ->limit(5)
+                ->get()),
             'categories' => Category::query()
                 ->with(['subcategories' => fn ($query) => $query->orderBy('name')])
                 ->orderBy('name')
@@ -185,17 +200,51 @@ class BankAccountController extends Controller
 
     public function store(StoreBankAccountRequest $request): RedirectResponse
     {
+        $validated = $request->validated();
+        $openingBalance = MoneyMath::round((string) ($validated['opening_balance'] ?? '0.00'));
+
         $request->user()->bankAccounts()->create([
-            ...$request->validated(),
+            ...$validated,
             'legacy_id' => BankAccount::MANUAL_LEGACY_ID_PREFIX.Str::uuid()->toString(),
+            'opening_balance' => $openingBalance,
+            'current_balance' => $openingBalance,
         ]);
 
         return back();
     }
 
-    public function update(UpdateBankAccountRequest $request, BankAccount $bankAccount): RedirectResponse
+    public function update(UpdateBankAccountRequest $request, BankAccount $bankAccount, AccountBalanceRecalculator $balanceRecalculator): RedirectResponse
     {
-        $bankAccount->update($request->validated());
+        $validated = $request->validated();
+
+        if (array_key_exists('opening_balance', $validated)) {
+            if ($bankAccount->hasBankConnection()) {
+                throw ValidationException::withMessages([
+                    'opening_balance' => 'An opening balance can only be set for an account without a bank connection.',
+                ]);
+            }
+
+            $validated['opening_balance'] = MoneyMath::round((string) $validated['opening_balance']);
+        }
+
+        // The account currency denominates the whole balance chain — it must
+        // not move once postings or a live feed exist.
+        if (array_key_exists('currency', $validated)
+            && $validated['currency'] !== $bankAccount->currency
+            && ($bankAccount->hasBankConnection() || $bankAccount->postings()->exists())) {
+            throw ValidationException::withMessages([
+                'currency' => 'The account currency cannot change once the account has postings or a bank connection.',
+            ]);
+        }
+
+        $openingBalanceChanged = array_key_exists('opening_balance', $validated)
+            && $bankAccount->opening_balance !== $validated['opening_balance'];
+
+        $bankAccount->update($validated);
+
+        if ($openingBalanceChanged) {
+            $balanceRecalculator->recalculate($bankAccount);
+        }
 
         return back();
     }
@@ -218,8 +267,50 @@ class BankAccountController extends Controller
     }
 
     /**
-     * Build the "My banks" side-panel payload: one entry per bank connection with its
-     * status, expiry, latest sync and reconciliation state, and its remote accounts.
+     * Each account's current balance valued in the user's reporting currency,
+     * keyed by account id. Same-currency balances pass through untouched;
+     * foreign ones convert at the newest cached rate — never by calling the
+     * provider while rendering. Null means the balance cannot be valued (no
+     * reporting currency, no balance, or no cached rate), so the frontend can
+     * fall back to per-currency subtotals.
+     *
+     * @param  Collection<int, BankAccount>  $accounts
+     * @return array<int, float|null>
+     */
+    private function reportingBalances(User $user, Collection $accounts): array
+    {
+        $quote = $user->reporting_currency;
+        $rates = app(ExchangeRateStore::class);
+        $today = CarbonImmutable::today();
+        $ratesByBase = [];
+
+        return $accounts
+            ->mapWithKeys(function (BankAccount $account) use ($quote, $rates, $today, &$ratesByBase): array {
+                if ($account->current_balance === null || $quote === null) {
+                    return [$account->id => null];
+                }
+
+                if ($account->currency === $quote) {
+                    return [$account->id => (float) $account->current_balance];
+                }
+
+                if (! array_key_exists($account->currency, $ratesByBase)) {
+                    $ratesByBase[$account->currency] = $rates->rateFor($account->currency, $quote, $today);
+                }
+
+                $rate = $ratesByBase[$account->currency];
+
+                return [
+                    $account->id => $rate === null
+                        ? null
+                        : (float) MoneyMath::round(bcmul((string) $account->current_balance, $rate['rate'], 20)),
+                ];
+            })
+            ->all();
+    }
+
+    /**
+     * Build the "My banks" side-panel payload with connection state and accounts.
      *
      * @return list<array<string, mixed>>
      */
@@ -231,8 +322,6 @@ class BankAccountController extends Controller
             ->orderByDesc('created_at')
             ->get()
             ->map(function (BankConnection $connection): array {
-                $latestRun = $connection->syncRuns()->latest('id')->first();
-
                 return [
                     'id' => $connection->id,
                     'status' => $connection->status,
@@ -251,10 +340,6 @@ class BankAccountController extends Controller
                         ->where('status', BankConnectionAccount::STATUS_LINKED)
                         ->whereNotNull('bank_account_id')
                         ->count(),
-                    'balance_mismatch' => $latestRun === null || ! $latestRun->hasBalanceMismatch() ? null : [
-                        'delta' => $latestRun->balanceDelta(),
-                        'currency' => $latestRun->bankConnectionAccount?->currency,
-                    ],
                     'accounts' => $connection->accounts
                         ->sortBy(fn (BankConnectionAccount $account): string => $account->details ?? $account->name)
                         ->values()
@@ -323,8 +408,6 @@ class BankAccountController extends Controller
                     $run->status === BankSyncRun::STATUS_FAILED => BankSyncRun::GENERIC_ERROR_MESSAGE,
                     default => null,
                 },
-                'balance_matches' => $run->balance_matches,
-                'balance_delta' => $run->balanceDelta(),
             ])
             ->all();
     }
@@ -332,9 +415,9 @@ class BankAccountController extends Controller
     /**
      * @return list<array{key:string,name:string,country:string}>
      */
-    private function availableBanks(EnableBankingClient $enableBanking): array
+    private function availableBanks(EnableBankingClient $enableBanking, User $user): array
     {
-        $defaultCountry = (string) config('services.enable_banking.aspsp_country', 'DK');
+        $defaultCountry = $user->country_code ?? (string) config('services.enable_banking.aspsp_country', 'DK');
 
         try {
             return Cache::remember('enable-banking.aspsps.'.strtolower($defaultCountry).'.personal.ais', now()->addHours(12), function () use ($defaultCountry, $enableBanking): array {
@@ -358,7 +441,7 @@ class BankAccountController extends Controller
             });
         } catch (Throwable) {
             $name = (string) config('services.enable_banking.aspsp_name');
-            $country = (string) config('services.enable_banking.aspsp_country');
+            $country = $defaultCountry;
 
             if ($name === '' || $country === '') {
                 return [];

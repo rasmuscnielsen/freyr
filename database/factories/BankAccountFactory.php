@@ -26,6 +26,7 @@ class BankAccountFactory extends Factory
             'bank_name' => fake()->randomElement(['ExampleBank', 'SampleBank', 'Other Bank']),
             'currency' => 'DKK',
             'current_balance' => fake()->randomFloat(2, 0, 100000),
+            'opening_balance' => null,
             'account_type' => 'Consumption',
             'ignore_postings_before' => null,
             'last_updated_at' => now(),

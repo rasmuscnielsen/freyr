@@ -8,6 +8,11 @@ use App\Models\Subcategory;
 use App\Models\User;
 use Inertia\Testing\AssertableInertia as Assert;
 
+function manualPostingAccount(User $user, array $attributes = []): BankAccount
+{
+    return BankAccount::factory()->for($user)->create(['opening_balance' => '0.00', ...$attributes]);
+}
+
 function manualPostingPayload(array $overrides = []): array
 {
     return [
@@ -22,7 +27,7 @@ function manualPostingPayload(array $overrides = []): array
 
 test('postings can be created manually on accounts without a bank connection', function () {
     $user = User::factory()->create();
-    $account = BankAccount::factory()->for($user)->create(['currency' => 'DKK']);
+    $account = manualPostingAccount($user, ['currency' => 'DKK']);
     $subcategory = Subcategory::factory()->create();
 
     $this->actingAs($user)
@@ -49,7 +54,7 @@ test('postings can be created manually on accounts without a bank connection', f
 
 test('manual posting creation validates its input', function () {
     $user = User::factory()->create();
-    $account = BankAccount::factory()->for($user)->create();
+    $account = manualPostingAccount($user);
 
     $this->actingAs($user)
         ->from(route('bank-accounts.show', $account))
@@ -65,7 +70,7 @@ test('manual posting creation validates its input', function () {
 
 test('manual postings can be updated', function () {
     $user = User::factory()->create();
-    $account = BankAccount::factory()->for($user)->create();
+    $account = manualPostingAccount($user);
     $posting = Posting::factory()->forAccount($account)->uncategorized()->create(['date' => '2026-06-01']);
     $subcategory = Subcategory::factory()->create();
 
@@ -89,7 +94,7 @@ test('manual postings can be updated', function () {
 
 test('manual postings can be deleted', function () {
     $user = User::factory()->create();
-    $account = BankAccount::factory()->for($user)->create();
+    $account = manualPostingAccount($user);
     $kept = Posting::factory()->forAccount($account)->create(['date' => '2026-05-01']);
     $deleted = Posting::factory()->forAccount($account)->create(['date' => '2026-06-01']);
 
@@ -101,9 +106,9 @@ test('manual postings can be deleted', function () {
         ->and($account->refresh()->last_known_posting_date->toDateString())->toBe('2026-05-01');
 });
 
-test('manual posting changes maintain the running balance chain and account balance', function () {
+test('manual posting changes recalculate only the account total', function () {
     $user = User::factory()->create();
-    $account = BankAccount::factory()->for($user)->create(['current_balance' => null, 'opening_balance' => '100.00']);
+    $account = manualPostingAccount($user, ['current_balance' => null, 'opening_balance' => '100.00']);
 
     $this->actingAs($user)->post(route('bank-accounts.postings.store', $account), manualPostingPayload([
         'date' => '2026-06-01',
@@ -116,8 +121,8 @@ test('manual posting changes maintain the running balance chain and account bala
 
     [$first, $second] = Posting::query()->orderBy('date')->get();
 
-    expect((float) $first->balance)->toBe(350.00)
-        ->and((float) $second->balance)->toBe(300.00)
+    expect($first->balance)->toBeNull()
+        ->and($second->balance)->toBeNull()
         ->and((float) $account->refresh()->current_balance)->toBe(300.00);
 
     $this->actingAs($user)->patch(
@@ -125,7 +130,8 @@ test('manual posting changes maintain the running balance chain and account bala
         manualPostingPayload(['date' => '2026-06-01', 'amount' => '100.00']),
     );
 
-    expect((float) $account->refresh()->current_balance)->toBe(150.00);
+    expect((float) $account->refresh()->current_balance)->toBe(150.00)
+        ->and($first->refresh()->balance)->toBeNull();
 
     $this->actingAs($user)->delete(route('bank-accounts.postings.destroy', [$account, $second]));
 
@@ -134,7 +140,7 @@ test('manual posting changes maintain the running balance chain and account bala
 
 test('postings cannot be managed manually on accounts with a bank connection', function () {
     $user = User::factory()->create();
-    $account = BankAccount::factory()->for($user)->create();
+    $account = manualPostingAccount($user);
     $connection = BankConnection::factory()->for($user)->create();
     BankConnectionAccount::factory()->for($connection)->linkedTo($account)->create();
     $posting = Posting::factory()->forAccount($account)->create();
@@ -157,7 +163,7 @@ test('postings cannot be managed manually on accounts with a bank connection', f
 test('manual postings are only manageable by the account owner', function () {
     $owner = User::factory()->create();
     $intruder = User::factory()->create();
-    $account = BankAccount::factory()->for($owner)->create();
+    $account = manualPostingAccount($owner);
     $posting = Posting::factory()->forAccount($account)->create();
 
     $this->actingAs($intruder)
@@ -177,8 +183,8 @@ test('manual postings are only manageable by the account owner', function () {
 
 test('manual posting routes are scoped to the bank account', function () {
     $user = User::factory()->create();
-    $account = BankAccount::factory()->for($user)->create();
-    $otherAccount = BankAccount::factory()->for($user)->create();
+    $account = manualPostingAccount($user);
+    $otherAccount = manualPostingAccount($user);
     $posting = Posting::factory()->forAccount($otherAccount)->create();
 
     $this->actingAs($user)
@@ -192,7 +198,7 @@ test('manual posting routes are scoped to the bank account', function () {
 
 test('bank account detail exposes manual state and categories for manual accounts', function () {
     $user = User::factory()->create();
-    $account = BankAccount::factory()->for($user)->create();
+    $account = manualPostingAccount($user);
     $subcategory = Subcategory::factory()->create();
     Posting::factory()->forAccount($account)->categorizedAs($subcategory)->create(['comment' => 'Note']);
 
@@ -209,7 +215,7 @@ test('bank account detail exposes manual state and categories for manual account
 
 test('bank account detail marks connected accounts as not manual but still offers categories', function () {
     $user = User::factory()->create();
-    $account = BankAccount::factory()->for($user)->create();
+    $account = manualPostingAccount($user);
     $connection = BankConnection::factory()->for($user)->create();
     BankConnectionAccount::factory()->for($connection)->linkedTo($account)->create();
     Subcategory::factory()->create();
@@ -224,7 +230,7 @@ test('bank account detail marks connected accounts as not manual but still offer
 
 test('manual postings can be created and updated with the extraordinary flag', function () {
     $user = User::factory()->create();
-    $account = BankAccount::factory()->for($user)->create();
+    $account = manualPostingAccount($user);
 
     $this->actingAs($user)
         ->post(route('bank-accounts.postings.store', $account), manualPostingPayload([

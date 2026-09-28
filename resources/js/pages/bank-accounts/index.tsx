@@ -12,7 +12,6 @@ import {
     RefreshCw,
     RotateCcw,
     Star,
-    TriangleAlert,
     Trash2,
     WalletCards,
 } from 'lucide-react';
@@ -21,7 +20,6 @@ import type { KeyboardEvent, MouseEvent } from 'react';
 import { toast } from 'sonner';
 import { ConnectionSetupDialog } from '@/components/bank-accounts/connection-setup-dialog';
 import InputError from '@/components/input-error';
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -56,6 +54,7 @@ import {
 } from '@/components/ui/select';
 import { formatDate, formatRelativeDateTime } from '@/lib/dates';
 import { formatMoney as formatSharedMoney } from '@/lib/money';
+import { useRegion } from '@/lib/region';
 import { cn } from '@/lib/utils';
 import {
     destroy as destroyAccount,
@@ -100,6 +99,8 @@ type Account = {
     bank_name: string | null;
     currency: string;
     current_balance: number | null;
+    opening_balance: number | null;
+    reporting_balance: number | null;
     last_known_posting_date: string | null;
     is_active: boolean;
     is_favorite: boolean;
@@ -146,7 +147,6 @@ type Connection = {
     failure_message: string | null;
     needs_renewal: boolean;
     linked_accounts_count: number;
-    balance_mismatch: { delta: string; currency: string | null } | null;
     accounts: ConnectionAccount[];
 };
 
@@ -159,6 +159,7 @@ type AvailableBank = {
 type AccountForm = {
     name: string;
     currency: string;
+    opening_balance: string;
 };
 
 type BankAccountsProps = {
@@ -176,14 +177,21 @@ type BankAccountsProps = {
 const emptyForm: AccountForm = {
     name: '',
     currency: '',
+    opening_balance: '0.00',
 };
 
-function formatMoney(amount: number | null, currency: string): string {
+function formatMoney(
+    amount: number | null,
+    currency: string,
+    locale?: string,
+): string {
     if (amount === null) {
         return 'Not synced';
     }
 
-    return formatSharedMoney(amount, currency, { maximumFractionDigits: 0 });
+    return formatSharedMoney(amount, currency, locale, {
+        maximumFractionDigits: 0,
+    });
 }
 
 function daysUntil(value: string | null): number | null {
@@ -235,6 +243,44 @@ function balancesByCurrency(
     return [...totals.entries()]
         .sort((a, b) => b[1].count - a[1].count)
         .map(([currency, entry]) => ({ currency, total: entry.total }));
+}
+
+/**
+ * Consolidated total in the reporting currency. Foreign balances convert at
+ * the newest cached exchange rate, so a total spanning other currencies is
+ * approximate and flagged for a "~" prefix. Returns null when the figure
+ * cannot be expressed in the reporting currency — none set, or a known
+ * balance without a cached rate — leaving the per-currency fallback in place.
+ */
+function reportingTotal(
+    accounts: Account[],
+    reportingCurrency: string | null,
+): { total: number; currency: string; approximate: boolean } | null {
+    if (reportingCurrency === null) {
+        return null;
+    }
+
+    const valued = accounts.filter(
+        (account) => account.current_balance !== null,
+    );
+
+    if (
+        valued.length === 0 ||
+        valued.some((account) => account.reporting_balance === null)
+    ) {
+        return null;
+    }
+
+    return {
+        total: valued.reduce(
+            (sum, account) => sum + (account.reporting_balance ?? 0),
+            0,
+        ),
+        currency: reportingCurrency,
+        approximate: valued.some(
+            (account) => account.currency !== reportingCurrency,
+        ),
+    };
 }
 
 export default function BankAccounts({
@@ -558,6 +604,50 @@ function EmptyState({
     );
 }
 
+function TotalSummary({ accounts }: { accounts: Account[] }) {
+    const { locale, reportingCurrency } = useRegion();
+    const total = reportingTotal(accounts, reportingCurrency);
+
+    if (total !== null) {
+        return (
+            <div className="hidden text-right sm:block">
+                <div className="text-xs text-muted-foreground">Total</div>
+                <div
+                    className="font-semibold tabular-nums"
+                    title={
+                        total.approximate
+                            ? 'Approximate — converted at the latest exchange rate'
+                            : undefined
+                    }
+                >
+                    {total.approximate && '≈'}
+                    {formatMoney(total.total, total.currency, locale)}
+                </div>
+            </div>
+        );
+    }
+
+    const subtotals = balancesByCurrency(accounts);
+
+    if (subtotals.length === 0) {
+        return null;
+    }
+
+    return (
+        <div className="hidden text-right sm:block">
+            <div className="text-xs text-muted-foreground">Total</div>
+            {subtotals.map((entry) => (
+                <div
+                    key={entry.currency}
+                    className="font-semibold tabular-nums"
+                >
+                    {formatMoney(entry.total, entry.currency, locale)}
+                </div>
+            ))}
+        </div>
+    );
+}
+
 function BankCard({
     connection,
     accounts,
@@ -575,6 +665,7 @@ function BankCard({
     onConnect: (account: Account) => void;
     onDelete: (account: Account) => void;
 }) {
+    const { locale, timezone } = useRegion();
     const expiryDays = daysUntil(connection.access_valid_until);
     const expired = expiryDays !== null && expiryDays < 0;
     const expiringSoon =
@@ -615,8 +706,6 @@ function BankCard({
 
     const openAccounts = accounts.filter((account) => account.is_active);
     const archivedAccounts = accounts.filter((account) => !account.is_active);
-
-    const subtotals = balancesByCurrency(openAccounts);
 
     const syncAll = () => {
         toast('Syncing bank accounts...');
@@ -683,24 +772,7 @@ function BankCard({
                             </div>
                         </div>
                         <div className="flex shrink-0 items-center gap-3">
-                            {subtotals.length > 0 && (
-                                <div className="hidden text-right sm:block">
-                                    <div className="text-xs text-muted-foreground">
-                                        Total
-                                    </div>
-                                    {subtotals.map((entry) => (
-                                        <div
-                                            key={entry.currency}
-                                            className="font-semibold tabular-nums"
-                                        >
-                                            {formatMoney(
-                                                entry.total,
-                                                entry.currency,
-                                            )}
-                                        </div>
-                                    ))}
-                                </div>
-                            )}
+                            <TotalSummary accounts={openAccounts} />
                             {connection.needs_renewal && (
                                 <Button size="sm" onClick={renew}>
                                     <RefreshCw className="size-4" />
@@ -777,6 +849,8 @@ function BankCard({
                                 Last sync:{' '}
                                 {formatRelativeDateTime(
                                     connection.last_successful_sync_at,
+                                    timezone,
+                                    locale,
                                 )}
                             </span>
                         </div>
@@ -796,29 +870,11 @@ function BankCard({
                     </div>
                 </div>
 
-                {connection.balance_mismatch && (
-                    <Alert variant="destructive" className="mx-4 mb-3 py-2">
-                        <TriangleAlert className="size-4" />
-                        <AlertTitle className="text-xs">
-                            Balance mismatch after last sync
-                        </AlertTitle>
-                        <AlertDescription className="text-xs">
-                            Δ{' '}
-                            {formatSharedMoney(
-                                Number(connection.balance_mismatch.delta),
-                                connection.balance_mismatch.currency,
-                            )}
-                        </AlertDescription>
-                    </Alert>
+                {(connection.failure_code || connection.failure_message) && (
+                    <p className="mx-4 mb-3 text-xs text-destructive">
+                        {connection.failure_message ?? connection.failure_code}
+                    </p>
                 )}
-
-                {(connection.failure_code || connection.failure_message) &&
-                    !connection.balance_mismatch && (
-                        <p className="mx-4 mb-3 text-xs text-destructive">
-                            {connection.failure_message ??
-                                connection.failure_code}
-                        </p>
-                    )}
 
                 {openAccounts.length > 0 ? (
                     <div className="divide-y border-t">
@@ -908,8 +964,6 @@ function ManualAccountsCard({
     onConnect: (account: Account) => void;
     onDelete: (account: Account) => void;
 }) {
-    const subtotals = balancesByCurrency(accounts);
-
     return (
         <Card className="overflow-hidden py-0">
             <CardContent className="p-0">
@@ -928,24 +982,7 @@ function ManualAccountsCard({
                         </div>
                     </div>
                     <div className="flex shrink-0 items-center gap-3">
-                        {subtotals.length > 0 && (
-                            <div className="hidden text-right sm:block">
-                                <div className="text-xs text-muted-foreground">
-                                    Total
-                                </div>
-                                {subtotals.map((entry) => (
-                                    <div
-                                        key={entry.currency}
-                                        className="font-semibold tabular-nums"
-                                    >
-                                        {formatMoney(
-                                            entry.total,
-                                            entry.currency,
-                                        )}
-                                    </div>
-                                ))}
-                            </div>
-                        )}
+                        <TotalSummary accounts={accounts} />
                         <DropdownMenu>
                             <DropdownMenuTrigger asChild>
                                 <Button
@@ -995,6 +1032,7 @@ function AccountRow({
     onConnect: () => void;
     onDelete: () => void;
 }) {
+    const { locale } = useRegion();
     const linkedConnection = account.connection_accounts[0] ?? null;
     const needsRenewal = account.connection_accounts.some(
         (connectionAccount) => connectionAccount.needs_renewal,
@@ -1093,18 +1131,25 @@ function AccountRow({
                     Last posting
                 </div>
                 <div className="text-sm tabular-nums">
-                    {lastPostingDate ? formatDate(lastPostingDate) : '—'}
+                    {lastPostingDate
+                        ? formatDate(lastPostingDate, locale)
+                        : '—'}
                 </div>
             </div>
 
             <div className="w-28 text-right md:w-36">
-                <div className="text-xs text-muted-foreground">Balance</div>
+                <div className="text-xs text-muted-foreground">
+                    {isConnected || account.opening_balance === null
+                        ? 'Balance snapshot'
+                        : 'Current total'}
+                </div>
                 <div className="font-semibold tabular-nums">
                     {account.current_balance === null
                         ? '—'
                         : formatMoney(
                               account.current_balance,
                               account.currency,
+                              locale,
                           )}
                 </div>
             </div>
@@ -1123,7 +1168,7 @@ function AccountRow({
                 <DropdownMenuContent align="end" onClick={stopCardNavigation}>
                     <DropdownMenuItem onSelect={onEdit}>
                         <Pencil className="size-4" />
-                        Rename
+                        Edit account
                     </DropdownMenuItem>
                     <DropdownMenuItem onSelect={toggleFavorite}>
                         <Star
@@ -1376,12 +1421,22 @@ function AccountDialog({
     const form = useForm<AccountForm>(
         account === null
             ? emptyForm
-            : { name: account.name, currency: account.currency },
+            : {
+                  name: account.name,
+                  currency: account.currency,
+                  opening_balance: account.opening_balance?.toFixed(2) ?? '',
+              },
     );
 
     const submit = () => {
         if (isEditing) {
-            form.transform(() => ({ name: form.data.name }));
+            form.transform(() => ({
+                name: form.data.name,
+                ...(account.connection_accounts.length === 0 &&
+                form.data.opening_balance.trim() !== ''
+                    ? { opening_balance: form.data.opening_balance }
+                    : {}),
+            }));
             form.patch(updateAccount.url(account.id), {
                 preserveScroll: true,
                 onSuccess: onClose,
@@ -1390,6 +1445,10 @@ function AccountDialog({
             return;
         }
 
+        form.transform(() => ({
+            ...form.data,
+            opening_balance: form.data.opening_balance.trim() || '0.00',
+        }));
         form.post(storeAccount.url(), {
             preserveScroll: true,
             onSuccess: onClose,
@@ -1401,11 +1460,11 @@ function AccountDialog({
             <DialogContent className="sm:max-w-md">
                 <DialogHeader>
                     <DialogTitle>
-                        {isEditing ? 'Rename account' : 'Add manual account'}
+                        {isEditing ? 'Edit account' : 'Add manual account'}
                     </DialogTitle>
                     <DialogDescription>
                         {isEditing
-                            ? 'Change how the account is labelled in lists and overviews.'
+                            ? 'Update account details and, for an unconnected account, its opening balance.'
                             : 'A manual account never syncs with a bank — postings and balances are entered by hand.'}
                     </DialogDescription>
                 </DialogHeader>
@@ -1439,6 +1498,36 @@ function AccountDialog({
                                 }
                             />
                             <InputError message={form.errors.currency} />
+                        </div>
+                    )}
+
+                    {(account === null ||
+                        account.connection_accounts.length === 0) && (
+                        <div className="grid gap-2">
+                            <Label htmlFor="opening_balance">
+                                Opening balance
+                                {isEditing ? ` (${account.currency})` : ''}
+                            </Label>
+                            <Input
+                                id="opening_balance"
+                                type="number"
+                                step="0.01"
+                                value={form.data.opening_balance}
+                                onChange={(event) =>
+                                    form.setData(
+                                        'opening_balance',
+                                        event.target.value,
+                                    )
+                                }
+                            />
+                            <p className="text-xs text-muted-foreground">
+                                {isEditing
+                                    ? account.opening_balance === null
+                                        ? 'Balance before all postings. Leave blank to keep the imported balance snapshot.'
+                                        : 'Balance before all postings. Leave blank to keep the existing opening balance.'
+                                    : 'Balance before all postings. A blank value starts at zero.'}
+                            </p>
+                            <InputError message={form.errors.opening_balance} />
                         </div>
                     )}
                 </div>

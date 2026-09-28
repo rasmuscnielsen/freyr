@@ -2,8 +2,7 @@
 
 namespace App\Finance\EnableBanking;
 
-use App\Finance\BalanceChainInspector;
-use App\Finance\SyncedBalanceChainWriter;
+use App\Jobs\ConvertReportingAmountsJob;
 use App\Models\BankAccount;
 use App\Models\BankConnection;
 use App\Models\BankConnectionAccount;
@@ -25,8 +24,6 @@ class EnableBankingConnectionManager
     public function __construct(
         private readonly EnableBankingClient $client,
         private readonly EnableBankingTransactionMapper $transactionMapper,
-        private readonly BalanceChainInspector $balanceChainInspector,
-        private readonly SyncedBalanceChainWriter $balanceChainWriter,
     ) {}
 
     public function startAuthorization(User $user, ?BankConnection $connection = null, ?string $aspspName = null, ?string $aspspCountry = null): string
@@ -247,12 +244,6 @@ class EnableBankingConnectionManager
                 $counts = $this->importTransactions($account, $postedTransactions);
                 $this->updateBankAccountBalances($account, $booked, $lastTransactionDate);
 
-                if ($account->bankAccount instanceof BankAccount) {
-                    $this->balanceChainWriter->write($account->bankAccount, data_get($booked, 'balance_amount.amount'));
-                }
-
-                $reconciliation = $this->reconcileBalance($account, $booked);
-
                 $account->update([
                     'status' => BankConnectionAccount::STATUS_LINKED,
                     'last_synced_at' => now(),
@@ -271,14 +262,25 @@ class EnableBankingConnectionManager
                     'date_to' => $lastTransactionDate?->toDateString(),
                     'finished_at' => now(),
                     ...$counts,
-                    ...$reconciliation,
                 ]);
             });
         } catch (Throwable $exception) {
             $this->recordFailedSync($run, $account, $exception);
         }
 
-        return $run->refresh();
+        // Fill reporting amounts for any foreign-currency postings. This is
+        // deliberately outside the sync transaction and failure-proof: a
+        // conversion hiccup must never fail a committed bank sync, and a
+        // later run retries whatever is still unresolved.
+        if ($run->refresh()->status === BankSyncRun::STATUS_SUCCEEDED) {
+            try {
+                ConvertReportingAmountsJob::dispatch($connection->user_id)->afterCommit();
+            } catch (Throwable) {
+                // The next sync or a manual retry picks up the backlog.
+            }
+        }
+
+        return $run;
     }
 
     /**
@@ -515,14 +517,18 @@ class EnableBankingConnectionManager
             $attributes = $this->transactionMapper->postingAttributes($account, $transaction);
 
             if ($posting instanceof Posting) {
-                // A missing bank balance must never clobber a stored one:
-                // banks that omit balance_after_transaction would otherwise
-                // wipe derived running balances on every re-import.
-                if (($attributes['balance'] ?? null) === null) {
-                    unset($attributes['balance']);
-                }
+                $reportingAmount = $posting->amount;
 
+                // A completed reporting conversion is stable: a re-sync must
+                // not wipe it back to pending just because the bank sends the
+                // account amount again.
                 $posting->fill($attributes);
+
+                if ($attributes['amount'] === null
+                    && $reportingAmount !== null
+                    && ! $posting->isDirty(['original_amount', 'original_currency', 'date'])) {
+                    $posting->amount = $reportingAmount;
+                }
 
                 if ($posting->isDirty()) {
                     $posting->save();
@@ -550,15 +556,32 @@ class EnableBankingConnectionManager
         }
 
         $bankAccount->update([
-            'current_balance' => data_get($booked, 'balance_amount.amount'),
+            'current_balance' => data_get($this->accountCurrencyBalance($account, $booked), 'balance_amount.amount'),
             'last_updated_at' => now(),
             'last_known_posting_date' => $lastTransactionDate?->toDateString() ?? $account->last_transaction_date,
         ]);
     }
 
     /**
-     * The booked (CLBD) balance is the only figure that anchors balances and
-     * reconciliation; absent a CLBD entry the first balance is used.
+     * A provider balance only counts when it is denominated in the account currency.
+     *
+     * @param  array<string, mixed>|null  $booked
+     * @return array<string, mixed>|null
+     */
+    private function accountCurrencyBalance(BankConnectionAccount $account, ?array $booked): ?array
+    {
+        if ($booked === null) {
+            return null;
+        }
+
+        $currency = data_get($booked, 'balance_amount.currency');
+        $accountCurrency = $account->bankAccount?->currency ?? $account->currency;
+
+        return $currency === null || $currency === $accountCurrency ? $booked : null;
+    }
+
+    /**
+     * Use the bank's booked snapshot when available, otherwise its first balance.
      *
      * @param  list<array<string, mixed>>  $balances
      * @return array<string, mixed>|null
@@ -566,50 +589,6 @@ class EnableBankingConnectionManager
     private function bookedBalance(array $balances): ?array
     {
         return collect($balances)->firstWhere('balance_type', 'CLBD') ?? $balances[0] ?? null;
-    }
-
-    /**
-     * Reconcile our local running balance against the bank-reported booked balance.
-     *
-     * The expected figure is the bank's booked (CLBD) balance at sync time. The computed
-     * figure is the closing balance reconstructed from the account's postings.
-     *
-     * The comparison is deliberately naive: it does not attempt to account for pending or
-     * not-yet-booked transactions. If the newest local posting predates the balance snapshot
-     * (e.g. the bank has booked movements we have not imported, or holds pending entries), the
-     * two figures will simply disagree and `balance_matches` becomes false. That mismatch is the
-     * intended warning signal, not an error — it never fails the run.
-     *
-     * When no posting carries a running balance, reconciliation cannot be performed and both the
-     * computed balance and `balance_matches` are left null.
-     *
-     * @param  array<string, mixed>|null  $booked
-     * @return array{expected_balance: ?string, computed_balance: ?string, balance_matches: ?bool}
-     */
-    private function reconcileBalance(BankConnectionAccount $account, ?array $booked): array
-    {
-        $expectedBalance = data_get($booked, 'balance_amount.amount');
-        $expectedBalance = $expectedBalance === null ? null : (string) $expectedBalance;
-
-        $computedBalance = null;
-
-        if ($account->bank_account_id !== null) {
-            $computedBalance = $this->balanceChainInspector->inspect($account->bankAccount)['closing_balance'];
-        }
-
-        if ($computedBalance === null || $expectedBalance === null) {
-            return [
-                'expected_balance' => $expectedBalance,
-                'computed_balance' => $computedBalance,
-                'balance_matches' => null,
-            ];
-        }
-
-        return [
-            'expected_balance' => $expectedBalance,
-            'computed_balance' => $computedBalance,
-            'balance_matches' => abs((float) $expectedBalance - (float) $computedBalance) <= 0.005,
-        ];
     }
 
     private function recordFailedSync(BankSyncRun $run, BankConnectionAccount $account, Throwable $exception): void

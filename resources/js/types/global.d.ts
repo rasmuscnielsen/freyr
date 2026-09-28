@@ -1,4 +1,4 @@
-import type { Auth } from '@/types/auth';
+import type { Auth, Region } from '@/types/auth';
 
 declare global {
     var route: (name: string) => string;
@@ -17,6 +17,7 @@ declare module '@inertiajs/core' {
             name: string;
             environment: string;
             auth: Auth;
+            region: Region | null;
             sidebarOpen: boolean;
             [key: string]: unknown;
         };

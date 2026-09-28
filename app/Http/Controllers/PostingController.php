@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Http\Requests\BulkUpdatePostingCategoriesRequest;
 use App\Http\Requests\UpdatePostingCategoryRequest;
+use App\Jobs\ConvertReportingAmountsJob;
 use App\Models\BankAccount;
 use App\Models\Category;
 use App\Models\Posting;
@@ -81,6 +82,18 @@ class PostingController extends Controller
     }
 
     /**
+     * Re-run reporting-currency conversion for the user's unresolved
+     * postings. The job itself obeys the shared provider cooldown and
+     * request limits, so this is safe to hit repeatedly.
+     */
+    public function retryConversions(Request $request): RedirectResponse
+    {
+        ConvertReportingAmountsJob::dispatch($request->user()->id)->afterCommit();
+
+        return back();
+    }
+
+    /**
      * @return array<string, mixed>
      */
     private function postingPayload(Posting $posting): array
@@ -91,8 +104,10 @@ class PostingController extends Controller
             'description' => $posting->description,
             'original_description' => $posting->original_description,
             'comment' => $posting->comment,
-            'amount' => (float) $posting->amount,
+            'amount' => $posting->amount === null ? null : (float) $posting->amount,
             'currency' => $posting->currency,
+            'original_amount' => $posting->original_amount === null ? null : (float) $posting->original_amount,
+            'original_currency' => $posting->original_currency,
             'is_extraordinary' => $posting->is_extraordinary,
             'bank_account' => [
                 'id' => $posting->bankAccount->id,
