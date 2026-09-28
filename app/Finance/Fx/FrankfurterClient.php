@@ -44,17 +44,44 @@ class FrankfurterClient
         }
 
         if ($response->successful()) {
-            return collect(Arr::wrap($response->json()))
-                ->filter(fn (mixed $row): bool => is_array($row)
-                    && isset($row['date'], $row['base'], $row['quote'], $row['rate']))
-                ->map(fn (array $row): array => [
-                    'date' => (string) $row['date'],
-                    'base' => (string) $row['base'],
-                    'quote' => (string) $row['quote'],
-                    'rate' => (string) $row['rate'],
-                ])
-                ->values()
-                ->all();
+            $payload = $response->json();
+
+            if (! is_array($payload) || ! array_is_list($payload)) {
+                throw FxRequestException::unavailable('Malformed rate response.');
+            }
+
+            $rows = Arr::wrap($payload);
+
+            foreach ($rows as $row) {
+                if (! is_array($row) || ! isset($row['date'], $row['base'], $row['quote'], $row['rate'])) {
+                    throw FxRequestException::unavailable('Malformed rate response.');
+                }
+
+                $dateParts = preg_match('/^(\d{4})-(\d{2})-(\d{2})$/', (string) $row['date'], $matches) === 1
+                    ? array_map('intval', array_slice($matches, 1))
+                    : [];
+                $date = count($dateParts) === 3 && checkdate($dateParts[1], $dateParts[2], $dateParts[0])
+                    ? CarbonImmutable::create($dateParts[0], $dateParts[1], $dateParts[2])->startOfDay()
+                    : null;
+                $rate = (string) $row['rate'];
+
+                if ($date === null
+                    || $date->lt($from)
+                    || $date->gt($to)
+                    || strtoupper((string) $row['base']) !== strtoupper($base)
+                    || ! in_array(strtoupper((string) $row['quote']), array_map('strtoupper', $quotes), true)
+                    || preg_match('/^\d+(?:\.\d+)?$/', $rate) !== 1
+                    || bccomp($rate, '0.0000000001', 10) < 0) {
+                    throw FxRequestException::unavailable('Invalid rate response.');
+                }
+            }
+
+            return collect($rows)->map(fn (array $row): array => [
+                'date' => (string) $row['date'],
+                'base' => strtoupper((string) $row['base']),
+                'quote' => strtoupper((string) $row['quote']),
+                'rate' => (string) $row['rate'],
+            ])->values()->all();
         }
 
         throw match ($response->status()) {

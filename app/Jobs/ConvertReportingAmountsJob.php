@@ -6,6 +6,7 @@ use App\Finance\Fx\ExchangeRateStore;
 use App\Finance\Fx\FrankfurterClient;
 use App\Finance\Fx\FxRequestException;
 use App\Finance\MoneyMath;
+use App\Models\BankAccount;
 use App\Models\Posting;
 use App\Models\User;
 use Carbon\CarbonImmutable;
@@ -43,6 +44,9 @@ class ConvertReportingAmountsJob implements ShouldBeUnique, ShouldQueue
 
     public int $tries = 1;
 
+    /** @var list<int> */
+    private array $conflictedPostingIds = [];
+
     public function __construct(public readonly int $userId) {}
 
     public function uniqueId(): string
@@ -64,9 +68,13 @@ class ConvertReportingAmountsJob implements ShouldBeUnique, ShouldQueue
         $this->copySameCurrencyAmounts($user, $quote);
         $this->applyCachedRates($user, $quote, $rates, $deadline);
 
-        $groups = $this->unresolvedGroups($user, $quote, $rates);
+        if ($rates->inCooldown() || microtime(true) >= $deadline) {
+            return;
+        }
 
-        if ($groups === [] || $rates->inCooldown() || microtime(true) >= $deadline) {
+        $groups = $this->unresolvedGroups($user, $quote, $rates, $deadline);
+
+        if ($groups === []) {
             return;
         }
 
@@ -76,23 +84,32 @@ class ConvertReportingAmountsJob implements ShouldBeUnique, ShouldQueue
             return;
         }
 
-        $fetchedBases = [];
-
         try {
             // Another worker may have just filled the cache — recheck.
             if (! $rates->inCooldown()) {
                 $requests = 0;
 
-                foreach ($groups as $base => $group) {
+                $groups = $this->unresolvedGroups($user, $quote, $rates, $deadline);
+                $unsupportedBases = [];
+
+                foreach ($groups as $group) {
                     if ($requests >= self::MAX_REQUESTS || microtime(true) >= $deadline) {
                         break;
                     }
 
+                    if (in_array($group['base'], $unsupportedBases, true)) {
+                        continue;
+                    }
+
+                    $requests++;
+
                     try {
-                        $rows = $client->rates($base, [$quote], $group['from'], $group['to']);
+                        $rows = $client->rates($group['base'], [$quote], $group['from'], $group['to']);
                     } catch (FxRequestException $exception) {
                         if ($exception->kind === 'unsupported') {
-                            $this->markDatesMissing($group['dates'], $base, $quote, $rates);
+                            $this->markDatesMissing($group['dates'], $group['base'], $quote, $rates);
+                            $rates->markValuationChecked($group['base'], $quote);
+                            $unsupportedBases[] = $group['base'];
 
                             continue;
                         }
@@ -106,9 +123,14 @@ class ConvertReportingAmountsJob implements ShouldBeUnique, ShouldQueue
                         break;
                     }
 
-                    $requests++;
-                    $fetchedBases[] = $base;
                     $rates->storeRates($rows);
+                    $rates->markCoverage($group['base'], $quote, $group['from'], $group['to']);
+
+                    if ($group['valuation']) {
+                        $rates->markValuationChecked($group['base'], $quote);
+                    }
+
+                    $this->markUncoveredDates($group, $quote, $rates);
                 }
             }
         } finally {
@@ -119,11 +141,6 @@ class ConvertReportingAmountsJob implements ShouldBeUnique, ShouldQueue
         // stored) resolves as much of the backlog as the budget allows.
         $this->applyCachedRates($user, $quote, $rates, $deadline);
 
-        // Dates the provider demonstrably does not cover go to the bounded
-        // negative cache so later runs do not spend requests on them.
-        foreach ($fetchedBases as $base) {
-            $this->markUncoveredDates($user, $base, $quote, $rates);
-        }
     }
 
     /**
@@ -159,20 +176,31 @@ class ConvertReportingAmountsJob implements ShouldBeUnique, ShouldQueue
                         return false;
                     }
 
+                    if (in_array($posting->id, $this->conflictedPostingIds, true)) {
+                        continue;
+                    }
+
                     $date = CarbonImmutable::parse($posting->date);
-                    $hit = $rates->rateFor($posting->original_currency, $quote, $date);
+                    $hit = $rates->historicalRateFor($posting->original_currency, $quote, $date);
 
                     if ($hit === null) {
                         continue;
                     }
 
-                    Posting::query()
+                    $updated = Posting::query()
                         ->whereKey($posting->id)
                         ->whereNull('amount')
+                        ->where('original_amount', $posting->original_amount)
+                        ->where('original_currency', $posting->original_currency)
+                        ->whereDate('date', $date->toDateString())
                         ->update([
                             'amount' => MoneyMath::round(bcmul($posting->original_amount, $hit['rate'], 20)),
                             'currency' => $quote,
                         ]);
+
+                    if ($updated === 0) {
+                        $this->conflictedPostingIds[] = $posting->id;
+                    }
                 }
 
                 return true;
@@ -185,11 +213,12 @@ class ConvertReportingAmountsJob implements ShouldBeUnique, ShouldQueue
      * through the latest needed date, capped at one year. Dates already
      * known-missing are skipped entirely.
      *
-     * @return array<string, array{from: CarbonImmutable, to: CarbonImmutable, dates: list<CarbonImmutable>}>
+     * @return list<array{base: string, from: CarbonImmutable, to: CarbonImmutable, dates: list<CarbonImmutable>, valuation: bool}>
      */
-    private function unresolvedGroups(User $user, string $quote, ExchangeRateStore $rates): array
+    private function unresolvedGroups(User $user, string $quote, ExchangeRateStore $rates, float $deadline): array
     {
-        $groups = [];
+        $datesByBase = [];
+        $selected = 0;
 
         Posting::query()
             ->where('user_id', $user->id)
@@ -197,31 +226,72 @@ class ConvertReportingAmountsJob implements ShouldBeUnique, ShouldQueue
             ->whereNotNull('original_amount')
             ->whereNotNull('original_currency')
             ->where('original_currency', '<>', $quote)
-            ->orderBy('date')
-            ->limit(2000)
-            ->get(['original_currency', 'date'])
-            ->each(function (Posting $posting) use ($quote, $rates, &$groups): void {
-                $base = (string) $posting->original_currency;
-                $date = CarbonImmutable::parse($posting->date);
+            ->orderBy('id')
+            ->chunkById(self::CHUNK_SIZE, function ($postings) use ($quote, $rates, $deadline, &$datesByBase, &$selected): bool {
+                foreach ($postings as $posting) {
+                    if ($selected >= 2000 || microtime(true) >= $deadline) {
+                        return false;
+                    }
 
-                if ($rates->isKnownMissing($base, $quote, $date)) {
+                    $base = (string) $posting->original_currency;
+                    $date = CarbonImmutable::parse($posting->date);
+
+                    if ($rates->isKnownMissing($base, $quote, $date)) {
+                        continue;
+                    }
+
+                    $datesByBase[$base][] = $date;
+                    $selected++;
+                }
+
+                return true;
+            }, 'id');
+
+        $historicalGroups = [];
+        $valuationGroups = [];
+
+        BankAccount::query()
+            ->whereBelongsTo($user)
+            ->where('is_active', true)
+            ->whereNotNull('current_balance')
+            ->where('currency', '<>', $quote)
+            ->distinct()
+            ->pluck('currency')
+            ->each(function (string $base) use ($quote, $rates, &$valuationGroups): void {
+                $today = CarbonImmutable::today();
+
+                if ($rates->latestStoredDate($base, $quote)?->isSameDay($today)
+                    || $rates->valuationWasChecked($base, $quote)) {
                     return;
                 }
 
-                $groups[$base]['dates'][] = $date;
+                $valuationGroups[] = [
+                    'base' => $base,
+                    'from' => $today->subDays(ExchangeRateStore::MAX_FALLBACK_DAYS),
+                    'to' => $today,
+                    'dates' => [],
+                    'valuation' => true,
+                ];
             });
 
-        foreach ($groups as $base => &$group) {
-            $dates = collect($group['dates']);
-            $to = $dates->max();
-            $from = $dates->min()->subDays(ExchangeRateStore::MAX_FALLBACK_DAYS);
-            $earliest = $to->subDays(self::MAX_RANGE_DAYS);
+        foreach ($datesByBase as $base => $dates) {
+            $dates = collect($dates)->sort()->values();
+            $from = $dates->first()->subDays(ExchangeRateStore::MAX_FALLBACK_DAYS);
+            $to = $from->addDays(self::MAX_RANGE_DAYS)->min($dates->last());
+            $requestedDates = $dates->filter(fn (CarbonImmutable $date): bool => $date->lte($to))->all();
 
-            $group['from'] = $from->lt($earliest) ? $earliest : $from;
-            $group['to'] = $to;
+            $historicalGroups[] = compact('base', 'from', 'to') + [
+                'dates' => $requestedDates,
+                'valuation' => false,
+            ];
         }
 
-        return $groups;
+        return collect($historicalGroups)
+            ->zip($valuationGroups)
+            ->flatten(1)
+            ->filter()
+            ->values()
+            ->all();
     }
 
     /**
@@ -238,20 +308,16 @@ class ConvertReportingAmountsJob implements ShouldBeUnique, ShouldQueue
      * After fetching a base currency, any unresolved date that still has no
      * usable rate is a genuine coverage gap — negative-cache it.
      */
-    private function markUncoveredDates(User $user, string $base, string $quote, ExchangeRateStore $rates): void
+    private function markUncoveredDates(array $group, string $quote, ExchangeRateStore $rates): void
     {
-        Posting::query()
-            ->where('user_id', $user->id)
-            ->whereNull('amount')
-            ->where('original_currency', $base)
-            ->distinct()
-            ->pluck('date')
-            ->each(function ($date) use ($base, $quote, $rates): void {
-                $date = CarbonImmutable::parse($date);
+        foreach ($group['dates'] as $date) {
+            if ($date->isToday()) {
+                continue;
+            }
 
-                if ($rates->rateFor($base, $quote, $date) === null) {
-                    $rates->markMissing($base, $quote, $date);
-                }
-            });
+            if ($rates->historicalRateFor($group['base'], $quote, $date) === null) {
+                $rates->markMissing($group['base'], $quote, $date);
+            }
+        }
     }
 }

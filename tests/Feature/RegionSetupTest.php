@@ -46,7 +46,7 @@ test('submitting the setup stores the region preferences and unlocks the app', f
     $this->actingAs($user)->get(route('dashboard'))->assertOk();
 });
 
-test('the setup validates the timezone against the chosen country', function () {
+test('the setup allows a supported timezone independently of country', function () {
     $user = User::factory()->withoutRegionSetup()->create();
 
     $this->actingAs($user)
@@ -55,9 +55,9 @@ test('the setup validates the timezone against the chosen country', function () 
             'timezone' => 'America/New_York',
             'reporting_currency' => 'DKK',
         ])
-        ->assertSessionHasErrors('timezone');
+        ->assertSessionHasNoErrors();
 
-    expect($user->refresh()->region_completed_at)->toBeNull();
+    expect($user->refresh()->timezone)->toBe('America/New_York');
 });
 
 test('the reporting currency is rejected when it is not ECB-covered', function () {

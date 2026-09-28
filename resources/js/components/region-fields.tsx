@@ -73,14 +73,17 @@ export default function RegionFields({
         [currencies],
     );
 
-    const timezoneOptions = timezones[data.country_code] ?? [];
+    const timezoneOptions = useMemo(
+        () => [...new Set(Object.values(timezones).flat())].sort(),
+        [timezones],
+    );
 
     const selectCountry = (value: string) => {
         setData('country_code', value);
 
         const zones = timezones[value] ?? [];
 
-        if (zones.length > 0 && !zones.includes(data.timezone)) {
+        if (zones.length > 0 && data.timezone === '') {
             setData('timezone', zones[0]);
         }
 
@@ -120,7 +123,6 @@ export default function RegionFields({
                     value={data.timezone}
                     onValueChange={(value) => setData('timezone', value)}
                     name="timezone"
-                    disabled={data.country_code === ''}
                 >
                     <SelectTrigger id="timezone" className="w-full">
                         <SelectValue placeholder="Select timezone" />

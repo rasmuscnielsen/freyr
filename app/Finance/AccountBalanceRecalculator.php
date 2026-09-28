@@ -57,7 +57,7 @@ class AccountBalanceRecalculator
                 ->first();
 
             $account->update([
-                'current_balance' => $latestPosting?->balance ?? $account->opening_balance,
+                'current_balance' => $latestPosting === null ? $account->opening_balance : $latestPosting->balance,
                 'last_known_posting_date' => $latestPosting?->date?->toDateString(),
                 'last_updated_at' => now(),
             ]);

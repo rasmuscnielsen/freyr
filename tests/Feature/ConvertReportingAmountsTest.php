@@ -43,7 +43,7 @@ test('a foreign posting converts at the stored historical rate', function () {
     Http::preventStrayRequests();
 
     $user = User::factory()->create(['reporting_currency' => 'DKK']);
-    $account = BankAccount::factory()->for($user)->create(['currency' => 'EUR']);
+    $account = BankAccount::factory()->for($user)->create(['currency' => 'EUR', 'current_balance' => null]);
     $posting = Posting::factory()->forAccount($account)->create([
         'date' => '2026-01-09',
         'amount' => null,
@@ -70,7 +70,7 @@ test('a weekend posting converts at the preceding publication rate', function ()
     Http::preventStrayRequests();
 
     $user = User::factory()->create(['reporting_currency' => 'DKK']);
-    $account = BankAccount::factory()->for($user)->create(['currency' => 'EUR']);
+    $account = BankAccount::factory()->for($user)->create(['currency' => 'EUR', 'current_balance' => null]);
     // Sunday 2026-01-11 has no ECB publication; Friday's rate applies.
     $posting = Posting::factory()->forAccount($account)->create([
         'date' => '2026-01-11',
@@ -97,7 +97,7 @@ test('a posting with no provider coverage stays pending', function () {
     Http::fake(['https://api.frankfurter.dev/*' => Http::response([])]);
 
     $user = User::factory()->create(['reporting_currency' => 'DKK']);
-    $account = BankAccount::factory()->for($user)->create(['currency' => 'EUR']);
+    $account = BankAccount::factory()->for($user)->create(['currency' => 'EUR', 'current_balance' => null]);
     $posting = Posting::factory()->forAccount($account)->create([
         'date' => '1990-01-01',
         'amount' => null,
@@ -122,7 +122,7 @@ test('the job fetches missing rates from the provider once', function () {
     ]);
 
     $user = User::factory()->create(['reporting_currency' => 'DKK']);
-    $account = BankAccount::factory()->for($user)->create(['currency' => 'EUR']);
+    $account = BankAccount::factory()->for($user)->create(['currency' => 'EUR', 'current_balance' => null]);
     $posting = Posting::factory()->forAccount($account)->create([
         'date' => '2026-01-09',
         'amount' => null,
@@ -145,7 +145,7 @@ test('a rate-limited provider starts the shared cooldown and leaves postings pen
     ]);
 
     $user = User::factory()->create(['reporting_currency' => 'DKK']);
-    $account = BankAccount::factory()->for($user)->create(['currency' => 'EUR']);
+    $account = BankAccount::factory()->for($user)->create(['currency' => 'EUR', 'current_balance' => null]);
     $posting = Posting::factory()->forAccount($account)->create([
         'date' => '2026-01-09',
         'amount' => null,
@@ -172,7 +172,7 @@ test('an unsupported currency is marked missing instead of retried', function ()
     ]);
 
     $user = User::factory()->create(['reporting_currency' => 'DKK']);
-    $account = BankAccount::factory()->for($user)->create(['currency' => 'XXX']);
+    $account = BankAccount::factory()->for($user)->create(['currency' => 'XXX', 'current_balance' => null]);
     $posting = Posting::factory()->forAccount($account)->create([
         'date' => '2026-01-09',
         'amount' => null,
@@ -192,7 +192,7 @@ test('an already converted posting is never overwritten', function () {
     Http::preventStrayRequests();
 
     $user = User::factory()->create(['reporting_currency' => 'DKK']);
-    $account = BankAccount::factory()->for($user)->create(['currency' => 'EUR']);
+    $account = BankAccount::factory()->for($user)->create(['currency' => 'EUR', 'current_balance' => null]);
     $posting = Posting::factory()->forAccount($account)->create([
         'date' => '2026-01-09',
         'amount' => '-74.50',

@@ -24,8 +24,8 @@ class RegionSetupController extends Controller
             'defaultReportingCurrency' => $request->user()->reporting_currency,
             // Once monetary history exists the currency is locked even when
             // the setup step was skipped (e.g. a Spiir import set it first).
-            'reportingCurrencyLocked' => $request->user()->reporting_currency !== null
-                && $request->user()->postings()->exists(),
+            'reportingCurrencyLocked' => $request->user()->hasCompletedRegionSetup()
+                || $request->user()->postings()->exists(),
         ]);
     }
 
@@ -36,7 +36,7 @@ class RegionSetupController extends Controller
 
         // A locked reporting currency (set by a Spiir import before setup ran)
         // is not re-opened by completing this form.
-        if ($user->reporting_currency !== null && $user->postings()->exists()) {
+        if ($user->hasCompletedRegionSetup() || $user->postings()->exists()) {
             $data['reporting_currency'] = $user->reporting_currency;
         }
 

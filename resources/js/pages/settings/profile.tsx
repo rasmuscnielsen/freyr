@@ -57,14 +57,17 @@ export default function Profile({
         [countries],
     );
 
-    const timezoneOptions = timezones[countryCode] ?? [];
+    const timezoneOptions = useMemo(
+        () => [...new Set(Object.values(timezones).flat())].sort(),
+        [timezones],
+    );
 
     const selectCountry = (value: string) => {
         setCountryCode(value);
 
         const zones = timezones[value] ?? [];
 
-        if (zones.length > 0 && !zones.includes(timezone)) {
+        if (zones.length > 0 && timezone === '') {
             setTimezone(zones[0]);
         }
     };

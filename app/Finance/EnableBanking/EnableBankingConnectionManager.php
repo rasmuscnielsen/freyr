@@ -532,6 +532,7 @@ class EnableBankingConnectionManager
             $attributes = $this->transactionMapper->postingAttributes($account, $transaction);
 
             if ($posting instanceof Posting) {
+                $reportingAmount = $posting->amount;
                 // A missing bank balance must never clobber a stored one:
                 // banks that omit balance_after_transaction would otherwise
                 // wipe derived running balances on every re-import.
@@ -542,11 +543,13 @@ class EnableBankingConnectionManager
                 // A completed reporting conversion is stable: a re-sync must
                 // not wipe it back to pending just because the bank sends the
                 // account amount again.
-                if ($attributes['amount'] === null && $posting->amount !== null) {
-                    unset($attributes['amount']);
-                }
-
                 $posting->fill($attributes);
+
+                if ($attributes['amount'] === null
+                    && $reportingAmount !== null
+                    && ! $posting->isDirty(['original_amount', 'original_currency', 'date'])) {
+                    $posting->amount = $reportingAmount;
+                }
 
                 if ($posting->isDirty()) {
                     $posting->save();

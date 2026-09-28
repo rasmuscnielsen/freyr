@@ -19,15 +19,13 @@ class RegionSetupRequest extends FormRequest
      */
     public function rules(): array
     {
-        $country = $this->input('country_code');
-
         return [
             'country_code' => ['required', 'string', 'size:2', Rule::in(array_keys(config('regions.countries')))],
             'timezone' => [
                 'required',
                 'string',
                 'max:64',
-                Rule::in(config("regions.timezones.{$country}") ?? []),
+                Rule::in(collect(config('regions.timezones'))->flatten()->unique()->all()),
             ],
             'reporting_currency' => ['required', 'string', 'size:3', Rule::in(config('regions.ecb_currencies'))],
         ];
@@ -39,7 +37,7 @@ class RegionSetupRequest extends FormRequest
     public function messages(): array
     {
         return [
-            'timezone.in' => 'The selected timezone is not valid for the chosen country.',
+            'timezone.in' => 'The selected timezone is not supported.',
         ];
     }
 }

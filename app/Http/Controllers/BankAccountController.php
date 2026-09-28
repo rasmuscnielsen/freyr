@@ -169,7 +169,14 @@ class BankAccountController extends Controller
             ],
             'postings' => $postings,
             'balanceAudit' => Inertia::optional(fn (): ?array => $balanceAudit),
-            'syncRuns' => $this->syncRunsPayload($bankAccount->syncRuns()->latest('id')->limit(5)->get()),
+            'syncRuns' => $this->syncRunsPayload(BankSyncRun::query()
+                ->where(function ($query) use ($bankAccount): void {
+                    $query->where('bank_account_id', $bankAccount->id)
+                        ->orWhereIn('bank_connection_account_id', $bankAccount->bankConnectionAccounts->pluck('id'));
+                })
+                ->latest('id')
+                ->limit(5)
+                ->get()),
             'categories' => Category::query()
                 ->with(['subcategories' => fn ($query) => $query->orderBy('name')])
                 ->orderBy('name')
@@ -342,6 +349,7 @@ class BankAccountController extends Controller
                 },
                 'balance_matches' => $run->balance_matches,
                 'balance_delta' => $run->balanceDelta(),
+                'balance_match_basis' => $run->balance_match_basis,
             ])
             ->all();
     }

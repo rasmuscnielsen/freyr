@@ -341,8 +341,8 @@ function flowTooltip(
             </div>
             {missing > 0 && (
                 <div className="mt-2 border-t pt-2 text-muted-foreground">
-                    {missing} {missing === 1 ? 'posting' : 'postings'} pending
-                    conversion — month is partial.
+                    {missing} {missing === 1 ? 'posting has' : 'postings have'}{' '}
+                    no reporting amount — month is partial.
                 </div>
             )}
         </div>
@@ -376,8 +376,8 @@ function BreakdownDetail({
             {category.missing > 0 && (
                 <div className="mb-2 text-muted-foreground">
                     {category.missing}{' '}
-                    {category.missing === 1 ? 'posting' : 'postings'} pending
-                    conversion — total is partial.
+                    {category.missing === 1 ? 'posting has' : 'postings have'}{' '}
+                    no reporting amount — total is partial.
                 </div>
             )}
             {category.topSubcategories.length > 0 && (
@@ -601,13 +601,13 @@ export default function Dashboard({
                             {formatMonth(period.start, locale)} –{' '}
                             {formatMonth(period.end, locale)} averages
                         </p>
-                        {hasBalance && balance.missing_accounts > 0 && (
+                        {balance.missing_accounts > 0 && (
                             <p className="text-sm text-muted-foreground">
                                 Excludes {balance.missing_accounts}{' '}
                                 {balance.missing_accounts === 1
                                     ? 'account'
                                     : 'accounts'}{' '}
-                                without an exchange rate
+                                without a known balance or exchange rate
                                 {balance.valuation_date !== null && (
                                     <>
                                         {' '}
@@ -623,8 +623,10 @@ export default function Dashboard({
                         {missingCount > 0 && (
                             <p className="text-sm text-muted-foreground">
                                 {formatNumber(missingCount, locale)}{' '}
-                                {missingCount === 1 ? 'posting' : 'postings'}{' '}
-                                still being converted — known subtotals are
+                                {missingCount === 1
+                                    ? 'posting is'
+                                    : 'postings are'}{' '}
+                                missing reporting amounts — known subtotals are
                                 partial.{' '}
                                 <button
                                     type="button"
@@ -1157,7 +1159,7 @@ function BreakdownRow({
                 <span className="shrink-0 text-sm text-muted-foreground tabular-nums">
                     {formatMoney(category.total, currency, locale)}
                     {category.missing > 0 && (
-                        <span> +{category.missing} pending</span>
+                        <span> +{category.missing} missing</span>
                     )}
                 </span>
             </span>

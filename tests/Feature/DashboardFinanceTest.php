@@ -484,5 +484,5 @@ test('the balance prop sums active accounts in the reporting currency', function
             ->where('primaryCurrency', 'EUR')
             ->where('balance.total', 1250)
             ->where('balance.currency', 'EUR')
-            ->where('balance.missing_accounts', 1));
+            ->where('balance.missing_accounts', 2));
 });

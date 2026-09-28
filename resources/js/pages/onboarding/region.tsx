@@ -10,6 +10,7 @@ type Props = RegionOptions & {
     defaultCountry: string | null;
     defaultTimezone: string | null;
     defaultReportingCurrency: string | null;
+    reportingCurrencyLocked: boolean;
 };
 
 export default function OnboardingRegion({
@@ -19,6 +20,7 @@ export default function OnboardingRegion({
     defaultCountry,
     defaultTimezone,
     defaultReportingCurrency,
+    reportingCurrencyLocked,
 }: Props) {
     const { data, setData, post, processing, errors } = useForm<RegionFormData>(
         {
@@ -46,6 +48,7 @@ export default function OnboardingRegion({
                         data={data}
                         setData={setData}
                         errors={errors}
+                        reportingCurrencyLocked={reportingCurrencyLocked}
                     />
                 </div>
 

@@ -49,6 +49,7 @@ type SyncRun = {
     error_message: string | null;
     balance_matches: boolean | null;
     balance_delta: string | null;
+    balance_match_basis: string | null;
 };
 
 type Connection = {
@@ -87,7 +88,12 @@ type AuditPosting = {
 };
 
 type BalanceBreak = {
-    kind: 'gap' | 'possible_duplicate' | 'suspect_day' | 'tail_lag';
+    kind:
+        | 'gap'
+        | 'possible_duplicate'
+        | 'suspect_day'
+        | 'tail_lag'
+        | 'incomplete';
     date: string | null;
     delta: string | null;
     postings: AuditPosting[];
@@ -587,7 +593,10 @@ export default function BankAccountShow({
                                         )}
                                         {run.balance_matches === true && (
                                             <Badge variant="outline">
-                                                Balance reconciled
+                                                {run.balance_match_basis ===
+                                                'derived'
+                                                    ? 'Balance derived from bank snapshot'
+                                                    : 'Balance reconciled'}
                                             </Badge>
                                         )}
                                     </div>
@@ -690,6 +699,11 @@ const breakKindLabels: Record<
         title: 'Bank balance is ahead',
         explanation:
             'The bank-reported balance is ahead of the newest posting. This is often just pending or not-yet-synced transactions.',
+    },
+    incomplete: {
+        title: 'Incomplete account history',
+        explanation:
+            'This posting has no verified account-currency amount, so balances cannot be calculated through it.',
     },
 };
 

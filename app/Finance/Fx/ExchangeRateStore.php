@@ -27,6 +27,10 @@ class ExchangeRateStore
 
     private const int NEGATIVE_CACHE_DAYS = 7;
 
+    private const int COVERAGE_CACHE_DAYS = 30;
+
+    private const int VALUATION_CHECK_MINUTES = 60;
+
     /**
      * The latest stored rate usable for $date, or null when no publication
      * within the fallback window is cached.
@@ -49,6 +53,60 @@ class ExchangeRateStore
         }
 
         return ['rate' => (string) $row->rate, 'effective_date' => $row->effective_date->toDateString()];
+    }
+
+    /**
+     * A historical fallback is safe only after the provider has been queried
+     * for the requested date. An exact observation is always safe.
+     *
+     * @return array{rate: string, effective_date: string}|null
+     */
+    public function historicalRateFor(string $base, string $quote, CarbonImmutable $date): ?array
+    {
+        $rate = $this->rateFor($base, $quote, $date);
+
+        if ($rate === null) {
+            return null;
+        }
+
+        $expectedWeekendPublication = match (true) {
+            $date->isSaturday() => $date->subDay()->toDateString(),
+            $date->isSunday() => $date->subDays(2)->toDateString(),
+            default => null,
+        };
+
+        return $rate['effective_date'] === $date->toDateString()
+            || $rate['effective_date'] === $expectedWeekendPublication
+            || $this->hasCoverage($base, $quote, $date)
+            ? $rate
+            : null;
+    }
+
+    public function markCoverage(string $base, string $quote, CarbonImmutable $from, CarbonImmutable $to): void
+    {
+        $lastHistoricalDate = CarbonImmutable::yesterday();
+        $date = $from;
+        $to = $to->min($lastHistoricalDate);
+
+        while ($date->lte($to)) {
+            Cache::put($this->coverageKey($base, $quote, $date), true, now()->addDays(self::COVERAGE_CACHE_DAYS));
+            $date = $date->addDay();
+        }
+    }
+
+    public function hasCoverage(string $base, string $quote, CarbonImmutable $date): bool
+    {
+        return (bool) Cache::get($this->coverageKey($base, $quote, $date), false);
+    }
+
+    public function markValuationChecked(string $base, string $quote): void
+    {
+        Cache::put($this->valuationKey($base, $quote), true, now()->addMinutes(self::VALUATION_CHECK_MINUTES));
+    }
+
+    public function valuationWasChecked(string $base, string $quote): bool
+    {
+        return (bool) Cache::get($this->valuationKey($base, $quote), false);
     }
 
     /**
@@ -151,5 +209,15 @@ class ExchangeRateStore
     private function missingKey(string $base, string $quote, CarbonImmutable $date): string
     {
         return "fx.miss.{$base}.{$quote}.{$date->toDateString()}";
+    }
+
+    private function coverageKey(string $base, string $quote, CarbonImmutable $date): string
+    {
+        return "fx.coverage.{$base}.{$quote}.{$date->toDateString()}";
+    }
+
+    private function valuationKey(string $base, string $quote): string
+    {
+        return "fx.valuation.{$base}.{$quote}";
     }
 }

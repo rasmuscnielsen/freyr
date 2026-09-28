@@ -56,6 +56,8 @@ class OnboardingController extends Controller
             'defaultCountry' => $request->user()->country_code,
             'defaultTimezone' => $request->user()->timezone,
             'defaultReportingCurrency' => $request->user()->reporting_currency,
+            'reportingCurrencyLocked' => $request->user()->hasCompletedRegionSetup()
+                || $request->user()->postings()->exists(),
         ]);
     }
 
@@ -66,8 +68,15 @@ class OnboardingController extends Controller
      */
     public function storeRegion(RegionSetupRequest $request): RedirectResponse
     {
-        $request->user()->update([
-            ...$request->validated(),
+        $user = $request->user();
+        $data = $request->validated();
+
+        if ($user->hasCompletedRegionSetup() || $user->postings()->exists()) {
+            $data['reporting_currency'] = $user->reporting_currency;
+        }
+
+        $user->update([
+            ...$data,
             'region_completed_at' => now(),
         ]);
 

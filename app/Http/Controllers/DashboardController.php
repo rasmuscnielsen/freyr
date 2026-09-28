@@ -97,10 +97,8 @@ class DashboardController extends Controller
             // eligible-but-unresolved posting is counted as missing so the
             // month can be labeled partial instead of looking empty.
             if ($posting->amount === null) {
-                if ($this->isConvertible($posting)) {
-                    $point['missing']++;
-                    $monthly[$month] = $point;
-                }
+                $point['missing']++;
+                $monthly[$month] = $point;
 
                 continue;
             }
@@ -119,7 +117,10 @@ class DashboardController extends Controller
         );
 
         $summary = $this->buildSummary($summaryMonthly);
-        $summary['coverage'] = $this->coverage($postings);
+        $summaryPostings = $overviewPostings
+            ->filter(fn (array $entry): bool => CarbonImmutable::parse($entry['posting']->date)->betweenIncluded($start, $end))
+            ->pluck('posting');
+        $summary['coverage'] = $this->coverage($summaryPostings);
 
         // Selectable months follow the chart's range, which includes the
         // in-progress preview month; the period average stays bounded by
@@ -170,15 +171,6 @@ class DashboardController extends Controller
     }
 
     /**
-     * A posting can be reported once it has an account amount and currency —
-     * those are the only rows that may count as "missing" coverage.
-     */
-    private function isConvertible(Posting $posting): bool
-    {
-        return $posting->original_amount !== null && $posting->original_currency !== null;
-    }
-
-    /**
      * Reporting-currency coverage over a posting collection: how many
      * postings are eligible for a reporting amount and how many have one.
      *
@@ -187,14 +179,10 @@ class DashboardController extends Controller
      */
     private function coverage(Collection $postings): array
     {
-        $eligible = $postings->filter(
-            fn (Posting $posting): bool => $posting->amount !== null || $this->isConvertible($posting),
-        );
-
         return [
-            'eligible' => $eligible->count(),
-            'converted' => $eligible->whereNotNull('amount')->count(),
-            'missing' => $eligible->whereNull('amount')->count(),
+            'eligible' => $postings->count(),
+            'converted' => $postings->whereNotNull('amount')->count(),
+            'missing' => $postings->whereNull('amount')->count(),
         ];
     }
 
@@ -263,7 +251,6 @@ class DashboardController extends Controller
         $accounts = BankAccount::query()
             ->whereBelongsTo($request->user())
             ->where('is_active', true)
-            ->whereNotNull('current_balance')
             ->get(['currency', 'current_balance']);
 
         $total = '0';
@@ -272,6 +259,12 @@ class DashboardController extends Controller
         $valuationDates = [];
 
         foreach ($accounts as $account) {
+            if ($account->current_balance === null) {
+                $missing++;
+
+                continue;
+            }
+
             if ($quote !== null && $account->currency === $quote) {
                 $total = bcadd($total, (string) $account->current_balance, 2);
                 $used = true;
@@ -447,9 +440,7 @@ class DashboardController extends Controller
                             'type' => $type,
                             'bucket' => $dominantBucket,
                             'total' => round(abs($total) / $divisor, 2),
-                            'missing' => $postings->filter(
-                                fn (Posting $posting): bool => $posting->amount === null && $this->isConvertible($posting),
-                            )->count(),
+                            'missing' => $postings->whereNull('amount')->count(),
                             'topSubcategories' => $topSubcategories->all(),
                             'topPostings' => $topPostings->all(),
                         ];

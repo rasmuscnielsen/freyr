@@ -53,6 +53,24 @@ class BalanceChainInspector
 
         foreach ($postings->groupBy(fn (Posting $posting): string => $posting->date->toDateString()) as $date => $dayPostings) {
             $checkpoints = $dayPostings->whereNotNull('balance');
+            $hasUnknownMovement = $dayPostings->contains(fn (Posting $posting): bool => $posting->original_amount === null);
+
+            if ($hasUnknownMovement) {
+                if (count($breaks) < self::MAX_BREAKS) {
+                    $breaks[] = [
+                        'kind' => 'incomplete',
+                        'date' => $date,
+                        'delta' => null,
+                        'postings' => $this->postingPayload($dayPostings->whereNull('original_amount')),
+                    ];
+                }
+
+                // Same-day bank ordering is unknown, so a checkpoint on the
+                // incomplete day may precede the missing movement.
+                $running = null;
+
+                continue;
+            }
 
             if ($running === null) {
                 // No expectation yet: the first day with a stored balance
@@ -174,7 +192,11 @@ class BalanceChainInspector
         $amountsSinceCheckpoint = 0.0;
 
         foreach ($dayPostings as $posting) {
-            $amountsSinceCheckpoint += (float) ($posting->original_amount ?? '0');
+            if ($posting->original_amount === null) {
+                return false;
+            }
+
+            $amountsSinceCheckpoint += (float) $posting->original_amount;
 
             if ($posting->balance === null) {
                 continue;
