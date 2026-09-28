@@ -101,6 +101,7 @@ type Account = {
     bank_name: string | null;
     currency: string;
     current_balance: number | null;
+    reporting_balance: number | null;
     last_known_posting_date: string | null;
     is_active: boolean;
     is_favorite: boolean;
@@ -242,6 +243,44 @@ function balancesByCurrency(
     return [...totals.entries()]
         .sort((a, b) => b[1].count - a[1].count)
         .map(([currency, entry]) => ({ currency, total: entry.total }));
+}
+
+/**
+ * Consolidated total in the reporting currency. Foreign balances convert at
+ * the newest cached exchange rate, so a total spanning other currencies is
+ * approximate and flagged for a "~" prefix. Returns null when the figure
+ * cannot be expressed in the reporting currency — none set, or a known
+ * balance without a cached rate — leaving the per-currency fallback in place.
+ */
+function reportingTotal(
+    accounts: Account[],
+    reportingCurrency: string | null,
+): { total: number; currency: string; approximate: boolean } | null {
+    if (reportingCurrency === null) {
+        return null;
+    }
+
+    const valued = accounts.filter(
+        (account) => account.current_balance !== null,
+    );
+
+    if (
+        valued.length === 0 ||
+        valued.some((account) => account.reporting_balance === null)
+    ) {
+        return null;
+    }
+
+    return {
+        total: valued.reduce(
+            (sum, account) => sum + (account.reporting_balance ?? 0),
+            0,
+        ),
+        currency: reportingCurrency,
+        approximate: valued.some(
+            (account) => account.currency !== reportingCurrency,
+        ),
+    };
 }
 
 export default function BankAccounts({
@@ -565,6 +604,50 @@ function EmptyState({
     );
 }
 
+function TotalSummary({ accounts }: { accounts: Account[] }) {
+    const { locale, reportingCurrency } = useRegion();
+    const total = reportingTotal(accounts, reportingCurrency);
+
+    if (total !== null) {
+        return (
+            <div className="hidden text-right sm:block">
+                <div className="text-xs text-muted-foreground">Total</div>
+                <div
+                    className="font-semibold tabular-nums"
+                    title={
+                        total.approximate
+                            ? 'Approximate — converted at the latest exchange rate'
+                            : undefined
+                    }
+                >
+                    {total.approximate && '≈'}
+                    {formatMoney(total.total, total.currency, locale)}
+                </div>
+            </div>
+        );
+    }
+
+    const subtotals = balancesByCurrency(accounts);
+
+    if (subtotals.length === 0) {
+        return null;
+    }
+
+    return (
+        <div className="hidden text-right sm:block">
+            <div className="text-xs text-muted-foreground">Total</div>
+            {subtotals.map((entry) => (
+                <div
+                    key={entry.currency}
+                    className="font-semibold tabular-nums"
+                >
+                    {formatMoney(entry.total, entry.currency, locale)}
+                </div>
+            ))}
+        </div>
+    );
+}
+
 function BankCard({
     connection,
     accounts,
@@ -623,8 +706,6 @@ function BankCard({
 
     const openAccounts = accounts.filter((account) => account.is_active);
     const archivedAccounts = accounts.filter((account) => !account.is_active);
-
-    const subtotals = balancesByCurrency(openAccounts);
 
     const syncAll = () => {
         toast('Syncing bank accounts...');
@@ -691,25 +772,7 @@ function BankCard({
                             </div>
                         </div>
                         <div className="flex shrink-0 items-center gap-3">
-                            {subtotals.length > 0 && (
-                                <div className="hidden text-right sm:block">
-                                    <div className="text-xs text-muted-foreground">
-                                        Total
-                                    </div>
-                                    {subtotals.map((entry) => (
-                                        <div
-                                            key={entry.currency}
-                                            className="font-semibold tabular-nums"
-                                        >
-                                            {formatMoney(
-                                                entry.total,
-                                                entry.currency,
-                                                locale,
-                                            )}
-                                        </div>
-                                    ))}
-                                </div>
-                            )}
+                            <TotalSummary accounts={openAccounts} />
                             {connection.needs_renewal && (
                                 <Button size="sm" onClick={renew}>
                                     <RefreshCw className="size-4" />
@@ -920,9 +983,6 @@ function ManualAccountsCard({
     onConnect: (account: Account) => void;
     onDelete: (account: Account) => void;
 }) {
-    const { locale } = useRegion();
-    const subtotals = balancesByCurrency(accounts);
-
     return (
         <Card className="overflow-hidden py-0">
             <CardContent className="p-0">
@@ -941,25 +1001,7 @@ function ManualAccountsCard({
                         </div>
                     </div>
                     <div className="flex shrink-0 items-center gap-3">
-                        {subtotals.length > 0 && (
-                            <div className="hidden text-right sm:block">
-                                <div className="text-xs text-muted-foreground">
-                                    Total
-                                </div>
-                                {subtotals.map((entry) => (
-                                    <div
-                                        key={entry.currency}
-                                        className="font-semibold tabular-nums"
-                                    >
-                                        {formatMoney(
-                                            entry.total,
-                                            entry.currency,
-                                            locale,
-                                        )}
-                                    </div>
-                                ))}
-                            </div>
-                        )}
+                        <TotalSummary accounts={accounts} />
                         <DropdownMenu>
                             <DropdownMenuTrigger asChild>
                                 <Button

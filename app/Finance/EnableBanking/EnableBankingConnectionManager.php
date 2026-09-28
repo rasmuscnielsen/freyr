@@ -23,6 +23,15 @@ use Throwable;
 
 class EnableBankingConnectionManager
 {
+    /**
+     * Balance types that describe booked money — the only figures a postings
+     * chain can be reconciled against. Available and expected types (ITAV,
+     * AVAI, XPCD, ...) move with pending reservations, so comparing them to a
+     * booked chain produces standing false mismatches. An untyped balance is
+     * assumed booked: providers sending a lone entry mean the booked figure.
+     */
+    private const array BOOKED_BALANCE_TYPES = ['CLBD', 'ITBD', 'PRCD', 'OPBD'];
+
     public function __construct(
         private readonly EnableBankingClient $client,
         private readonly EnableBankingTransactionMapper $transactionMapper,
@@ -626,8 +635,9 @@ class EnableBankingConnectionManager
      * two figures will simply disagree and `balance_matches` becomes false. That mismatch is the
      * intended warning signal, not an error — it never fails the run.
      *
-     * When no posting carries a running balance, reconciliation cannot be performed and both the
-     * computed balance and `balance_matches` are left null.
+     * When no posting carries a running balance, or the bank only reports an
+     * available/expected balance type rather than a booked one, reconciliation
+     * cannot be performed and `balance_matches` is left null.
      *
      * @param  array<string, mixed>|null  $booked
      * @return array{expected_balance: ?string, computed_balance: ?string, balance_matches: ?bool, balance_match_basis: ?string}
@@ -643,7 +653,11 @@ class EnableBankingConnectionManager
             $computedBalance = $this->balanceChainInspector->inspect($account->bankAccount)['closing_balance'];
         }
 
-        if ($computedBalance === null || $expectedBalance === null) {
+        $isBooked = $booked === null
+            || ! isset($booked['balance_type'])
+            || in_array($booked['balance_type'], self::BOOKED_BALANCE_TYPES, true);
+
+        if ($computedBalance === null || $expectedBalance === null || ! $isBooked) {
             return [
                 'expected_balance' => $expectedBalance,
                 'computed_balance' => $computedBalance,

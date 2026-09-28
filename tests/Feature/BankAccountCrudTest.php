@@ -1,6 +1,7 @@
 <?php
 
 use App\Finance\EnableBanking\EnableBankingClient;
+use App\Finance\Fx\ExchangeRateStore;
 use App\Models\BankAccount;
 use App\Models\BankConnection;
 use App\Models\BankConnectionAccount;
@@ -121,6 +122,56 @@ test('bank accounts page exposes connection state and linkable remote accounts',
             ->where('linkableConnectionAccounts.0.name', 'Savings'));
 });
 
+test('bank accounts carry a balance valued in the reporting currency', function () {
+    $user = User::factory()->create(['reporting_currency' => 'DKK']);
+    Cache::forget('enable-banking.aspsps.dk.personal.ais');
+    app()->instance(EnableBankingClient::class, new BankAccountCrudEnableBankingClient);
+
+    // Identical bank names push ordering onto the account name.
+    BankAccount::factory()->for($user)->create([
+        'name' => 'A Dollars',
+        'bank_name' => 'Bank',
+        'currency' => 'USD',
+        'current_balance' => '50.00',
+    ]);
+    BankAccount::factory()->for($user)->create([
+        'name' => 'B Euros',
+        'bank_name' => 'Bank',
+        'currency' => 'EUR',
+        'current_balance' => '100.00',
+    ]);
+    BankAccount::factory()->for($user)->create([
+        'name' => 'C Kroner',
+        'bank_name' => 'Bank',
+        'currency' => 'DKK',
+        'current_balance' => '1000.00',
+    ]);
+    BankAccount::factory()->for($user)->create([
+        'name' => 'D Unsynced',
+        'bank_name' => 'Bank',
+        'currency' => 'DKK',
+        'current_balance' => null,
+    ]);
+
+    app(ExchangeRateStore::class)->storeRates([[
+        'date' => now()->toDateString(),
+        'base' => 'EUR',
+        'quote' => 'DKK',
+        'rate' => '7.5000',
+    ]]);
+
+    $this->actingAs($user)
+        ->get(route('bank-accounts.index'))
+        ->assertOk()
+        ->assertInertia(fn (Assert $page) => $page
+            // No cached USD rate — unvalued rather than guessed.
+            ->where('accounts.0.reporting_balance', null)
+            ->where('accounts.1.reporting_balance', 750)
+            // Same-currency balances pass through unconverted.
+            ->where('accounts.2.reporting_balance', 1000)
+            ->where('accounts.3.reporting_balance', null));
+});
+
 test('deleting an account removes it and its postings and unlinks remote accounts', function () {
     $user = User::factory()->create();
     $account = BankAccount::factory()->for($user)->create();
@@ -141,6 +192,38 @@ test('deleting an account removes it and its postings and unlinks remote account
         ->and(Posting::query()->whereKey($posting->id)->exists())->toBeFalse()
         ->and($remoteAccount->refresh()->bank_account_id)->toBeNull()
         ->and($remoteAccount->status)->toBe(BankConnectionAccount::STATUS_UNLINKED);
+});
+
+test('a newer matching run on another account does not mask a standing balance mismatch', function () {
+    $user = User::factory()->create();
+    Cache::forget('enable-banking.aspsps.dk.personal.ais');
+    app()->instance(EnableBankingClient::class, new BankAccountCrudEnableBankingClient);
+
+    $connection = BankConnection::factory()->for($user)->create();
+    $dkkAccount = BankConnectionAccount::factory()->for($connection)->create(['currency' => 'DKK']);
+    $eurAccount = BankConnectionAccount::factory()->for($connection)->create(['currency' => 'EUR']);
+
+    // The DKK account's latest run mismatched; the EUR account then synced
+    // successfully. The card must still surface the DKK mismatch.
+    BankSyncRun::factory()->forConnectionAccount($dkkAccount)->create([
+        'expected_balance' => '100.00',
+        'computed_balance' => '150.00',
+        'balance_matches' => false,
+        'balance_match_basis' => 'bank',
+    ]);
+    BankSyncRun::factory()->forConnectionAccount($eurAccount)->create([
+        'expected_balance' => '200.00',
+        'computed_balance' => '200.00',
+        'balance_matches' => true,
+        'balance_match_basis' => 'bank',
+    ]);
+
+    $this->actingAs($user)
+        ->get(route('bank-accounts.index'))
+        ->assertOk()
+        ->assertInertia(fn (Assert $page) => $page
+            ->where('connections.0.balance_mismatch.delta', '-50.00')
+            ->where('connections.0.balance_mismatch.currency', 'DKK'));
 });
 
 test('bank accounts page exposes the my banks connection panel', function () {

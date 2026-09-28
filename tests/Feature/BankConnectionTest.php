@@ -1291,6 +1291,41 @@ test('sync accepts the closing checkpoint when same-day ids are out of bank orde
         ->and($run->computed_balance)->toBe('120.00');
 });
 
+test('sync does not reconcile against an available-only balance type', function () {
+    $user = User::factory()->create();
+    $connection = BankConnection::factory()->for($user)->create();
+    $localAccount = BankAccount::factory()->for($user)->create();
+    $remoteAccount = BankConnectionAccount::factory()
+        ->for($connection)
+        ->linkedTo($localAccount)
+        ->create();
+
+    // An ITAV-only provider (e.g. Wise) reports the available balance, which
+    // pending reservations move independently of booked transactions —
+    // comparing it to the chain would flag a standing false mismatch.
+    $balances = enableBankingBalancesPayload();
+    $balances[0]['balance_type'] = 'ITAV';
+    $balances[0]['balance_amount']['amount'] = '51039.66';
+    unset($balances[1]);
+
+    $client = new FakeEnableBankingClient(
+        balances: $balances,
+        transactions: enableBankingTransactionsPayload(),
+    );
+
+    app()->instance(EnableBankingClient::class, $client);
+
+    (new SyncBankConnectionAccountJob($remoteAccount))->handle(app(EnableBankingConnectionManager::class));
+
+    $run = BankSyncRun::query()->latest('id')->firstOrFail();
+
+    expect($run->status)->toBe(BankSyncRun::STATUS_SUCCEEDED)
+        ->and($run->expected_balance)->toBe('51039.66')
+        ->and($run->computed_balance)->toBe('51339.66')
+        ->and($run->balance_matches)->toBeNull()
+        ->and($run->hasBalanceMismatch())->toBeFalse();
+});
+
 test('sync leaves reconciliation null when the bank sends neither balances nor checkpoints', function () {
     $user = User::factory()->create();
     $connection = BankConnection::factory()->for($user)->create();

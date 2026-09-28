@@ -4,6 +4,8 @@ namespace App\Http\Controllers;
 
 use App\Finance\BalanceChainInspector;
 use App\Finance\EnableBanking\EnableBankingClient;
+use App\Finance\Fx\ExchangeRateStore;
+use App\Finance\MoneyMath;
 use App\Http\Requests\StoreBankAccountRequest;
 use App\Http\Requests\UpdateBankAccountRequest;
 use App\Models\BankAccount;
@@ -13,6 +15,7 @@ use App\Models\BankSyncRun;
 use App\Models\Category;
 use App\Models\Posting;
 use App\Models\User;
+use Carbon\CarbonImmutable;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Arr;
@@ -39,6 +42,8 @@ class BankAccountController extends Controller
             ->orderBy('name')
             ->get();
 
+        $reportingBalances = $this->reportingBalances($user, $accounts);
+
         return Inertia::render('bank-accounts/index', [
             'accounts' => $accounts->map(fn (BankAccount $account): array => [
                 'id' => $account->id,
@@ -47,6 +52,7 @@ class BankAccountController extends Controller
                 'bank_name' => $account->bank_name,
                 'currency' => $account->currency,
                 'current_balance' => $account->current_balance === null ? null : (float) $account->current_balance,
+                'reporting_balance' => $reportingBalances[$account->id] ?? null,
                 'last_known_posting_date' => $account->last_known_posting_date?->toDateString(),
                 'is_active' => $account->is_active,
                 'is_favorite' => $account->is_favorite,
@@ -242,6 +248,49 @@ class BankAccountController extends Controller
     }
 
     /**
+     * Each account's current balance valued in the user's reporting currency,
+     * keyed by account id. Same-currency balances pass through untouched;
+     * foreign ones convert at the newest cached rate — never by calling the
+     * provider while rendering. Null means the balance cannot be valued (no
+     * reporting currency, no balance, or no cached rate), so the frontend can
+     * fall back to per-currency subtotals.
+     *
+     * @param  Collection<int, BankAccount>  $accounts
+     * @return array<int, float|null>
+     */
+    private function reportingBalances(User $user, Collection $accounts): array
+    {
+        $quote = $user->reporting_currency;
+        $rates = app(ExchangeRateStore::class);
+        $today = CarbonImmutable::today();
+        $ratesByBase = [];
+
+        return $accounts
+            ->mapWithKeys(function (BankAccount $account) use ($quote, $rates, $today, &$ratesByBase): array {
+                if ($account->current_balance === null || $quote === null) {
+                    return [$account->id => null];
+                }
+
+                if ($account->currency === $quote) {
+                    return [$account->id => (float) $account->current_balance];
+                }
+
+                if (! array_key_exists($account->currency, $ratesByBase)) {
+                    $ratesByBase[$account->currency] = $rates->rateFor($account->currency, $quote, $today);
+                }
+
+                $rate = $ratesByBase[$account->currency];
+
+                return [
+                    $account->id => $rate === null
+                        ? null
+                        : (float) MoneyMath::round(bcmul((string) $account->current_balance, $rate['rate'], 20)),
+                ];
+            })
+            ->all();
+    }
+
+    /**
      * Build the "My banks" side-panel payload: one entry per bank connection with its
      * status, expiry, latest sync and reconciliation state, and its remote accounts.
      *
@@ -255,7 +304,19 @@ class BankAccountController extends Controller
             ->orderByDesc('created_at')
             ->get()
             ->map(function (BankConnection $connection): array {
-                $latestRun = $connection->syncRuns()->latest('id')->first();
+                // Reconciliation runs per remote account, so the alert must
+                // consider each account's latest run — a newer matching run
+                // on a different account must not mask a standing mismatch.
+                $latestRunIds = $connection->syncRuns()
+                    ->selectRaw('max(id) as id')
+                    ->groupBy('bank_connection_account_id')
+                    ->pluck('id');
+
+                $mismatchRun = BankSyncRun::query()
+                    ->whereIn('id', $latestRunIds)
+                    ->where('balance_matches', false)
+                    ->latest('id')
+                    ->first();
 
                 return [
                     'id' => $connection->id,
@@ -275,9 +336,9 @@ class BankAccountController extends Controller
                         ->where('status', BankConnectionAccount::STATUS_LINKED)
                         ->whereNotNull('bank_account_id')
                         ->count(),
-                    'balance_mismatch' => $latestRun === null || ! $latestRun->hasBalanceMismatch() ? null : [
-                        'delta' => $latestRun->balanceDelta(),
-                        'currency' => $latestRun->bankConnectionAccount?->currency,
+                    'balance_mismatch' => $mismatchRun === null ? null : [
+                        'delta' => $mismatchRun->balanceDelta(),
+                        'currency' => $mismatchRun->bankConnectionAccount?->currency,
                     ],
                     'accounts' => $connection->accounts
                         ->sortBy(fn (BankConnectionAccount $account): string => $account->details ?? $account->name)
