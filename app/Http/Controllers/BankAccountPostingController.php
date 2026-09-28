@@ -36,7 +36,7 @@ class BankAccountPostingController extends Controller
         $posting->applyReportingAmount($bankAccount->user->reporting_currency ?? $bankAccount->currency);
         $bankAccount->postings()->save($posting);
 
-        $this->balanceRecalculator->recalculate($bankAccount);
+        $this->balanceRecalculator->recalculate($bankAccount, $accountAmount);
 
         if ($posting->amount === null && $posting->original_amount !== null) {
             ConvertReportingAmountsJob::dispatch($bankAccount->user_id)->afterCommit();
@@ -55,6 +55,9 @@ class BankAccountPostingController extends Controller
         }
 
         $monetaryChanged = array_key_exists('amount', $validated) || array_key_exists('date', $validated);
+        $delta = array_key_exists('amount', $validated)
+            ? bcsub($validated['original_amount'], (string) ($posting->original_amount ?? '0'), 10)
+            : '0';
 
         $posting->fill($validated);
 
@@ -67,7 +70,7 @@ class BankAccountPostingController extends Controller
         $posting->save();
 
         if ($monetaryChanged) {
-            $this->balanceRecalculator->recalculate($bankAccount);
+            $this->balanceRecalculator->recalculate($bankAccount, $delta);
         }
 
         if ($monetaryChanged && $posting->amount === null && $posting->original_amount !== null) {
@@ -82,9 +85,11 @@ class BankAccountPostingController extends Controller
         abort_unless($request->user()?->is($bankAccount->user), 403);
         abort_if($bankAccount->hasBankConnection(), 403);
 
+        $delta = bcmul((string) ($posting->original_amount ?? '0'), '-1', 10);
+
         $posting->delete();
 
-        $this->balanceRecalculator->recalculate($bankAccount);
+        $this->balanceRecalculator->recalculate($bankAccount, $delta);
 
         return back();
     }

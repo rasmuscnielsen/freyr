@@ -7,9 +7,9 @@ use App\Models\BankConnectionAccount;
 use App\Models\Posting;
 use App\Models\User;
 
-function recalculateManualAccount(BankAccount $account): void
+function recalculateManualAccount(BankAccount $account, string $delta = '0'): void
 {
-    app(AccountBalanceRecalculator::class)->recalculate($account);
+    app(AccountBalanceRecalculator::class)->recalculate($account, $delta);
 }
 
 function manualBalanceAccount(array $attributes = []): BankAccount
@@ -73,6 +73,45 @@ test('an account without an opening balance keeps its imported balance snapshot'
 
     expect((float) $account->refresh()->current_balance)->toBe(500.00)
         ->and($account->last_updated_at->toDateTimeString())->toBe('2026-01-01 12:00:00');
+});
+
+test('manual writes nudge an unanchored account balance by their delta', function () {
+    $account = manualBalanceAccount([
+        'opening_balance' => null,
+        'current_balance' => '500.00',
+    ]);
+    Posting::factory()->forAccount($account)->create(['original_amount' => '-25.00']);
+
+    recalculateManualAccount($account, '-25.00');
+
+    expect((float) $account->refresh()->current_balance)->toBe(475.00);
+});
+
+test('an unanchored account without any figure totals its known movements', function () {
+    $account = manualBalanceAccount([
+        'opening_balance' => null,
+        'current_balance' => null,
+    ]);
+    Posting::factory()->forAccount($account)->create(['date' => '2026-01-01', 'original_amount' => '40.00']);
+    Posting::factory()->forAccount($account)->create(['date' => '2026-02-01', 'original_amount' => '-25.00']);
+
+    recalculateManualAccount($account);
+
+    expect((float) $account->refresh()->current_balance)->toBe(15.00)
+        ->and($account->last_known_posting_date->toDateString())->toBe('2026-02-01');
+});
+
+test('an unanchored account without a figure stays unknown when a movement is unknown', function () {
+    $account = manualBalanceAccount([
+        'opening_balance' => null,
+        'current_balance' => null,
+    ]);
+    Posting::factory()->forAccount($account)->create(['original_amount' => '40.00']);
+    Posting::factory()->forAccount($account)->create(['original_amount' => null]);
+
+    recalculateManualAccount($account);
+
+    expect($account->refresh()->current_balance)->toBeNull();
 });
 
 test('a connected account keeps its provider balance snapshot', function () {

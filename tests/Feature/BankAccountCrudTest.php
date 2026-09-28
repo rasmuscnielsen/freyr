@@ -2,6 +2,7 @@
 
 use App\Finance\EnableBanking\EnableBankingClient;
 use App\Finance\Fx\ExchangeRateStore;
+use App\Jobs\ConvertReportingAmountsJob;
 use App\Models\BankAccount;
 use App\Models\BankConnection;
 use App\Models\BankConnectionAccount;
@@ -9,6 +10,7 @@ use App\Models\BankSyncRun;
 use App\Models\Posting;
 use App\Models\User;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Queue;
 use Inertia\Testing\AssertableInertia as Assert;
 use Tests\Fakes\BankAccountCrudEnableBankingClient;
 
@@ -128,6 +130,56 @@ test('opening balances cannot be set while an account is connected', function ()
 
     expect($account->refresh()->opening_balance)->toBeNull()
         ->and((float) $account->current_balance)->toBe(500.00);
+});
+
+test('creating a foreign-currency manual account dispatches the conversion job', function () {
+    Queue::fake();
+    $user = User::factory()->create();
+
+    $this->actingAs($user)
+        ->post(route('bank-accounts.store'), bankAccountPayload(['currency' => 'EUR']))
+        ->assertRedirect();
+
+    Queue::assertPushed(ConvertReportingAmountsJob::class, fn (ConvertReportingAmountsJob $job): bool => $job->userId === $user->id);
+});
+
+test('same-currency account changes skip the conversion job', function () {
+    Queue::fake();
+    $user = User::factory()->create();
+
+    $this->actingAs($user)
+        ->post(route('bank-accounts.store'), bankAccountPayload())
+        ->assertRedirect();
+
+    $account = BankAccount::query()->firstOrFail();
+
+    $this->actingAs($user)
+        ->patch(route('bank-accounts.update', $account), ['opening_balance' => '100.00'])
+        ->assertRedirect();
+
+    Queue::assertNotPushed(ConvertReportingAmountsJob::class);
+});
+
+test('setting an opening balance on a foreign-currency account dispatches the conversion job', function () {
+    Queue::fake();
+    $user = User::factory()->create();
+    $account = BankAccount::factory()->for($user)->create([
+        'currency' => 'EUR',
+        'opening_balance' => null,
+        'current_balance' => '500.00',
+    ]);
+
+    $this->actingAs($user)
+        ->patch(route('bank-accounts.update', $account), ['name' => 'Renamed'])
+        ->assertRedirect();
+
+    Queue::assertNotPushed(ConvertReportingAmountsJob::class);
+
+    $this->actingAs($user)
+        ->patch(route('bank-accounts.update', $account), ['opening_balance' => '100.00'])
+        ->assertRedirect();
+
+    Queue::assertPushed(ConvertReportingAmountsJob::class, fn (ConvertReportingAmountsJob $job): bool => $job->userId === $user->id);
 });
 
 test('opening balance validation rejects values larger than the database column', function () {
@@ -322,8 +374,10 @@ test('bank account detail page renders postings and sync history', function () {
             ->component('bank-accounts/show')
             ->where('account.name', 'Everyday')
             ->where('account.connection.aspsp_name', $connection->aspsp_name)
+            ->where('account.provides_running_balance', false)
             ->has('postings.data', 1)
             ->where('postings.data.0.description', 'Grocery run')
+            ->where('postings.data.0.balance', null)
             ->has('syncRuns', 1));
 });
 
@@ -341,10 +395,33 @@ test('bank account detail shows provider snapshots without reconciliation result
         ->assertInertia(fn (Assert $page) => $page
             ->where('account.current_balance', 150)
             ->where('account.is_manual', false)
+            ->where('account.provides_running_balance', true)
+            ->where('postings.data.0.balance', 100)
             ->missing('account.balance_diff')
             ->missing('balanceAudit')
-            ->missing('syncRuns.0.balance_matches')
-            ->missing('postings.data.0.balance'));
+            ->missing('syncRuns.0.balance_matches'));
+});
+
+test('running balance column retires when the newest posting lacks a provider balance', function () {
+    $user = User::factory()->create();
+    $account = BankAccount::factory()->for($user)->create();
+
+    Posting::factory()->forAccount($account)->create(['date' => '2026-06-10', 'balance' => '100.00']);
+    Posting::factory()->forAccount($account)->create(['date' => '2026-06-20', 'balance' => null]);
+
+    $this->actingAs($user)
+        ->get(route('bank-accounts.show', $account))
+        ->assertOk()
+        ->assertInertia(fn (Assert $page) => $page
+            ->where('account.provides_running_balance', false));
+
+    Posting::factory()->forAccount($account)->create(['date' => '2026-06-25', 'balance' => '90.00']);
+
+    $this->actingAs($user)
+        ->get(route('bank-accounts.show', $account))
+        ->assertOk()
+        ->assertInertia(fn (Assert $page) => $page
+            ->where('account.provides_running_balance', true));
 });
 
 test('bank account detail page is authorized to the owner', function () {

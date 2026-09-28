@@ -31,7 +31,7 @@ function countryName(code: string): string {
     return regionNames.of(code) ?? code;
 }
 
-function currencyLabel(code: string): string {
+export function currencyLabel(code: string): string {
     const name = currencyNames.of(code);
 
     return name && name !== code ? `${name} (${code})` : code;

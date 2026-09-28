@@ -1,11 +1,13 @@
 <?php
 
+use App\Jobs\ConvertReportingAmountsJob;
 use App\Models\BankAccount;
 use App\Models\BankConnection;
 use App\Models\BankConnectionAccount;
 use App\Models\Posting;
 use App\Models\Subcategory;
 use App\Models\User;
+use Illuminate\Support\Facades\Queue;
 use Inertia\Testing\AssertableInertia as Assert;
 
 function manualPostingAccount(User $user, array $attributes = []): BankAccount
@@ -92,6 +94,43 @@ test('manual postings can be updated', function () {
         ->and($account->refresh()->last_known_posting_date->toDateString())->toBe('2026-06-15');
 });
 
+test('foreign-currency manual postings dispatch the conversion job when created', function () {
+    Queue::fake();
+    $user = User::factory()->create();
+    $account = manualPostingAccount($user, ['currency' => 'USD']);
+
+    $this->actingAs($user)
+        ->post(route('bank-accounts.postings.store', $account), manualPostingPayload())
+        ->assertRedirect();
+
+    Queue::assertPushed(ConvertReportingAmountsJob::class, fn (ConvertReportingAmountsJob $job): bool => $job->userId === $user->id);
+});
+
+test('editing a foreign-currency manual posting dispatches the conversion job', function () {
+    Queue::fake();
+    $user = User::factory()->create();
+    $account = manualPostingAccount($user, ['currency' => 'USD']);
+    $posting = Posting::factory()->forAccount($account)->uncategorized()->create();
+
+    $this->actingAs($user)
+        ->patch(route('bank-accounts.postings.update', [$account, $posting]), manualPostingPayload(['amount' => '-10.00']))
+        ->assertRedirect();
+
+    Queue::assertPushed(ConvertReportingAmountsJob::class, fn (ConvertReportingAmountsJob $job): bool => $job->userId === $user->id);
+});
+
+test('same-currency manual postings skip the conversion job', function () {
+    Queue::fake();
+    $user = User::factory()->create();
+    $account = manualPostingAccount($user);
+
+    $this->actingAs($user)
+        ->post(route('bank-accounts.postings.store', $account), manualPostingPayload())
+        ->assertRedirect();
+
+    Queue::assertNotPushed(ConvertReportingAmountsJob::class);
+});
+
 test('manual postings can be deleted', function () {
     $user = User::factory()->create();
     $account = manualPostingAccount($user);
@@ -136,6 +175,33 @@ test('manual posting changes recalculate only the account total', function () {
     $this->actingAs($user)->delete(route('bank-accounts.postings.destroy', [$account, $second]));
 
     expect((float) $account->refresh()->current_balance)->toBe(200.00);
+});
+
+test('manual postings move an unanchored account balance', function () {
+    $user = User::factory()->create();
+    $account = BankAccount::factory()->for($user)->create([
+        'opening_balance' => null,
+        'current_balance' => '500.00',
+    ]);
+
+    $this->actingAs($user)->post(route('bank-accounts.postings.store', $account), manualPostingPayload([
+        'amount' => '-100.00',
+    ]));
+
+    $posting = Posting::query()->firstOrFail();
+
+    expect((float) $account->refresh()->current_balance)->toBe(400.00);
+
+    $this->actingAs($user)->patch(
+        route('bank-accounts.postings.update', [$account, $posting]),
+        manualPostingPayload(['amount' => '-150.00']),
+    );
+
+    expect((float) $account->refresh()->current_balance)->toBe(350.00);
+
+    $this->actingAs($user)->delete(route('bank-accounts.postings.destroy', [$account, $posting]));
+
+    expect((float) $account->refresh()->current_balance)->toBe(500.00);
 });
 
 test('postings cannot be managed manually on accounts with a bank connection', function () {

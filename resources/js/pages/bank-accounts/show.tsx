@@ -70,6 +70,7 @@ type Account = {
     is_active: boolean;
     is_favorite: boolean;
     is_manual: boolean;
+    provides_running_balance: boolean;
     postings_count: number;
     last_synced_at: string | null;
     connection: Connection | null;
@@ -81,6 +82,7 @@ type Posting = {
     description: string;
     original_amount: number | null;
     original_currency: string;
+    balance: number | null;
     comment: string | null;
     is_extraordinary: boolean;
     categorized_subcategory_id: number | null;
@@ -270,18 +272,9 @@ export default function BankAccountShow({
                                 locale,
                             )}
                         </div>
-                        {account.is_manual && (
-                            <div className="text-xs text-muted-foreground">
-                                {account.opening_balance === null
-                                    ? 'Balance snapshot'
-                                    : 'Calculated total'}
-                            </div>
-                        )}
-                        {!account.is_manual && (
-                            <div className="text-xs text-muted-foreground">
-                                Balance snapshot
-                            </div>
-                        )}
+                        <div className="text-xs text-muted-foreground">
+                            Balance
+                        </div>
                     </div>
                 </div>
 
@@ -340,6 +333,11 @@ export default function BankAccountShow({
                                     <th className="px-3 py-2.5 text-right text-xs font-medium text-muted-foreground">
                                         Amount
                                     </th>
+                                    {account.provides_running_balance && (
+                                        <th className="hidden px-3 py-2.5 text-right text-xs font-medium text-muted-foreground md:table-cell">
+                                            Balance
+                                        </th>
+                                    )}
                                     {account.is_manual && (
                                         <th className="px-3 py-2.5 text-right text-xs font-medium text-muted-foreground">
                                             <span className="sr-only">
@@ -354,7 +352,11 @@ export default function BankAccountShow({
                                     <tr>
                                         <td
                                             colSpan={
-                                                4 + (account.is_manual ? 1 : 0)
+                                                4 +
+                                                (account.provides_running_balance
+                                                    ? 1
+                                                    : 0) +
+                                                (account.is_manual ? 1 : 0)
                                             }
                                             className="px-3 py-8 text-center text-muted-foreground"
                                         >
@@ -416,6 +418,15 @@ export default function BankAccountShow({
                                                           posting.original_amount,
                                                       )}
                                             </td>
+                                            {account.provides_running_balance && (
+                                                <td className="hidden px-3 py-3 text-right whitespace-nowrap text-muted-foreground tabular-nums md:table-cell">
+                                                    {posting.balance === null
+                                                        ? '—'
+                                                        : money.format(
+                                                              posting.balance,
+                                                          )}
+                                                </td>
+                                            )}
                                             {account.is_manual && (
                                                 <td className="px-3 py-3 text-right whitespace-nowrap">
                                                     <Button

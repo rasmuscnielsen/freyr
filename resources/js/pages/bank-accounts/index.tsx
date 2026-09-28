@@ -15,11 +15,12 @@ import {
     Trash2,
     WalletCards,
 } from 'lucide-react';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import type { KeyboardEvent, MouseEvent } from 'react';
 import { toast } from 'sonner';
 import { ConnectionSetupDialog } from '@/components/bank-accounts/connection-setup-dialog';
 import InputError from '@/components/input-error';
+import { currencyLabel } from '@/components/region-fields';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -167,6 +168,7 @@ type BankAccountsProps = {
     linkableConnectionAccounts: LinkableConnectionAccount[];
     connections: Connection[];
     availableBanks: AvailableBank[];
+    currencies: string[];
     defaults: {
         aspsp_name: string | null;
         aspsp_country: string | null;
@@ -288,6 +290,7 @@ export default function BankAccounts({
     linkableConnectionAccounts,
     connections,
     availableBanks,
+    currencies,
     defaults,
     setupConnectionId,
 }: BankAccountsProps) {
@@ -515,6 +518,7 @@ export default function BankAccounts({
                         : `account-dialog-${editingAccount.id}`
                 }
                 account={editingAccount}
+                currencies={currencies}
                 open={editingAccount !== null || isCreating}
                 onClose={() => {
                     setEditingAccount(null);
@@ -540,10 +544,6 @@ export default function BankAccounts({
                 availableBanks={availableBanks}
                 defaults={defaults}
                 onClose={() => setAddingConnection(false)}
-                onAddManualAccount={() => {
-                    setAddingConnection(false);
-                    setIsCreating(true);
-                }}
             />
 
             <ConnectionSetupDialog
@@ -1138,11 +1138,7 @@ function AccountRow({
             </div>
 
             <div className="w-28 text-right md:w-36">
-                <div className="text-xs text-muted-foreground">
-                    {isConnected || account.opening_balance === null
-                        ? 'Balance snapshot'
-                        : 'Current total'}
-                </div>
+                <div className="text-xs text-muted-foreground">Balance</div>
                 <div className="font-semibold tabular-nums">
                     {account.current_balance === null
                         ? '—'
@@ -1319,13 +1315,11 @@ function AddBankDialog({
     availableBanks,
     defaults,
     onClose,
-    onAddManualAccount,
 }: {
     open: boolean;
     availableBanks: AvailableBank[];
     defaults: BankAccountsProps['defaults'];
     onClose: () => void;
-    onAddManualAccount: () => void;
 }) {
     const defaultBank =
         availableBanks.find(
@@ -1383,13 +1377,6 @@ function AddBankDialog({
                             ))}
                         </SelectContent>
                     </Select>
-                    <button
-                        type="button"
-                        onClick={onAddManualAccount}
-                        className="w-fit text-sm text-muted-foreground underline-offset-4 transition-colors hover:text-foreground hover:underline"
-                    >
-                        Add manual account
-                    </button>
                 </div>
                 <DialogFooter>
                     <Button variant="outline" onClick={onClose}>
@@ -1410,14 +1397,23 @@ function AddBankDialog({
 
 function AccountDialog({
     account,
+    currencies,
     open,
     onClose,
 }: {
     account: Account | null;
+    currencies: string[];
     open: boolean;
     onClose: () => void;
 }) {
     const isEditing = account !== null;
+    const currencyOptions = useMemo(
+        () =>
+            [...currencies].sort((a, b) =>
+                currencyLabel(a).localeCompare(currencyLabel(b)),
+            ),
+        [currencies],
+    );
     const form = useForm<AccountForm>(
         account === null
             ? emptyForm
@@ -1485,18 +1481,27 @@ function AccountDialog({
                     {!isEditing && (
                         <div className="grid gap-2">
                             <Label htmlFor="currency">Currency</Label>
-                            <Input
-                                id="currency"
-                                maxLength={3}
-                                placeholder="EUR"
+                            <Select
                                 value={form.data.currency}
-                                onChange={(event) =>
-                                    form.setData(
-                                        'currency',
-                                        event.target.value.toUpperCase(),
-                                    )
+                                onValueChange={(value) =>
+                                    form.setData('currency', value)
                                 }
-                            />
+                                name="currency"
+                            >
+                                <SelectTrigger id="currency" className="w-full">
+                                    <SelectValue placeholder="Select currency" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {currencyOptions.map((currency) => (
+                                        <SelectItem
+                                            key={currency}
+                                            value={currency}
+                                        >
+                                            {currencyLabel(currency)}
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
                             <InputError message={form.errors.currency} />
                         </div>
                     )}
@@ -1523,7 +1528,7 @@ function AccountDialog({
                             <p className="text-xs text-muted-foreground">
                                 {isEditing
                                     ? account.opening_balance === null
-                                        ? 'Balance before all postings. Leave blank to keep the imported balance snapshot.'
+                                        ? 'Balance before all postings. Leave blank to keep the imported balance.'
                                         : 'Balance before all postings. Leave blank to keep the existing opening balance.'
                                     : 'Balance before all postings. A blank value starts at zero.'}
                             </p>

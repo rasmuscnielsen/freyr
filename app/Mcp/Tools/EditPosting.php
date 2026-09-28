@@ -86,10 +86,12 @@ class EditPosting extends FreyrTool
         // pair is re-derived, which invalidates foreign-currency amounts for
         // the conversion job.
         $monetaryChanged = array_key_exists('amount', $validated) || array_key_exists('date', $validated);
+        $delta = '0';
 
         if (array_key_exists('amount', $validated)) {
             $validated['original_amount'] = MoneyMath::round((string) $validated['amount']);
             $validated['original_currency'] = $posting->bankAccount->currency;
+            $delta = bcsub($validated['original_amount'], (string) ($posting->original_amount ?? '0'), 10);
             unset($validated['amount']);
         }
 
@@ -106,7 +108,7 @@ class EditPosting extends FreyrTool
         }
 
         if ($monetaryChanged && ! $posting->bankAccount->hasBankConnection()) {
-            app(AccountBalanceRecalculator::class)->recalculate($posting->bankAccount);
+            app(AccountBalanceRecalculator::class)->recalculate($posting->bankAccount, $delta);
         }
 
         $posting->refresh()->load(['bankAccount', 'categorizedSubcategory.category', 'subcategory']);

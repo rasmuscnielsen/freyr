@@ -83,6 +83,23 @@ class BankAccount extends Model
     }
 
     /**
+     * Whether the running balance column should show. The newest posting
+     * decides: the column only makes sense while the feed still checkpoints
+     * the chain. Once the newest movement carries no provider balance — the
+     * bank stopped sending `balance_after_transaction`, or manual postings
+     * continue a detached account — older checkpoints are hidden rather than
+     * shown as a permanently broken chain. A provider that starts sending
+     * balances flips this back on with the next sync.
+     */
+    public function providesRunningBalance(): bool
+    {
+        return $this->postings()
+            ->orderByDesc('date')
+            ->orderByDesc('id')
+            ->value('balance') !== null;
+    }
+
+    /**
      * Accounts imported from a Spiir export carry their raw Spiir id, while
      * locally created accounts get a `manual-`/`enable-banking-` prefixed
      * legacy id. Only imported accounts may be linked to a live bank feed:

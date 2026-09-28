@@ -8,6 +8,7 @@ use App\Finance\Fx\ExchangeRateStore;
 use App\Finance\MoneyMath;
 use App\Http\Requests\StoreBankAccountRequest;
 use App\Http\Requests\UpdateBankAccountRequest;
+use App\Jobs\ConvertReportingAmountsJob;
 use App\Models\BankAccount;
 use App\Models\BankConnection;
 use App\Models\BankConnectionAccount;
@@ -103,6 +104,7 @@ class BankAccountController extends Controller
             'connections' => $this->connectionsPayload($user),
             'setupConnectionId' => $this->setupConnectionId($request),
             'availableBanks' => $this->availableBanks($enableBanking, $user),
+            'currencies' => config('regions.ecb_currencies'),
             'defaults' => [
                 'aspsp_name' => config('services.enable_banking.aspsp_name'),
                 // Bank selection defaults to the user's country but may differ
@@ -133,6 +135,7 @@ class BankAccountController extends Controller
                 // original pair, not the reporting conversion.
                 'original_amount' => $posting->original_amount === null ? null : (float) $posting->original_amount,
                 'original_currency' => $posting->original_currency ?? $bankAccount->currency,
+                'balance' => $posting->balance === null ? null : (float) $posting->balance,
                 'comment' => $posting->comment,
                 'is_extraordinary' => $posting->is_extraordinary,
                 'categorized_subcategory_id' => $posting->categorized_subcategory_id,
@@ -160,6 +163,7 @@ class BankAccountController extends Controller
                 'is_active' => $bankAccount->is_active,
                 'is_favorite' => $bankAccount->is_favorite,
                 'is_manual' => $isManual,
+                'provides_running_balance' => $bankAccount->providesRunningBalance(),
                 'postings_count' => $bankAccount->postings_count,
                 'last_synced_at' => $connectionAccount?->last_synced_at?->toDateTimeString(),
                 'connection' => $connection === null ? null : [
@@ -203,12 +207,14 @@ class BankAccountController extends Controller
         $validated = $request->validated();
         $openingBalance = MoneyMath::round((string) ($validated['opening_balance'] ?? '0.00'));
 
-        $request->user()->bankAccounts()->create([
+        $account = $request->user()->bankAccounts()->create([
             ...$validated,
             'legacy_id' => BankAccount::MANUAL_LEGACY_ID_PREFIX.Str::uuid()->toString(),
             'opening_balance' => $openingBalance,
             'current_balance' => $openingBalance,
         ]);
+
+        $this->dispatchConversionForForeignAccount($account, $request->user());
 
         return back();
     }
@@ -239,11 +245,17 @@ class BankAccountController extends Controller
 
         $openingBalanceChanged = array_key_exists('opening_balance', $validated)
             && $bankAccount->opening_balance !== $validated['opening_balance'];
+        $currencyChanged = array_key_exists('currency', $validated)
+            && $validated['currency'] !== $bankAccount->currency;
 
         $bankAccount->update($validated);
 
         if ($openingBalanceChanged) {
             $balanceRecalculator->recalculate($bankAccount);
+        }
+
+        if ($openingBalanceChanged || $currencyChanged) {
+            $this->dispatchConversionForForeignAccount($bankAccount, $request->user());
         }
 
         return back();
@@ -264,6 +276,22 @@ class BankAccountController extends Controller
         });
 
         return back();
+    }
+
+    /**
+     * A foreign-currency balance needs a cached valuation rate before it can
+     * contribute to the reporting total — queue the conversion job so the
+     * rate is fetched instead of the account showing up unvalued.
+     */
+    private function dispatchConversionForForeignAccount(BankAccount $account, User $user): void
+    {
+        if ($user->reporting_currency === null
+            || $account->currency === $user->reporting_currency
+            || $account->current_balance === null) {
+            return;
+        }
+
+        ConvertReportingAmountsJob::dispatch($user->id)->afterCommit();
     }
 
     /**
