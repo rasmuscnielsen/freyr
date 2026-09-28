@@ -51,6 +51,7 @@ class FrankfurterClient
             }
 
             $rows = Arr::wrap($payload);
+            $kept = [];
 
             foreach ($rows as $row) {
                 if (! is_array($row) || ! isset($row['date'], $row['base'], $row['quote'], $row['rate'])) {
@@ -63,20 +64,30 @@ class FrankfurterClient
                 $date = count($dateParts) === 3 && checkdate($dateParts[1], $dateParts[2], $dateParts[0])
                     ? CarbonImmutable::create($dateParts[0], $dateParts[1], $dateParts[2])->startOfDay()
                     : null;
+
+                if ($date === null) {
+                    throw FxRequestException::unavailable('Invalid rate response.');
+                }
+
+                // The provider may pad the response with publications just
+                // outside the requested window; they are unneeded, not broken.
+                if ($date->lt($from) || $date->gt($to)) {
+                    continue;
+                }
+
                 $rate = (string) $row['rate'];
 
-                if ($date === null
-                    || $date->lt($from)
-                    || $date->gt($to)
-                    || strtoupper((string) $row['base']) !== strtoupper($base)
+                if (strtoupper((string) $row['base']) !== strtoupper($base)
                     || ! in_array(strtoupper((string) $row['quote']), array_map('strtoupper', $quotes), true)
                     || preg_match('/^\d+(?:\.\d+)?$/', $rate) !== 1
                     || bccomp($rate, '0.0000000001', 10) < 0) {
                     throw FxRequestException::unavailable('Invalid rate response.');
                 }
+
+                $kept[] = $row;
             }
 
-            return collect($rows)->map(fn (array $row): array => [
+            return collect($kept)->map(fn (array $row): array => [
                 'date' => (string) $row['date'],
                 'base' => strtoupper((string) $row['base']),
                 'quote' => strtoupper((string) $row['quote']),

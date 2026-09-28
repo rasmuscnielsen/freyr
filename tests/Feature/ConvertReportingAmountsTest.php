@@ -4,6 +4,7 @@ use App\Finance\Fx\ExchangeRateStore;
 use App\Finance\Fx\FrankfurterClient;
 use App\Jobs\ConvertReportingAmountsJob;
 use App\Models\BankAccount;
+use App\Models\ExchangeRate;
 use App\Models\Posting;
 use App\Models\User;
 use Illuminate\Support\Facades\Http;
@@ -136,6 +137,32 @@ test('the job fetches missing rates from the provider once', function () {
     expect((float) $posting->refresh()->amount)->toBe(-74.50);
 
     Http::assertSent(fn ($request) => str_starts_with($request->url(), 'https://api.frankfurter.dev/v2/providers/ecb/rates'));
+});
+
+test('rates outside the requested window are ignored instead of failing the fetch', function () {
+    Http::preventStrayRequests();
+    Http::fake([
+        'https://api.frankfurter.dev/*' => Http::response([
+            ['date' => '2026-01-01', 'base' => 'EUR', 'quote' => 'DKK', 'rate' => '7.49'],
+            ['date' => '2026-01-09', 'base' => 'EUR', 'quote' => 'DKK', 'rate' => '7.45'],
+            ['date' => '2026-01-15', 'base' => 'EUR', 'quote' => 'DKK', 'rate' => '7.44'],
+        ]),
+    ]);
+
+    $user = User::factory()->create(['reporting_currency' => 'DKK']);
+    $account = BankAccount::factory()->for($user)->create(['currency' => 'EUR', 'current_balance' => null]);
+    $posting = Posting::factory()->forAccount($account)->create([
+        'date' => '2026-01-09',
+        'amount' => null,
+        'currency' => 'DKK',
+        'original_amount' => '-10.00',
+        'original_currency' => 'EUR',
+    ]);
+
+    runConversion($user);
+
+    expect((float) $posting->refresh()->amount)->toBe(-74.50)
+        ->and(ExchangeRate::query()->count())->toBe(1);
 });
 
 test('a rate-limited provider starts the shared cooldown and leaves postings pending', function () {
