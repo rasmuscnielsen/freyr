@@ -27,10 +27,10 @@ test('it imports a spiir export idempotently', function () {
     $travelCard = BankAccount::query()->where('legacy_id', 'acc-2')->firstOrFail();
     expect($travelCard->currency)->toBe('EUR')
         ->and($travelCard->bank_name)->toBe('Other bank')
-        // A reporting-currency source balance cannot anchor EUR history —
-        // the account balance stays honestly unknown.
+        // Keep Spiir's account snapshot, but do not infer an opening balance
+        // or recalculate the exported posting history from it.
         ->and($travelCard->opening_balance)->toBeNull()
-        ->and($travelCard->current_balance)->toBeNull();
+        ->and((float) $travelCard->current_balance)->toBe(250.00);
 
     $salary = Posting::query()->where('legacy_id', 'post-1')->firstOrFail();
     expect((float) $salary->amount)->toBe(30000.0)
@@ -45,7 +45,8 @@ test('it imports a spiir export idempotently', function () {
         ->and($transferIn->original_currency)->toBe('EUR')
         ->and((float) $transferIn->amount)->toBe(1000.0)
         ->and($transferIn->currency)->toBe('DKK')
-        ->and($transferIn->balance)->toBeNull();
+        ->and($transferIn->balance)->toBeNull()
+        ->and(data_get($transferIn->extra_data, 'spiir_source.balance'))->toBe('2862,29');
 
     $cafe = Posting::query()->where('legacy_id', 'post-5')->firstOrFail();
     expect((float) $cafe->original_amount)->toBe(-12.50)
@@ -58,9 +59,9 @@ test('it imports a spiir export idempotently', function () {
         ->and($transferIn->counter_entry_posting_id)->toBe($transferOut->id);
 
     expect(Posting::query()->where('legacy_id', 'post-6')->exists())->toBeFalse()
-        ->and(Posting::query()->where('legacy_id', 'post-7')->firstOrFail()->balance)->toBe('30229.75')
-        ->and(Posting::query()->where('legacy_id', 'post-8')->firstOrFail()->balance)->toBe('30199.75')
-        ->and(BankAccount::query()->where('legacy_id', 'acc-1')->firstOrFail()->current_balance)->toBe('30199.75');
+        ->and(Posting::query()->where('legacy_id', 'post-7')->firstOrFail()->balance)->toBeNull()
+        ->and(Posting::query()->where('legacy_id', 'post-8')->firstOrFail()->balance)->toBeNull()
+        ->and(BankAccount::query()->where('legacy_id', 'acc-1')->firstOrFail()->current_balance)->toBe('1500.50');
 
     // Spiir's legacy 'Transfer' category type collapses onto Exclude.
     expect(Category::query()->where('legacy_id', '300')->firstOrFail()->type)->toBe(CategoryType::Exclude);
@@ -73,6 +74,28 @@ test('it imports a spiir export idempotently', function () {
         ->and(BankAccount::query()->count())->toBe(2)
         ->and(Posting::query()->count())->toBe(7)
         ->and(User::query()->count())->toBe(1);
+});
+
+test('re-import preserves Spiir snapshots but recalculates explicitly anchored manual totals', function () {
+    $user = User::factory()->create(['reporting_currency' => 'DKK']);
+    $path = base_path('tests/Fixtures/spiir-export');
+    $importer = app(SpiirExportImporter::class);
+
+    $importer->importExport($path, $user);
+    $account = BankAccount::query()->where('legacy_id', 'acc-1')->firstOrFail();
+    $account->update(['current_balance' => '777.00']);
+
+    $importer->importExport($path, $user);
+
+    expect($account->refresh()->opening_balance)->toBeNull()
+        ->and((float) $account->current_balance)->toBe(777.00)
+        ->and(Posting::query()->where('legacy_id', 'post-8')->firstOrFail()->balance)->toBeNull();
+
+    $account->update(['opening_balance' => '1000.00', 'current_balance' => '0.00']);
+    $importer->importExport($path, $user);
+    $expectedTotal = bcadd('1000.00', (string) $account->postings()->sum('original_amount'), 2);
+
+    expect($account->refresh()->current_balance)->toBe($expectedTotal);
 });
 
 test('it imports a spiir export for an explicit user', function () {

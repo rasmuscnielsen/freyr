@@ -3,7 +3,6 @@
 namespace App\Http\Controllers;
 
 use App\Enums\SyncHistory;
-use App\Finance\AccountBalanceRecalculator;
 use App\Finance\BankConnectionAccountLinker;
 use App\Finance\EnableBanking\EnableBankingConnectionManager;
 use App\Http\Requests\MapBankConnectionAccountsRequest;
@@ -172,7 +171,7 @@ class BankConnectionController extends Controller
      * manual accounts. Sync run history cascades away with the connection at the database
      * level (bank_sync_runs.bank_connection_id is ON DELETE CASCADE).
      */
-    public function destroy(Request $request, BankConnection $bankConnection, AccountBalanceRecalculator $balanceRecalculator): RedirectResponse
+    public function destroy(Request $request, BankConnection $bankConnection): RedirectResponse
     {
         abort_unless($request->user()?->is($bankConnection->user), 403);
 
@@ -184,17 +183,12 @@ class BankConnectionController extends Controller
             $bankConnection->delete();
         });
 
-        // Detached accounts are manual from here on: anchor their opening
-        // balance while the synced running balances are still authoritative,
-        // then derive their chain and current balance from postings.
+        // Keep each account's last provider balance as a snapshot. A manual
+        // total starts only after the user explicitly sets an opening balance.
         BankAccount::query()
             ->whereIn('id', $detachedAccountIds)
             ->whereDoesntHave('bankConnectionAccounts')
-            ->get()
-            ->each(function (BankAccount $account) use ($balanceRecalculator): void {
-                $balanceRecalculator->seedOpeningBalanceFromImportedChain($account);
-                $balanceRecalculator->recalculate($account);
-            });
+            ->update(['opening_balance' => null]);
 
         return back()->with('status', 'Bank connection removed. Your accounts and postings were kept.');
     }

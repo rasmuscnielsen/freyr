@@ -47,7 +47,6 @@ class BankConnectionAccount extends Model
         'raw_account_payload',
         'last_synced_at',
         'last_transaction_date',
-        'provides_running_balance',
     ];
 
     /**
@@ -101,7 +100,6 @@ class BankConnectionAccount extends Model
             'raw_account_payload' => 'encrypted:array',
             'last_synced_at' => 'datetime',
             'last_transaction_date' => 'date',
-            'provides_running_balance' => 'boolean',
         ];
     }
 }

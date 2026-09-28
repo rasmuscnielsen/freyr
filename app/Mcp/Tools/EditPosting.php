@@ -105,7 +105,7 @@ class EditPosting extends FreyrTool
             ConvertReportingAmountsJob::dispatch($posting->user_id)->afterCommit();
         }
 
-        if (! $posting->bankAccount->hasBankConnection()) {
+        if ($monetaryChanged && ! $posting->bankAccount->hasBankConnection()) {
             app(AccountBalanceRecalculator::class)->recalculate($posting->bankAccount);
         }
 

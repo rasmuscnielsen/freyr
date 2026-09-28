@@ -12,7 +12,6 @@ import {
     RefreshCw,
     RotateCcw,
     Star,
-    TriangleAlert,
     Trash2,
     WalletCards,
 } from 'lucide-react';
@@ -21,7 +20,6 @@ import type { KeyboardEvent, MouseEvent } from 'react';
 import { toast } from 'sonner';
 import { ConnectionSetupDialog } from '@/components/bank-accounts/connection-setup-dialog';
 import InputError from '@/components/input-error';
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -101,6 +99,7 @@ type Account = {
     bank_name: string | null;
     currency: string;
     current_balance: number | null;
+    opening_balance: number | null;
     reporting_balance: number | null;
     last_known_posting_date: string | null;
     is_active: boolean;
@@ -148,7 +147,6 @@ type Connection = {
     failure_message: string | null;
     needs_renewal: boolean;
     linked_accounts_count: number;
-    balance_mismatch: { delta: string; currency: string | null } | null;
     accounts: ConnectionAccount[];
 };
 
@@ -161,6 +159,7 @@ type AvailableBank = {
 type AccountForm = {
     name: string;
     currency: string;
+    opening_balance: string;
 };
 
 type BankAccountsProps = {
@@ -178,6 +177,7 @@ type BankAccountsProps = {
 const emptyForm: AccountForm = {
     name: '',
     currency: '',
+    opening_balance: '0.00',
 };
 
 function formatMoney(
@@ -870,30 +870,11 @@ function BankCard({
                     </div>
                 </div>
 
-                {connection.balance_mismatch && (
-                    <Alert variant="destructive" className="mx-4 mb-3 py-2">
-                        <TriangleAlert className="size-4" />
-                        <AlertTitle className="text-xs">
-                            Balance mismatch after last sync
-                        </AlertTitle>
-                        <AlertDescription className="text-xs">
-                            Δ{' '}
-                            {formatSharedMoney(
-                                Number(connection.balance_mismatch.delta),
-                                connection.balance_mismatch.currency,
-                                locale,
-                            )}
-                        </AlertDescription>
-                    </Alert>
+                {(connection.failure_code || connection.failure_message) && (
+                    <p className="mx-4 mb-3 text-xs text-destructive">
+                        {connection.failure_message ?? connection.failure_code}
+                    </p>
                 )}
-
-                {(connection.failure_code || connection.failure_message) &&
-                    !connection.balance_mismatch && (
-                        <p className="mx-4 mb-3 text-xs text-destructive">
-                            {connection.failure_message ??
-                                connection.failure_code}
-                        </p>
-                    )}
 
                 {openAccounts.length > 0 ? (
                     <div className="divide-y border-t">
@@ -1157,7 +1138,11 @@ function AccountRow({
             </div>
 
             <div className="w-28 text-right md:w-36">
-                <div className="text-xs text-muted-foreground">Balance</div>
+                <div className="text-xs text-muted-foreground">
+                    {isConnected || account.opening_balance === null
+                        ? 'Balance snapshot'
+                        : 'Current total'}
+                </div>
                 <div className="font-semibold tabular-nums">
                     {account.current_balance === null
                         ? '—'
@@ -1183,7 +1168,7 @@ function AccountRow({
                 <DropdownMenuContent align="end" onClick={stopCardNavigation}>
                     <DropdownMenuItem onSelect={onEdit}>
                         <Pencil className="size-4" />
-                        Rename
+                        Edit account
                     </DropdownMenuItem>
                     <DropdownMenuItem onSelect={toggleFavorite}>
                         <Star
@@ -1436,12 +1421,22 @@ function AccountDialog({
     const form = useForm<AccountForm>(
         account === null
             ? emptyForm
-            : { name: account.name, currency: account.currency },
+            : {
+                  name: account.name,
+                  currency: account.currency,
+                  opening_balance: account.opening_balance?.toFixed(2) ?? '',
+              },
     );
 
     const submit = () => {
         if (isEditing) {
-            form.transform(() => ({ name: form.data.name }));
+            form.transform(() => ({
+                name: form.data.name,
+                ...(account.connection_accounts.length === 0 &&
+                form.data.opening_balance.trim() !== ''
+                    ? { opening_balance: form.data.opening_balance }
+                    : {}),
+            }));
             form.patch(updateAccount.url(account.id), {
                 preserveScroll: true,
                 onSuccess: onClose,
@@ -1450,6 +1445,10 @@ function AccountDialog({
             return;
         }
 
+        form.transform(() => ({
+            ...form.data,
+            opening_balance: form.data.opening_balance.trim() || '0.00',
+        }));
         form.post(storeAccount.url(), {
             preserveScroll: true,
             onSuccess: onClose,
@@ -1461,11 +1460,11 @@ function AccountDialog({
             <DialogContent className="sm:max-w-md">
                 <DialogHeader>
                     <DialogTitle>
-                        {isEditing ? 'Rename account' : 'Add manual account'}
+                        {isEditing ? 'Edit account' : 'Add manual account'}
                     </DialogTitle>
                     <DialogDescription>
                         {isEditing
-                            ? 'Change how the account is labelled in lists and overviews.'
+                            ? 'Update account details and, for an unconnected account, its opening balance.'
                             : 'A manual account never syncs with a bank — postings and balances are entered by hand.'}
                     </DialogDescription>
                 </DialogHeader>
@@ -1499,6 +1498,36 @@ function AccountDialog({
                                 }
                             />
                             <InputError message={form.errors.currency} />
+                        </div>
+                    )}
+
+                    {(account === null ||
+                        account.connection_accounts.length === 0) && (
+                        <div className="grid gap-2">
+                            <Label htmlFor="opening_balance">
+                                Opening balance
+                                {isEditing ? ` (${account.currency})` : ''}
+                            </Label>
+                            <Input
+                                id="opening_balance"
+                                type="number"
+                                step="0.01"
+                                value={form.data.opening_balance}
+                                onChange={(event) =>
+                                    form.setData(
+                                        'opening_balance',
+                                        event.target.value,
+                                    )
+                                }
+                            />
+                            <p className="text-xs text-muted-foreground">
+                                {isEditing
+                                    ? account.opening_balance === null
+                                        ? 'Balance before all postings. Leave blank to keep the imported balance snapshot.'
+                                        : 'Balance before all postings. Leave blank to keep the existing opening balance.'
+                                    : 'Balance before all postings. A blank value starts at zero.'}
+                            </p>
+                            <InputError message={form.errors.opening_balance} />
                         </div>
                     )}
                 </div>

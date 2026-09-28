@@ -23,12 +23,8 @@ test('it seeds a coherent demo environment', function () {
 
     expect(BankAccount::query()->pluck('currency')->unique()->all())->toBe(['EUR']);
 
-    $latestEverydayPosting = Posting::query()
-        ->whereBelongsTo(BankAccount::query()->where('legacy_id', 'seed-account-everyday')->firstOrFail(), 'bankAccount')
-        ->orderByDesc('date')
-        ->orderByDesc('id')
-        ->firstOrFail();
-
-    expect((float) $latestEverydayPosting->balance)
-        ->toBe((float) $latestEverydayPosting->bankAccount->current_balance);
+    expect(Posting::query()->where('user_id', $user->id)->whereNotNull('balance')->exists())->toBeFalse()
+        ->and((float) BankAccount::query()->where('legacy_id', 'seed-account-everyday')->firstOrFail()->current_balance)->toBe(2358.42)
+        ->and((float) BankAccount::query()->where('legacy_id', 'seed-account-savings')->firstOrFail()->current_balance)->toBe(8475.00)
+        ->and((float) BankAccount::query()->where('legacy_id', 'seed-account-travel')->firstOrFail()->current_balance)->toBe(0.00);
 });

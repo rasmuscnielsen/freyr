@@ -66,7 +66,9 @@ class BankAccountPostingController extends Controller
 
         $posting->save();
 
-        $this->balanceRecalculator->recalculate($bankAccount);
+        if ($monetaryChanged) {
+            $this->balanceRecalculator->recalculate($bankAccount);
+        }
 
         if ($monetaryChanged && $posting->amount === null && $posting->original_amount !== null) {
             ConvertReportingAmountsJob::dispatch($bankAccount->user_id)->afterCommit();

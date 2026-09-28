@@ -13,14 +13,10 @@ use Illuminate\Validation\ValidationException;
 
 class BankConnectionAccountLinker
 {
-    public function __construct(
-        private readonly AccountBalanceRecalculator $balanceRecalculator,
-    ) {}
-
     public function linkExisting(BankConnectionAccount $remote, BankAccount $local, SyncHistory $history = SyncHistory::Max): void
     {
-        // The feed's account currency must match the local account's — a
-        // mismatch would corrupt the balance chain with foreign amounts.
+        // The feed's account currency must match the local account's so its
+        // movements and reported balance keep one currency.
         if ($remote->currency !== $local->currency) {
             throw ValidationException::withMessages([
                 'bank_account_id' => "The bank feed reports {$remote->currency} but {$local->name} is a {$local->currency} account.",
@@ -61,12 +57,10 @@ class BankConnectionAccountLinker
             'bank_account_id' => null,
         ]);
 
-        // A detached account without any remaining connection is manual
-        // from here on: anchor its opening balance while the synced
-        // running balances are still authoritative, then derive its chain.
-        if ($detachedAccount !== null && ! $detachedAccount->hasBankConnection()) {
-            $this->balanceRecalculator->seedOpeningBalanceFromImportedChain($detachedAccount);
-            $this->balanceRecalculator->recalculate($detachedAccount);
+        // Keep the provider snapshot; only calculate a manual total after the
+        // user sets an opening balance.
+        if ($detachedAccount !== null && ! $detachedAccount->bankConnectionAccounts()->exists()) {
+            $detachedAccount->update(['opening_balance' => null]);
         }
     }
 

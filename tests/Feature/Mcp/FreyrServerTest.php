@@ -347,7 +347,7 @@ test('edit-posting edits manual account postings and recalculates balances', fun
 
     $posting->refresh();
     expect((float) $posting->amount)->toBe(-250.00)
-        ->and((float) $posting->balance)->toBe(750.00)
+        ->and((float) $posting->balance)->toBe(900.00)
         ->and((float) $account->refresh()->current_balance)->toBe(750.00);
 });
 

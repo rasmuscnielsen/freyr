@@ -80,6 +80,8 @@ test('creating a manual account only needs a name and a currency', function () {
 
     expect($account->name)->toBe('Cash jar')
         ->and($account->currency)->toBe('EUR')
+        ->and((float) $account->opening_balance)->toBe(0.00)
+        ->and((float) $account->current_balance)->toBe(0.00)
         ->and($account->is_active)->toBeTrue()
         ->and($account->is_favorite)->toBeFalse()
         ->and($account->isSpiirImported())->toBeFalse();
@@ -91,6 +93,51 @@ test('creating a manual account only needs a name and a currency', function () {
         ->get(route('bank-accounts.index'))
         ->assertInertia(fn (Assert $page) => $page
             ->where('accounts.0.is_spiir_imported', false));
+});
+
+test('setting an opening balance computes an unconnected account total', function () {
+    $user = User::factory()->create();
+    $account = BankAccount::factory()->for($user)->create([
+        'opening_balance' => null,
+        'current_balance' => '500.00',
+    ]);
+    Posting::factory()->forAccount($account)->create(['original_amount' => '-30.00']);
+    Posting::factory()->forAccount($account)->create(['original_amount' => '20.00']);
+
+    $this->actingAs($user)
+        ->patch(route('bank-accounts.update', $account), ['opening_balance' => '100.00'])
+        ->assertRedirect();
+
+    expect((float) $account->refresh()->opening_balance)->toBe(100.00)
+        ->and((float) $account->current_balance)->toBe(90.00);
+});
+
+test('opening balances cannot be set while an account is connected', function () {
+    $user = User::factory()->create();
+    $account = BankAccount::factory()->for($user)->create([
+        'opening_balance' => null,
+        'current_balance' => '500.00',
+    ]);
+    $connection = BankConnection::factory()->for($user)->create();
+    BankConnectionAccount::factory()->for($connection)->linkedTo($account)->create();
+
+    $this->actingAs($user)
+        ->from(route('bank-accounts.index'))
+        ->patch(route('bank-accounts.update', $account), ['opening_balance' => '100.00'])
+        ->assertSessionHasErrors('opening_balance');
+
+    expect($account->refresh()->opening_balance)->toBeNull()
+        ->and((float) $account->current_balance)->toBe(500.00);
+});
+
+test('opening balance validation rejects values larger than the database column', function () {
+    $user = User::factory()->create();
+    $account = BankAccount::factory()->for($user)->create();
+
+    $this->actingAs($user)
+        ->from(route('bank-accounts.index'))
+        ->patch(route('bank-accounts.update', $account), ['opening_balance' => '10000000000000.00'])
+        ->assertSessionHasErrors('opening_balance');
 });
 
 test('bank accounts page exposes connection state and linkable remote accounts', function () {
@@ -194,36 +241,20 @@ test('deleting an account removes it and its postings and unlinks remote account
         ->and($remoteAccount->status)->toBe(BankConnectionAccount::STATUS_UNLINKED);
 });
 
-test('a newer matching run on another account does not mask a standing balance mismatch', function () {
+test('bank accounts page does not expose reconciliation alerts', function () {
     $user = User::factory()->create();
     Cache::forget('enable-banking.aspsps.dk.personal.ais');
     app()->instance(EnableBankingClient::class, new BankAccountCrudEnableBankingClient);
-
     $connection = BankConnection::factory()->for($user)->create();
-    $dkkAccount = BankConnectionAccount::factory()->for($connection)->create(['currency' => 'DKK']);
-    $eurAccount = BankConnectionAccount::factory()->for($connection)->create(['currency' => 'EUR']);
-
-    // The DKK account's latest run mismatched; the EUR account then synced
-    // successfully. The card must still surface the DKK mismatch.
-    BankSyncRun::factory()->forConnectionAccount($dkkAccount)->create([
-        'expected_balance' => '100.00',
-        'computed_balance' => '150.00',
-        'balance_matches' => false,
-        'balance_match_basis' => 'bank',
-    ]);
-    BankSyncRun::factory()->forConnectionAccount($eurAccount)->create([
-        'expected_balance' => '200.00',
-        'computed_balance' => '200.00',
-        'balance_matches' => true,
-        'balance_match_basis' => 'bank',
-    ]);
+    $account = BankAccount::factory()->for($user)->create();
+    BankConnectionAccount::factory()->for($connection)->linkedTo($account)->create();
 
     $this->actingAs($user)
         ->get(route('bank-accounts.index'))
         ->assertOk()
         ->assertInertia(fn (Assert $page) => $page
-            ->where('connections.0.balance_mismatch.delta', '-50.00')
-            ->where('connections.0.balance_mismatch.currency', 'DKK'));
+            ->has('connections.0.accounts', 1)
+            ->missing('connections.0.balance_mismatch'));
 });
 
 test('bank accounts page exposes the my banks connection panel', function () {
@@ -296,20 +327,24 @@ test('bank account detail page renders postings and sync history', function () {
             ->has('syncRuns', 1));
 });
 
-test('bank account detail surfaces a live balance diff against the postings chain', function () {
+test('bank account detail shows provider snapshots without reconciliation results', function () {
     $user = User::factory()->create();
     $account = BankAccount::factory()->for($user)->create(['current_balance' => '150.00']);
     $connection = BankConnection::factory()->for($user)->create();
-    BankConnectionAccount::factory()->for($connection)->linkedTo($account)->create([
-        'provides_running_balance' => true,
-    ]);
+    $remote = BankConnectionAccount::factory()->for($connection)->linkedTo($account)->create();
     Posting::factory()->forAccount($account)->create(['balance' => '100.00']);
+    BankSyncRun::factory()->forConnectionAccount($remote)->create();
 
     $this->actingAs($user)
         ->get(route('bank-accounts.show', $account))
         ->assertOk()
         ->assertInertia(fn (Assert $page) => $page
-            ->where('account.balance_diff', '50.00'));
+            ->where('account.current_balance', 150)
+            ->where('account.is_manual', false)
+            ->missing('account.balance_diff')
+            ->missing('balanceAudit')
+            ->missing('syncRuns.0.balance_matches')
+            ->missing('postings.data.0.balance'));
 });
 
 test('bank account detail page is authorized to the owner', function () {

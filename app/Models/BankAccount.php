@@ -30,7 +30,6 @@ class BankAccount extends Model
         'currency',
         'current_balance',
         'opening_balance',
-        'opening_balance_origin',
         'account_type',
         'ignore_postings_before',
         'last_updated_at',
@@ -81,21 +80,6 @@ class BankAccount extends Model
         return $this->relationLoaded('bankConnectionAccounts')
             ? $this->bankConnectionAccounts->isNotEmpty()
             : $this->bankConnectionAccounts()->exists();
-    }
-
-    /**
-     * Whether the account's feed has ever sent `balance_after_transaction`
-     * checkpoints. Running balances are provider-driven: a connected account
-     * shows them only when the bank itself reports them, while manual and
-     * imported-only accounts always manage their own.
-     */
-    public function providesRunningBalance(): bool
-    {
-        $remote = $this->relationLoaded('bankConnectionAccounts')
-            ? $this->bankConnectionAccounts->first()
-            : $this->bankConnectionAccounts()->first();
-
-        return $remote === null || $remote->provides_running_balance === true;
     }
 
     /**

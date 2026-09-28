@@ -124,7 +124,7 @@ class SpiirExportImporter
             $accounts = $this->importAccounts($path, $user);
             $postings = $this->importPostings($path, $user, $accounts, $reportingCurrency);
             $counterEntries = $this->resolveCounterEntryPostings();
-            $this->recalculateImportedBalances($accounts);
+            $this->recalculateImportedManualTotals($accounts);
 
             return [
                 'user_id' => $user->id,
@@ -205,20 +205,17 @@ class SpiirExportImporter
     }
 
     /**
-     * Imported accounts have no bank connection yet, so their balances are
-     * derived: seed each account's opening balance from the imported chain
-     * while the imported per-posting balances are still authoritative, then
-     * rewrite the chain so it is consistent by construction. A foreign
-     * account without account-currency balance evidence keeps its unknown
-     * opening balance instead of a fabricated zero.
+     * Re-imports may change movements after the user explicitly established a
+     * manual opening balance. Imported snapshots with unknown openings stay intact.
      *
      * @param  Collection<string, BankAccount>  $accounts
      */
-    private function recalculateImportedBalances(Collection $accounts): void
+    private function recalculateImportedManualTotals(Collection $accounts): void
     {
         $accounts->each(function (BankAccount $account): void {
-            $this->balanceRecalculator->seedOpeningBalanceFromImportedChain($account);
-            $this->balanceRecalculator->recalculate($account);
+            if ($account->opening_balance !== null && ! $account->hasBankConnection()) {
+                $this->balanceRecalculator->recalculate($account);
+            }
         });
     }
 
@@ -256,28 +253,29 @@ class SpiirExportImporter
                 continue;
             }
 
-            $account = BankAccount::query()->updateOrCreate(
-                ['legacy_id' => $legacyId],
-                [
-                    'user_id' => $user->id,
-                    'name' => (string) ($row['Name'] ?: 'Unnamed account'),
-                    'bank_key' => $this->nullableString($row['BankId'] ?? null),
-                    'bank_name' => $this->bankName($this->nullableString($row['BankId'] ?? null)),
-                    'currency' => (string) ($row['Currency'] ?: 'DKK'),
-                    'current_balance' => $this->decimal($row['LastBookedBalance'] ?? null),
-                    // Unknown, not zero: the imported balance may seed a real
-                    // opening, but only when it is in the account currency.
-                    'opening_balance' => null,
-                    'opening_balance_origin' => null,
-                    'account_type' => $this->nullableString($row['AccountType'] ?? null),
-                    'ignore_postings_before' => $this->date($row['IgnorePostingsBefore'] ?? null),
-                    'last_updated_at' => $this->dateTime($row['LastUpdated'] ?? null),
-                    'last_known_posting_date' => $this->date($row['LastKnownPostingDate'] ?? null),
-                    'is_active' => ! $this->boolean($row['InActive'] ?? null),
-                    'account_number' => $this->nullableString($row['AccountNumber'] ?? null),
-                    'is_favorite' => $this->boolean($row['IsFavorite'] ?? null),
-                ],
-            );
+            $account = BankAccount::query()->firstOrNew(['legacy_id' => $legacyId]);
+            $isNew = ! $account->exists;
+            $account->fill([
+                'user_id' => $user->id,
+                'name' => (string) ($row['Name'] ?: 'Unnamed account'),
+                'bank_key' => $this->nullableString($row['BankId'] ?? null),
+                'bank_name' => $this->bankName($this->nullableString($row['BankId'] ?? null)),
+                'currency' => (string) ($row['Currency'] ?: 'DKK'),
+                'account_type' => $this->nullableString($row['AccountType'] ?? null),
+                'ignore_postings_before' => $this->date($row['IgnorePostingsBefore'] ?? null),
+                'is_active' => ! $this->boolean($row['InActive'] ?? null),
+                'account_number' => $this->nullableString($row['AccountNumber'] ?? null),
+                'is_favorite' => $this->boolean($row['IsFavorite'] ?? null),
+            ]);
+
+            if ($isNew) {
+                $account->current_balance = $this->decimal($row['LastBookedBalance'] ?? null);
+                $account->opening_balance = null;
+                $account->last_updated_at = $this->dateTime($row['LastUpdated'] ?? null);
+                $account->last_known_posting_date = $this->date($row['LastKnownPostingDate'] ?? null);
+            }
+
+            $account->save();
 
             $accounts->put($legacyId, $account);
         }

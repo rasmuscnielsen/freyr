@@ -18,19 +18,9 @@ return new class extends Migration
         });
 
         Schema::table('bank_accounts', function (Blueprint $table) {
-            // Null marks an opening balance that is unknown rather than zero,
-            // e.g. an imported foreign-currency account whose source balance
-            // cannot anchor the chain.
-            $table->decimal('opening_balance', 15, 2)->nullable()->default(0)->change();
-            // Where the opening balance came from: 'derived' means it was
-            // computed from the bank's booked balance, so a matching
-            // reconciliation is true by construction and not independent
-            // verification.
-            $table->string('opening_balance_origin')->nullable()->after('opening_balance');
-        });
-
-        Schema::table('bank_sync_runs', function (Blueprint $table) {
-            $table->string('balance_match_basis')->nullable()->after('balance_matches');
+            // Only manual accounts with an explicit opening balance get a
+            // calculated total; imported accounts keep their source snapshot.
+            $table->decimal('opening_balance', 15, 2)->nullable()->default(null)->change();
         });
     }
 
@@ -45,11 +35,6 @@ return new class extends Migration
 
         Schema::table('bank_accounts', function (Blueprint $table) {
             $table->decimal('opening_balance', 15, 2)->nullable(false)->default(0)->change();
-            $table->dropColumn('opening_balance_origin');
-        });
-
-        Schema::table('bank_sync_runs', function (Blueprint $table) {
-            $table->dropColumn('balance_match_basis');
         });
     }
 };

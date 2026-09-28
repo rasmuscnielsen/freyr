@@ -1,7 +1,6 @@
 <?php
 
 use App\Finance\AccountBalanceRecalculator;
-use App\Finance\BalanceChainInspector;
 use App\Finance\EnableBanking\EnableBankingConnectionManager;
 use App\Finance\Fx\ExchangeRateStore;
 use App\Finance\Fx\FrankfurterClient;
@@ -173,38 +172,9 @@ test('unknown account movements stop balance propagation and current balance cal
         'currency' => 'USD',
     ]);
 
-    expect(app(BalanceChainInspector::class)->inspect($first->bankAccount)['closing_balance'])->toBeNull();
-
-    $first->bankAccount->bankConnectionAccounts()->delete();
     app(AccountBalanceRecalculator::class)->recalculate($first->bankAccount);
 
     expect($first->bankAccount->refresh()->current_balance)->toBeNull();
-});
-
-test('an unknown same-day tail stays unknown until a later checkpoint', function () {
-    $user = User::factory()->create(['reporting_currency' => 'USD']);
-    $first = correctionPosting($user, '2026-01-09', ['balance' => '90.00']);
-    Posting::factory()->forAccount($first->bankAccount)->create([
-        'date' => '2026-01-09',
-        'original_amount' => null,
-        'original_currency' => null,
-        'balance' => null,
-        'amount' => null,
-        'currency' => 'USD',
-    ]);
-
-    expect(app(BalanceChainInspector::class)->inspect($first->bankAccount)['closing_balance'])->toBeNull();
-
-    Posting::factory()->forAccount($first->bankAccount)->create([
-        'date' => '2026-01-10',
-        'original_amount' => '-5.00',
-        'original_currency' => 'EUR',
-        'balance' => '85.00',
-        'amount' => null,
-        'currency' => 'USD',
-    ]);
-
-    expect(app(BalanceChainInspector::class)->inspect($first->bankAccount)['closing_balance'])->toBe('85.00');
 });
 
 test('completed setup and imported history both lock reporting currency', function () {
@@ -286,7 +256,7 @@ test('dashboard coverage uses eligible overview postings in the completed period
     );
 });
 
-test('timezone is independent of country and derived syncs expose their basis', function () {
+test('timezone is independent of country and sync history has no balance certification', function () {
     $user = User::factory()->withoutRegionSetup()->create();
     $this->actingAs($user)->post(route('region-setup.store'), [
         'country_code' => 'GB', 'timezone' => 'America/New_York', 'reporting_currency' => 'USD',
@@ -302,11 +272,11 @@ test('timezone is independent of country and derived syncs expose their basis', 
         'bank_connection_id' => $connection->id,
         'bank_connection_account_id' => $remote->id,
         'status' => BankSyncRun::STATUS_SUCCEEDED,
-        'balance_matches' => true,
-        'balance_match_basis' => 'derived',
     ]);
 
     $this->actingAs($user)->get(route('bank-accounts.show', $account))->assertInertia(
-        fn (Assert $page) => $page->where('syncRuns.0.balance_match_basis', 'derived'),
+        fn (Assert $page) => $page
+            ->where('syncRuns.0.status', BankSyncRun::STATUS_SUCCEEDED)
+            ->missing('syncRuns.0.balance_matches'),
     );
 });

@@ -38,7 +38,7 @@ class PostingFactory extends Factory
             'comment' => null,
             'amount' => $amount,
             'original_amount' => $amount,
-            'balance' => fake()->randomFloat(2, 0, 100000),
+            'balance' => null,
             'upload_batch_id' => null,
             'external_posting_id' => null,
             'document_legacy_id' => null,

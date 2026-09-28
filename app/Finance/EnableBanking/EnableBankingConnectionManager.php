@@ -2,8 +2,6 @@
 
 namespace App\Finance\EnableBanking;
 
-use App\Finance\BalanceChainInspector;
-use App\Finance\SyncedBalanceChainWriter;
 use App\Jobs\ConvertReportingAmountsJob;
 use App\Models\BankAccount;
 use App\Models\BankConnection;
@@ -23,20 +21,9 @@ use Throwable;
 
 class EnableBankingConnectionManager
 {
-    /**
-     * Balance types that describe booked money — the only figures a postings
-     * chain can be reconciled against. Available and expected types (ITAV,
-     * AVAI, XPCD, ...) move with pending reservations, so comparing them to a
-     * booked chain produces standing false mismatches. An untyped balance is
-     * assumed booked: providers sending a lone entry mean the booked figure.
-     */
-    private const array BOOKED_BALANCE_TYPES = ['CLBD', 'ITBD', 'PRCD', 'OPBD'];
-
     public function __construct(
         private readonly EnableBankingClient $client,
         private readonly EnableBankingTransactionMapper $transactionMapper,
-        private readonly BalanceChainInspector $balanceChainInspector,
-        private readonly SyncedBalanceChainWriter $balanceChainWriter,
     ) {}
 
     public function startAuthorization(User $user, ?BankConnection $connection = null, ?string $aspspName = null, ?string $aspspCountry = null): string
@@ -235,17 +222,7 @@ class EnableBankingConnectionManager
                 ->map(fn (array $transaction): CarbonImmutable => $this->transactionMapper->transactionDate($transaction))
                 ->max();
 
-            // Running balances are provider-driven: only a bank that
-            // checkpoints booked transactions earns the column. Once seen,
-            // the capability sticks — a quiet or broken feed must not
-            // flicker it off and orphan already-stored balances.
-            $providesRunningBalance = $account->provides_running_balance === true
-                || collect($transactions)->contains(
-                    fn (array $transaction): bool => ($transaction['status'] ?? null) === 'BOOK'
-                        && data_get($transaction, 'balance_after_transaction.amount') !== null
-                );
-
-            DB::transaction(function () use ($account, $connection, $run, $booked, $postedTransactions, $lastTransactionDate, $providesRunningBalance): void {
+            DB::transaction(function () use ($account, $connection, $run, $booked, $postedTransactions, $lastTransactionDate): void {
                 $lockedAccount = BankConnectionAccount::query()
                     ->whereKey($account->id)
                     ->lockForUpdate()
@@ -267,26 +244,10 @@ class EnableBankingConnectionManager
                 $counts = $this->importTransactions($account, $postedTransactions);
                 $this->updateBankAccountBalances($account, $booked, $lastTransactionDate);
 
-                // In-memory so this very sync's chain-writing and
-                // reconciliation already honor the freshly observed
-                // capability; persisted by the update below.
-                $account->provides_running_balance = $providesRunningBalance;
-
-                // A bank balance only reconciles when it is denominated in
-                // the account currency.
-                $usableBooked = $this->accountCurrencyBalance($account, $booked);
-
-                if ($providesRunningBalance && $account->bankAccount instanceof BankAccount) {
-                    $this->balanceChainWriter->write($account->bankAccount);
-                }
-
-                $reconciliation = $this->reconcileBalance($account, $usableBooked);
-
                 $account->update([
                     'status' => BankConnectionAccount::STATUS_LINKED,
                     'last_synced_at' => now(),
                     'last_transaction_date' => $lastTransactionDate?->toDateString() ?? $account->last_transaction_date,
-                    'provides_running_balance' => $providesRunningBalance,
                 ]);
 
                 $connection->update([
@@ -301,7 +262,6 @@ class EnableBankingConnectionManager
                     'date_to' => $lastTransactionDate?->toDateString(),
                     'finished_at' => now(),
                     ...$counts,
-                    ...$reconciliation,
                 ]);
             });
         } catch (Throwable $exception) {
@@ -558,12 +518,6 @@ class EnableBankingConnectionManager
 
             if ($posting instanceof Posting) {
                 $reportingAmount = $posting->amount;
-                // A missing bank balance must never clobber a stored one:
-                // banks that omit balance_after_transaction would otherwise
-                // wipe derived running balances on every re-import.
-                if (($attributes['balance'] ?? null) === null) {
-                    unset($attributes['balance']);
-                }
 
                 // A completed reporting conversion is stable: a re-sync must
                 // not wipe it back to pending just because the bank sends the
@@ -609,8 +563,7 @@ class EnableBankingConnectionManager
     }
 
     /**
-     * The booked balance only counts when the bank reports it in the account
-     * currency — anything else must never anchor balances or reconciliation.
+     * A provider balance only counts when it is denominated in the account currency.
      *
      * @param  array<string, mixed>|null  $booked
      * @return array<string, mixed>|null
@@ -628,9 +581,7 @@ class EnableBankingConnectionManager
     }
 
     /**
-     * The booked (CLBD) balance is the bank's snapshot used for the account's
-     * current balance and as reconciliation's expected figure; absent a CLBD
-     * entry the first balance is used.
+     * Use the bank's booked snapshot when available, otherwise its first balance.
      *
      * @param  list<array<string, mixed>>  $balances
      * @return array<string, mixed>|null
@@ -638,62 +589,6 @@ class EnableBankingConnectionManager
     private function bookedBalance(array $balances): ?array
     {
         return collect($balances)->firstWhere('balance_type', 'CLBD') ?? $balances[0] ?? null;
-    }
-
-    /**
-     * Reconcile our local running balance against the bank-reported booked balance.
-     *
-     * The expected figure is the bank's booked (CLBD) balance at sync time. The computed
-     * figure is the closing balance reconstructed from the account's postings.
-     *
-     * The comparison is deliberately naive: it does not attempt to account for pending or
-     * not-yet-booked transactions. If the newest local posting predates the balance snapshot
-     * (e.g. the bank has booked movements we have not imported, or holds pending entries), the
-     * two figures will simply disagree and `balance_matches` becomes false. That mismatch is the
-     * intended warning signal, not an error — it never fails the run.
-     *
-     * Reconciliation only exists for feeds that checkpoint transactions:
-     * without `balance_after_transaction` the "computed" figure would be
-     * derived guesswork, and comparing it to any bank figure can only
-     * produce noise.
-     *
-     * @param  array<string, mixed>|null  $booked
-     * @return array{expected_balance: ?string, computed_balance: ?string, balance_matches: ?bool, balance_match_basis: ?string}
-     */
-    private function reconcileBalance(BankConnectionAccount $account, ?array $booked): array
-    {
-        $expectedBalance = data_get($booked, 'balance_amount.amount');
-        $expectedBalance = $expectedBalance === null ? null : (string) $expectedBalance;
-
-        $computedBalance = null;
-
-        if ($account->provides_running_balance === true && $account->bank_account_id !== null) {
-            $computedBalance = $this->balanceChainInspector->inspect($account->bankAccount)['closing_balance'];
-        }
-
-        $isBooked = $booked === null
-            || ! isset($booked['balance_type'])
-            || in_array($booked['balance_type'], self::BOOKED_BALANCE_TYPES, true);
-
-        if ($computedBalance === null || $expectedBalance === null || ! $isBooked) {
-            return [
-                'expected_balance' => $expectedBalance,
-                'computed_balance' => $computedBalance,
-                'balance_matches' => null,
-                'balance_match_basis' => null,
-            ];
-        }
-
-        // 'derived' means the local chain was anchored from this same booked
-        // balance — a match is true by construction, not independent proof.
-        $basis = $account->bankAccount?->opening_balance_origin === 'derived' ? 'derived' : 'bank';
-
-        return [
-            'expected_balance' => $expectedBalance,
-            'computed_balance' => $computedBalance,
-            'balance_matches' => abs((float) $expectedBalance - (float) $computedBalance) <= 0.005,
-            'balance_match_basis' => $basis,
-        ];
     }
 
     private function recordFailedSync(BankSyncRun $run, BankConnectionAccount $account, Throwable $exception): void
