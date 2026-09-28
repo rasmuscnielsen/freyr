@@ -73,6 +73,7 @@ type Account = {
     is_active: boolean;
     is_favorite: boolean;
     is_manual: boolean;
+    provides_running_balance: boolean;
     postings_count: number;
     last_synced_at: string | null;
     connection: Connection | null;
@@ -406,9 +407,11 @@ export default function BankAccountShow({
                                     <th className="px-3 py-2.5 text-right text-xs font-medium text-muted-foreground">
                                         Amount
                                     </th>
-                                    <th className="hidden px-3 py-2.5 text-right text-xs font-medium text-muted-foreground md:table-cell">
-                                        Balance
-                                    </th>
+                                    {account.provides_running_balance && (
+                                        <th className="hidden px-3 py-2.5 text-right text-xs font-medium text-muted-foreground md:table-cell">
+                                            Balance
+                                        </th>
+                                    )}
                                     {account.is_manual && (
                                         <th className="px-3 py-2.5 text-right text-xs font-medium text-muted-foreground">
                                             <span className="sr-only">
@@ -422,7 +425,13 @@ export default function BankAccountShow({
                                 {postings.data.length === 0 ? (
                                     <tr>
                                         <td
-                                            colSpan={account.is_manual ? 6 : 5}
+                                            colSpan={
+                                                4 +
+                                                (account.provides_running_balance
+                                                    ? 1
+                                                    : 0) +
+                                                (account.is_manual ? 1 : 0)
+                                            }
                                             className="px-3 py-8 text-center text-muted-foreground"
                                         >
                                             No postings for this account yet.
@@ -483,13 +492,15 @@ export default function BankAccountShow({
                                                           posting.original_amount,
                                                       )}
                                             </td>
-                                            <td className="hidden px-3 py-3 text-right whitespace-nowrap text-muted-foreground tabular-nums md:table-cell">
-                                                {posting.balance === null
-                                                    ? '—'
-                                                    : money.format(
-                                                          posting.balance,
-                                                      )}
-                                            </td>
+                                            {account.provides_running_balance && (
+                                                <td className="hidden px-3 py-3 text-right whitespace-nowrap text-muted-foreground tabular-nums md:table-cell">
+                                                    {posting.balance === null
+                                                        ? '—'
+                                                        : money.format(
+                                                              posting.balance,
+                                                          )}
+                                                </td>
+                                            )}
                                             {account.is_manual && (
                                                 <td className="px-3 py-3 text-right whitespace-nowrap">
                                                     <Button
@@ -581,24 +592,28 @@ export default function BankAccountShow({
                                                 locale,
                                             )}
                                         </span>
-                                        {run.balance_matches === false && (
-                                            <Badge variant="destructive">
-                                                Balance mismatch Δ{' '}
-                                                {formatSharedMoney(
-                                                    Number(run.balance_delta),
-                                                    account.currency,
-                                                    locale,
-                                                )}
-                                            </Badge>
-                                        )}
-                                        {run.balance_matches === true && (
-                                            <Badge variant="outline">
-                                                {run.balance_match_basis ===
-                                                'derived'
-                                                    ? 'Balance derived from bank snapshot'
-                                                    : 'Balance reconciled'}
-                                            </Badge>
-                                        )}
+                                        {account.provides_running_balance &&
+                                            run.balance_matches === false && (
+                                                <Badge variant="destructive">
+                                                    Balance mismatch Δ{' '}
+                                                    {formatSharedMoney(
+                                                        Number(
+                                                            run.balance_delta,
+                                                        ),
+                                                        account.currency,
+                                                        locale,
+                                                    )}
+                                                </Badge>
+                                            )}
+                                        {account.provides_running_balance &&
+                                            run.balance_matches === true && (
+                                                <Badge variant="outline">
+                                                    {run.balance_match_basis ===
+                                                    'derived'
+                                                        ? 'Balance derived from bank snapshot'
+                                                        : 'Balance reconciled'}
+                                                </Badge>
+                                            )}
                                     </div>
                                     <span className="text-muted-foreground">
                                         {run.error_message ??
@@ -611,7 +626,7 @@ export default function BankAccountShow({
                 )}
             </div>
 
-            {!account.is_manual && (
+            {!account.is_manual && account.provides_running_balance && (
                 <BalanceAuditDialog
                     account={account}
                     audit={balanceAudit}

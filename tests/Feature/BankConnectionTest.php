@@ -1224,7 +1224,8 @@ test('sync reconciles a matching balance and records the figures', function () {
         ->and($run->expected_balance)->toBe('51339.66')
         ->and($run->computed_balance)->toBe('51339.66')
         ->and($run->hasBalanceMismatch())->toBeFalse()
-        ->and($run->balanceDelta())->toBe('0.00');
+        ->and($run->balanceDelta())->toBe('0.00')
+        ->and($remoteAccount->refresh()->provides_running_balance)->toBeTrue();
 });
 
 test('sync flags a balance mismatch without failing the run', function () {
@@ -1262,7 +1263,9 @@ test('sync accepts the closing checkpoint when same-day ids are out of bank orde
     $user = User::factory()->create();
     $connection = BankConnection::factory()->for($user)->create();
     $localAccount = BankAccount::factory()->for($user)->create();
-    $remoteAccount = BankConnectionAccount::factory()->for($connection)->linkedTo($localAccount)->create();
+    $remoteAccount = BankConnectionAccount::factory()->for($connection)->linkedTo($localAccount)->create([
+        'provides_running_balance' => true,
+    ]);
 
     foreach ([
         ['2026-06-18', '100.00', '100.00'],
@@ -1337,6 +1340,7 @@ test('sync leaves reconciliation null when the bank sends neither balances nor c
 
     $transactions = enableBankingTransactionsPayload();
     unset($transactions[0]['balance_after_transaction']);
+    unset($transactions[1]['balance_after_transaction']);
 
     $client = new FakeEnableBankingClient(
         balances: [],
@@ -1354,10 +1358,11 @@ test('sync leaves reconciliation null when the bank sends neither balances nor c
         ->and($run->computed_balance)->toBeNull()
         ->and($run->balance_matches)->toBeNull()
         ->and($run->hasBalanceMismatch())->toBeFalse()
-        ->and($run->balanceDelta())->toBeNull();
+        ->and($run->balanceDelta())->toBeNull()
+        ->and($remoteAccount->refresh()->provides_running_balance)->toBeFalse();
 });
 
-test('sync derives running balances from the booked balance when the bank sends none', function () {
+test('sync does not derive running balances when the bank sends no checkpoints', function () {
     $user = User::factory()->create();
     $connection = BankConnection::factory()->for($user)->create();
     $localAccount = BankAccount::factory()->for($user)->create(['opening_balance' => 0]);
@@ -1368,6 +1373,7 @@ test('sync derives running balances from the booked balance when the bank sends 
 
     $transactions = enableBankingTransactionsPayload();
     unset($transactions[0]['balance_after_transaction']);
+    unset($transactions[1]['balance_after_transaction']);
 
     $client = new FakeEnableBankingClient(
         balances: enableBankingBalancesPayload(),
@@ -1378,22 +1384,25 @@ test('sync derives running balances from the booked balance when the bank sends 
 
     (new SyncBankConnectionAccountJob($remoteAccount))->handle(app(EnableBankingConnectionManager::class));
 
-    // The sole booked posting is -128.00 and the bank books 51339.66, so the
-    // implied opening is 51467.66 and the chain lands exactly on the CLBD.
+    // A CLBD figure alone cannot prove the feed is complete, so without
+    // balance_after_transaction the posting keeps no balance, the account
+    // stays unsupported, and reconciliation never runs.
     $posting = Posting::query()->firstOrFail();
 
     expect(Posting::query()->count())->toBe(1)
-        ->and($posting->balance)->toBe('51339.66')
-        ->and($localAccount->refresh()->opening_balance)->toBe('51467.66')
-        ->and($localAccount->current_balance)->toBe('51339.66');
+        ->and($posting->balance)->toBeNull()
+        ->and($localAccount->refresh()->opening_balance)->toBe('0.00')
+        ->and($localAccount->current_balance)->toBe('51339.66')
+        ->and($remoteAccount->refresh()->provides_running_balance)->toBeFalse();
 
     $run = BankSyncRun::query()->latest('id')->firstOrFail();
 
-    expect($run->computed_balance)->toBe('51339.66')
-        ->and($run->balance_matches)->toBeTrue();
+    expect($run->expected_balance)->toBe('51339.66')
+        ->and($run->computed_balance)->toBeNull()
+        ->and($run->balance_matches)->toBeNull();
 });
 
-test('sync extends the derived chain for later postings without balances', function () {
+test('sync extends the checkpointed chain to later postings without balances', function () {
     $user = User::factory()->create();
     $connection = BankConnection::factory()->for($user)->create();
     $localAccount = BankAccount::factory()->for($user)->create(['opening_balance' => 0]);
@@ -1402,18 +1411,16 @@ test('sync extends the derived chain for later postings without balances', funct
         ->linkedTo($localAccount)
         ->create();
 
-    $transactions = enableBankingTransactionsPayload();
-    unset($transactions[0]['balance_after_transaction']);
-
     app()->instance(EnableBankingClient::class, new FakeEnableBankingClient(
         balances: enableBankingBalancesPayload(),
-        transactions: $transactions,
+        transactions: enableBankingTransactionsPayload(),
     ));
 
     (new SyncBankConnectionAccountJob($remoteAccount))->handle(app(EnableBankingConnectionManager::class));
 
     // A later sync brings one new, checkpoint-less posting: -50.00 on top of
-    // the derived 51339.66 anchor, and the bank now books 51289.66.
+    // the bank-supplied 51339.66 anchor, and the bank now books 51289.66. The
+    // capability stays set even though this sync's feed carries no checkpoint.
     $newerTransaction = [
         'entry_reference' => '2026-06-20-10.00.00.000001',
         'transaction_amount' => [
@@ -1442,7 +1449,7 @@ test('sync extends the derived chain for later postings without balances', funct
         ->firstOrFail();
 
     expect($newPosting->balance)->toBe('51289.66')
-        ->and($localAccount->refresh()->opening_balance)->toBe('51467.66');
+        ->and($remoteAccount->refresh()->provides_running_balance)->toBeTrue();
 
     $run = BankSyncRun::query()->latest('id')->firstOrFail();
 

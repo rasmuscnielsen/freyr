@@ -300,7 +300,9 @@ test('bank account detail surfaces a live balance diff against the postings chai
     $user = User::factory()->create();
     $account = BankAccount::factory()->for($user)->create(['current_balance' => '150.00']);
     $connection = BankConnection::factory()->for($user)->create();
-    BankConnectionAccount::factory()->for($connection)->linkedTo($account)->create();
+    BankConnectionAccount::factory()->for($connection)->linkedTo($account)->create([
+        'provides_running_balance' => true,
+    ]);
     Posting::factory()->forAccount($account)->create(['balance' => '100.00']);
 
     $this->actingAs($user)

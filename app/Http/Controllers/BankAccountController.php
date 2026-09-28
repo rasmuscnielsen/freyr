@@ -145,7 +145,8 @@ class BankAccountController extends Controller
         $connectionAccount = $bankAccount->bankConnectionAccounts->first();
         $connection = $connectionAccount?->bankConnection;
         $isManual = ! $bankAccount->hasBankConnection();
-        $balanceAudit = $isManual ? null : $inspector->inspect($bankAccount);
+        $supportsRunningBalance = $bankAccount->providesRunningBalance();
+        $balanceAudit = $isManual || ! $supportsRunningBalance ? null : $inspector->inspect($bankAccount);
         $balanceDelta = $balanceAudit['total_delta'] ?? null;
 
         return Inertia::render('bank-accounts/show', [
@@ -161,6 +162,7 @@ class BankAccountController extends Controller
                 'is_active' => $bankAccount->is_active,
                 'is_favorite' => $bankAccount->is_favorite,
                 'is_manual' => $isManual,
+                'provides_running_balance' => $supportsRunningBalance,
                 'postings_count' => $bankAccount->postings_count,
                 'last_synced_at' => $connectionAccount?->last_synced_at?->toDateTimeString(),
                 'connection' => $connection === null ? null : [

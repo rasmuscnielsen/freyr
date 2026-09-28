@@ -84,6 +84,21 @@ class BankAccount extends Model
     }
 
     /**
+     * Whether the account's feed has ever sent `balance_after_transaction`
+     * checkpoints. Running balances are provider-driven: a connected account
+     * shows them only when the bank itself reports them, while manual and
+     * imported-only accounts always manage their own.
+     */
+    public function providesRunningBalance(): bool
+    {
+        $remote = $this->relationLoaded('bankConnectionAccounts')
+            ? $this->bankConnectionAccounts->first()
+            : $this->bankConnectionAccounts()->first();
+
+        return $remote === null || $remote->provides_running_balance === true;
+    }
+
+    /**
      * Accounts imported from a Spiir export carry their raw Spiir id, while
      * locally created accounts get a `manual-`/`enable-banking-` prefixed
      * legacy id. Only imported accounts may be linked to a live bank feed:

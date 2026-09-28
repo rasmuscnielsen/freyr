@@ -7,17 +7,16 @@ use App\Models\Posting;
 use Illuminate\Support\Facades\DB;
 
 /**
- * Maintains derived running balances on postings of bank-connected accounts.
- *
- * Banks that do not send `balance_after_transaction` leave the chain blank:
- * the first sync derives it from the bank-reported booked (CLBD) balance —
- * the implied opening is `booked − sum(amounts)` — and later syncs extend the
- * chain past the latest checkpoint. Balances the bank does provide are never
- * rewritten, so anchoring happens exactly once per account.
+ * Maintains running balances on postings of bank-connected accounts whose
+ * provider supplies `balance_after_transaction` checkpoints
+ * (`BankConnectionAccount::provides_running_balance`). The newest stored
+ * checkpoint anchors the chain; later checkpoint-less postings continue it
+ * as `anchor + cumulative amount`. Balances are never derived from balance
+ * summaries — an unverifiable feed simply keeps no running balance.
  */
 class SyncedBalanceChainWriter
 {
-    public function write(BankAccount $bankAccount, ?string $bookedBalance): void
+    public function write(BankAccount $bankAccount): void
     {
         $anchor = $bankAccount->postings()
             ->whereNotNull('balance')
@@ -27,8 +26,6 @@ class SyncedBalanceChainWriter
 
         if ($anchor instanceof Posting) {
             $this->extendAfterAnchor($bankAccount, $anchor);
-        } elseif ($bookedBalance !== null) {
-            $this->deriveFromBookedBalance($bankAccount, $bookedBalance);
         }
     }
 
@@ -59,43 +56,5 @@ class SyncedBalanceChainWriter
             ) AS chain
             WHERE postings.id = chain.id
         SQL, [$anchor->balance, $bankAccount->id, $anchor->date->toDateString(), $anchor->id]);
-    }
-
-    /**
-     * With no checkpoint at all the bank's booked balance anchors the tail of
-     * the imported window: the implied opening is stored and every posting
-     * gets a running balance that lands exactly on the booked figure.
-     */
-    private function deriveFromBookedBalance(BankAccount $bankAccount, string $bookedBalance): void
-    {
-        // An unknown account movement anywhere in the window makes the
-        // implied opening unknowable — leave the chain blank.
-        if ($bankAccount->postings()->whereNull('original_amount')->exists()) {
-            return;
-        }
-
-        $opening = bcsub(
-            MoneyMath::round($bookedBalance),
-            MoneyMath::round((string) ($bankAccount->postings()->sum('original_amount') ?: '0')),
-            2,
-        );
-
-        DB::update(<<<'SQL'
-            UPDATE postings
-            SET balance = chain.running_balance
-            FROM (
-                SELECT id, CAST(? AS NUMERIC) + SUM(original_amount) OVER (ORDER BY date, id) AS running_balance
-                FROM postings
-                WHERE bank_account_id = ?
-            ) AS chain
-            WHERE postings.id = chain.id
-        SQL, [$opening, $bankAccount->id]);
-
-        // 'derived': this opening comes from the bank's own booked balance,
-        // so a matching reconciliation is by construction, not proof.
-        $bankAccount->update([
-            'opening_balance' => $opening,
-            'opening_balance_origin' => 'derived',
-        ]);
     }
 }

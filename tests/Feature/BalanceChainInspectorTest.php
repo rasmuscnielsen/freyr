@@ -101,7 +101,9 @@ test('rows stored out of intra-day order are clean when the day still closes', f
 test('account warning agrees with the audit when same-day ids are out of bank order', function () {
     $account = inspectableAccount(['current_balance' => '120.00']);
     $connection = BankConnection::factory()->for($account->user)->create();
-    BankConnectionAccount::factory()->for($connection)->linkedTo($account)->create();
+    BankConnectionAccount::factory()->for($connection)->linkedTo($account)->create([
+        'provides_running_balance' => true,
+    ]);
     chainPosting($account, '2026-01-01', '100.00', '100.00');
     chainPosting($account, '2026-01-02', '-30.00', '120.00');
     chainPosting($account, '2026-01-02', '50.00', '150.00');
@@ -158,7 +160,9 @@ test('the account page exposes the balance diff and lazily loads the audit for c
     $user = User::factory()->create();
     $account = BankAccount::factory()->for($user)->create(['current_balance' => '60.00']);
     $connection = BankConnection::factory()->for($user)->create();
-    BankConnectionAccount::factory()->for($connection)->linkedTo($account)->create();
+    BankConnectionAccount::factory()->for($connection)->linkedTo($account)->create([
+        'provides_running_balance' => true,
+    ]);
     chainPosting($account, '2026-01-01', '100.00', '100.00');
 
     $this->actingAs($user)
@@ -178,6 +182,22 @@ test('the account page exposes the balance diff and lazily loads the audit for c
         ->assertOk()
         ->assertJsonPath('props.balanceAudit.is_consistent', false)
         ->assertJsonPath('props.balanceAudit.breaks.0.kind', 'tail_lag');
+});
+
+test('the account page suppresses the balance audit for feeds without running-balance support', function () {
+    $user = User::factory()->create();
+    $account = BankAccount::factory()->for($user)->create(['current_balance' => '60.00']);
+    $connection = BankConnection::factory()->for($user)->create();
+    BankConnectionAccount::factory()->for($connection)->linkedTo($account)->create();
+    chainPosting($account, '2026-01-01', '100.00', '100.00');
+
+    $this->actingAs($user)
+        ->get(route('bank-accounts.show', $account))
+        ->assertOk()
+        ->assertInertia(fn (Assert $page) => $page
+            ->where('account.provides_running_balance', false)
+            ->where('account.balance_diff', null)
+            ->missing('balanceAudit'));
 });
 
 test('the account page reports no balance diff for manual accounts', function () {
