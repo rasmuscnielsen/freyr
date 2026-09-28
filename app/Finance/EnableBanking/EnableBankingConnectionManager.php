@@ -500,8 +500,8 @@ class EnableBankingConnectionManager
 
             $posting = Posting::query()
                 ->where('user_id', $account->bankConnection->user_id)
+                ->where('bank_account_id', $account->bank_account_id)
                 ->where('source', BankConnectionAccount::SOURCE_ENABLE_BANKING)
-                ->where('external_account_uid_hash', $account->external_account_uid_hash)
                 ->where(function ($query) use ($transaction, $transactionId): void {
                     $query->whereIn('external_posting_id', array_unique(array_filter([
                         $transactionId,

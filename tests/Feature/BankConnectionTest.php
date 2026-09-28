@@ -656,6 +656,7 @@ test('sync imports past transactions idempotently and skips future scheduled tra
     $posting = Posting::query()->firstOrFail();
 
     expect($posting->amount)->toBe('-128.00')
+        ->and($posting->legacy_id)->toBeNull()
         ->and($posting->source)->toBe(BankConnectionAccount::SOURCE_ENABLE_BANKING)
         ->and($posting->external_posting_id)->toBe('2026-06-19-04.21.58.526801')
         ->and($localAccount->refresh()->current_balance)->toBe('51339.66')
@@ -815,11 +816,14 @@ test('sync updates an existing transaction by entry reference when its transacti
     $transaction = enableBankingTransactionsPayload()[0];
     Posting::factory()->for($user)->for($localAccount)->create([
         'source' => BankConnectionAccount::SOURCE_ENABLE_BANKING,
-        'external_account_uid_hash' => $remoteAccount->external_account_uid_hash,
         'external_posting_id' => 'old-transaction-id',
-        'legacy_id' => 'enable-banking:'.$remoteAccount->external_account_uid_hash.':old-transaction-id',
+        'legacy_id' => 'enable-banking:historic-account-hash:old-transaction-id',
         'extra_data' => ['entry_reference' => $transaction['entry_reference']],
         'balance' => '500.00',
+    ]);
+    $remoteAccount->update([
+        'external_account_uid' => 'rotated-provider-account-id',
+        'external_account_uid_hash' => hash('sha256', 'rotated-provider-account-id'),
     ]);
     $transaction['transaction_id'] = 'new-transaction-id';
     unset($transaction['balance_after_transaction']);
@@ -830,9 +834,12 @@ test('sync updates an existing transaction by entry reference when its transacti
 
     (new SyncBankConnectionAccountJob($remoteAccount))->handle(app(EnableBankingConnectionManager::class));
 
+    $posting = Posting::query()->firstOrFail();
+
     expect(Posting::query()->count())->toBe(1)
-        ->and(Posting::query()->firstOrFail()->external_posting_id)->toBe($transaction['entry_reference'])
-        ->and(Posting::query()->firstOrFail()->balance)->toBeNull()
+        ->and($posting->external_posting_id)->toBe($transaction['entry_reference'])
+        ->and($posting->balance)->toBeNull()
+        ->and($posting->legacy_id)->toBe('enable-banking:historic-account-hash:old-transaction-id')
         ->and(BankSyncRun::query()->latest('id')->firstOrFail()->updated_postings_count)->toBe(1);
 });
 
@@ -974,9 +981,11 @@ test('a failed bank import rolls back postings written earlier in the same sync'
     $second['transaction_id'] = 'second-provider-id';
     $second['transaction_amount']['amount'] = '10.00';
     $second['balance_after_transaction']['amount'] = '51329.66';
-    Posting::factory()->forAccount(BankAccount::factory()->for($user)->create())->create([
-        'legacy_id' => 'enable-banking:'.$remoteAccount->external_account_uid_hash.':second-booked',
-    ]);
+    Posting::creating(function (Posting $posting): void {
+        if ($posting->external_posting_id === 'second-booked') {
+            throw new RuntimeException('Synthetic posting write failure.');
+        }
+    });
     app()->instance(EnableBankingClient::class, new FakeEnableBankingClient(
         balances: enableBankingBalancesPayload(),
         transactions: [$first, $second],
@@ -986,7 +995,7 @@ test('a failed bank import rolls back postings written earlier in the same sync'
 
     expect(BankSyncRun::query()->latest('id')->firstOrFail()->status)->toBe(BankSyncRun::STATUS_FAILED)
         ->and(Posting::query()->where('external_posting_id', $first['entry_reference'])->exists())->toBeFalse()
-        ->and(Posting::query()->count())->toBe(1);
+        ->and(Posting::query()->count())->toBe(0);
 });
 
 test('archived connections stop syncing but keep their accounts and can be reopened', function () {

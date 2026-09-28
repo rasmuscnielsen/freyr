@@ -322,7 +322,6 @@ class DemoSeeder extends Seeder
         return $factory->create([
             'legacy_id' => "seed-posting-{$accountKey}-{$sequence}",
             'source' => 'seed',
-            'external_account_uid_hash' => hash('sha256', "seed-remote-{$accountKey}"),
             'external_posting_id' => "seed-{$accountKey}-{$sequence}",
             'date' => $date->toDateString(),
             'description' => $description,

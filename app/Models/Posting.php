@@ -40,7 +40,6 @@ class Posting extends Model
         'balance',
         'upload_batch_id',
         'external_posting_id',
-        'external_account_uid_hash',
         'document_legacy_id',
         'is_extraordinary',
         'is_account_group_duplicate',

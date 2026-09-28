@@ -35,7 +35,6 @@ class EnableBankingTransactionMapper
         return [
             'user_id' => $account->bankConnection->user_id,
             'bank_account_id' => $account->bank_account_id,
-            'legacy_id' => $this->legacyId($account, $transactionId),
             'source' => BankConnectionAccount::SOURCE_ENABLE_BANKING,
             'date' => $this->transactionDate($transaction)->toDateString(),
             'description' => $this->description($transaction),
@@ -44,7 +43,6 @@ class EnableBankingTransactionMapper
             'original_amount' => $accountAmount,
             'balance' => $balance,
             'external_posting_id' => $transactionId,
-            'external_account_uid_hash' => $account->external_account_uid_hash,
             'currency' => $reportingCurrency,
             'original_currency' => $accountCurrency,
             'state' => $this->nullableString($transaction['status'] ?? null),
@@ -68,11 +66,6 @@ class EnableBankingTransactionMapper
         return (string) (filled($transaction['entry_reference'] ?? null)
             ? $transaction['entry_reference']
             : ($transaction['transaction_id'] ?? ''));
-    }
-
-    private function legacyId(BankConnectionAccount $account, string $transactionId): string
-    {
-        return sprintf('enable-banking:%s:%s', $account->external_account_uid_hash, $transactionId);
     }
 
     /**
