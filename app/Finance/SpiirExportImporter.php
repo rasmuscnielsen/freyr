@@ -370,7 +370,8 @@ class SpiirExportImporter
                 'original_amount' => $originalAmount,
                 'balance' => $balance,
                 'upload_batch_id' => $this->nullableString($row['UploadBatchId'] ?? null),
-                'external_posting_id' => $this->nullableString($row['ExternalPostingId'] ?? null),
+                'external_posting_id' => $this->nullableString($row['ExternalPostingId'] ?? null) === '*** hidden ***'
+                    ? null : $this->nullableString($row['ExternalPostingId'] ?? null),
                 'document_legacy_id' => $this->nullableString($row['DocumentId'] ?? null),
                 'is_extraordinary' => $this->boolean($row['IsExtraordinary'] ?? null),
                 'is_account_group_duplicate' => $this->boolean($row['IsAccountGroupDuplicate'] ?? null),

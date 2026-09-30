@@ -6,6 +6,7 @@ use App\Finance\MoneyMath;
 use App\Models\BankConnectionAccount;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Arr;
+use RuntimeException;
 
 class EnableBankingTransactionMapper
 {
@@ -15,14 +16,22 @@ class EnableBankingTransactionMapper
      */
     public function postingAttributes(BankConnectionAccount $account, array $transaction): array
     {
-        $transactionId = $this->transactionId($transaction);
+        $entryReference = $this->entryReference($transaction);
         $accountAmount = $this->signedAmount($transaction);
+
+        if ($entryReference === null && collect(Arr::wrap($transaction['remittance_information'] ?? []))->filter(fn (mixed $value): bool => is_string($value) && trim($value) !== '')->isEmpty()) {
+            throw new RuntimeException('A reference-less bank transaction needs a description for matching.');
+        }
         // transaction_amount is denominated in the account currency, so it
         // fills the original (account) pair. The reporting amount is copied
         // immediately only when the account already moves in the owner's
         // reporting currency; foreign postings stay null for the conversion
         // job.
-        $accountCurrency = (string) data_get($transaction, 'transaction_amount.currency', $account->currency);
+        $accountCurrency = strtoupper(trim((string) data_get($transaction, 'transaction_amount.currency', $account->currency)));
+
+        if (! preg_match('/^[A-Z]{3}$/D', $accountCurrency)) {
+            throw new RuntimeException('A bank transaction needs a valid account currency.');
+        }
         $reportingCurrency = $account->bankConnection->user->reporting_currency ?? $accountCurrency;
 
         // A running balance only counts when it is denominated in the
@@ -42,7 +51,7 @@ class EnableBankingTransactionMapper
             'amount' => $accountCurrency === $reportingCurrency ? $accountAmount : null,
             'original_amount' => $accountAmount,
             'balance' => $balance,
-            'external_posting_id' => $transactionId,
+            'external_posting_id' => $entryReference,
             'currency' => $reportingCurrency,
             'original_currency' => $accountCurrency,
             'state' => $this->nullableString($transaction['status'] ?? null),
@@ -61,11 +70,11 @@ class EnableBankingTransactionMapper
     /**
      * @param  array<string, mixed>  $transaction
      */
-    public function transactionId(array $transaction): string
+    public function entryReference(array $transaction): ?string
     {
-        return (string) (filled($transaction['entry_reference'] ?? null)
-            ? $transaction['entry_reference']
-            : ($transaction['transaction_id'] ?? ''));
+        $reference = $this->nullableString($transaction['entry_reference'] ?? null);
+
+        return $reference === '*** hidden ***' || strtolower($reference ?? '') === 'null' ? null : $reference;
     }
 
     /**
@@ -73,8 +82,13 @@ class EnableBankingTransactionMapper
      */
     public function signedAmount(array $transaction): string
     {
-        $raw = trim((string) data_get($transaction, 'transaction_amount.amount', '0'));
-        $amount = is_numeric($raw) ? $raw : '0';
+        $raw = trim((string) data_get($transaction, 'transaction_amount.amount', ''));
+
+        if (! preg_match('/^-?\d+(?:\.\d+)?$/D', $raw) || ! in_array($transaction['credit_debit_indicator'] ?? null, ['DBIT', 'CRDT'], true)) {
+            throw new RuntimeException('A bank transaction needs a valid amount and debit/credit indicator.');
+        }
+
+        $amount = $raw;
         $amount = bccomp($amount, '0', 10) < 0 ? bcmul($amount, '-1', 10) : $amount;
 
         if (($transaction['credit_debit_indicator'] ?? '') === 'DBIT') {
@@ -93,6 +107,8 @@ class EnableBankingTransactionMapper
         $description = collect($remittance)
             ->filter(fn (mixed $value): bool => filled($value))
             ->join(' ');
+
+        $description = trim($description);
 
         return $description !== '' ? $description : ($this->nullableString($transaction['entry_reference'] ?? null) ?? 'Bank transaction');
     }

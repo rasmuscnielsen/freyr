@@ -113,3 +113,33 @@ test('it fails when the export path is not a directory', function () {
     $this->artisan('app:spiir:import', ['path' => base_path('tests/Fixtures/does-not-exist')])
         ->assertFailed();
 });
+
+test('spiir placeholder external IDs remain missing after repeated imports', function () {
+    $path = sys_get_temp_dir().'/freyr-spiir-placeholder-'.bin2hex(random_bytes(6));
+    mkdir($path);
+    foreach (glob(base_path('tests/Fixtures/spiir-export/*')) as $fixture) {
+        copy($fixture, $path.'/'.basename($fixture));
+    }
+    $lines = file($path.'/Posting.csv', FILE_IGNORE_NEW_LINES);
+    $lines[0] .= ';ExternalPostingId';
+    foreach ($lines as $index => $line) {
+        if ($index > 0) {
+            $lines[$index] = $line.';*** hidden ***';
+        }
+    }
+    file_put_contents($path.'/Posting.csv', implode("\n", $lines)."\n");
+    $user = User::factory()->create();
+
+    try {
+        app(SpiirExportImporter::class)->importExport($path, $user);
+        app(SpiirExportImporter::class)->importExport($path, $user);
+
+        expect(Posting::query()->count())->toBe(7)
+            ->and(Posting::query()->whereNotNull('external_posting_id')->count())->toBe(0);
+    } finally {
+        foreach (glob($path.'/*') as $file) {
+            unlink($file);
+        }
+        rmdir($path);
+    }
+});

@@ -1545,3 +1545,151 @@ test('archived local accounts cannot be linked to a bank feed', function () {
 
     expect($remoteAccount->refresh()->status)->toBe(BankConnectionAccount::STATUS_UNLINKED);
 });
+
+test('reference-less transactions survive provider reconnects and gain references without losing edits', function () {
+    $user = User::factory()->create();
+    $local = BankAccount::factory()->for($user)->create();
+    $remote = BankConnectionAccount::factory()->for(BankConnection::factory()->for($user)->create())->linkedTo($local)->create();
+    $transaction = enableBankingTransactionsPayload()[0];
+    unset($transaction['entry_reference']);
+    app()->instance(EnableBankingClient::class, new FakeEnableBankingClient(transactions: [$transaction]));
+    $run = app(EnableBankingConnectionManager::class)->syncAccount($remote);
+    expect($run->status)->toBe(BankSyncRun::STATUS_SUCCEEDED);
+    $posting = Posting::query()->sole();
+    expect($posting->external_posting_id)->toBeNull();
+    $posting->update(['description' => 'My edited description', 'comment' => 'Keep me', 'custom_date' => '2026-06-18']);
+    $remote->update(['external_account_uid' => 'new-consent-account', 'external_account_uid_hash' => hash('sha256', 'new-consent-account')]);
+    $transaction['transaction_id'] = 'changed-detail-id';
+    app()->instance(EnableBankingClient::class, new FakeEnableBankingClient(transactions: [$transaction, $transaction]));
+    expect(app(EnableBankingConnectionManager::class)->syncAccount($remote)->status)->toBe(BankSyncRun::STATUS_SUCCEEDED);
+    expect(Posting::query()->count())->toBe(1);
+    $transaction['entry_reference'] = 'now-referenced';
+    app()->instance(EnableBankingClient::class, new FakeEnableBankingClient(transactions: [$transaction]));
+    expect(app(EnableBankingConnectionManager::class)->syncAccount($remote)->status)->toBe(BankSyncRun::STATUS_SUCCEEDED);
+    expect(Posting::query()->sole()->id)->toBe($posting->id);
+    expect($posting->refresh()->external_posting_id)->toBe('now-referenced')
+        ->and($posting->description)->toBe('My edited description')
+        ->and($posting->comment)->toBe('Keep me')
+        ->and($posting->custom_date->toDateString())->toBe('2026-06-18');
+    unset($transaction['entry_reference']);
+    app()->instance(EnableBankingClient::class, new FakeEnableBankingClient(transactions: [$transaction]));
+    expect(app(EnableBankingConnectionManager::class)->syncAccount($remote)->status)->toBe(BankSyncRun::STATUS_SUCCEEDED);
+    expect(Posting::query()->sole()->external_posting_id)->toBe('now-referenced');
+});
+
+test('distinct bank references preserve identical same-day payments', function () {
+    $user = User::factory()->create();
+    $local = BankAccount::factory()->for($user)->create();
+    $remote = BankConnectionAccount::factory()->for(BankConnection::factory()->for($user)->create())->linkedTo($local)->create();
+    $first = enableBankingTransactionsPayload()[0];
+    $second = $first;
+    $second['entry_reference'] = 'different-reference';
+    app()->instance(EnableBankingClient::class, new FakeEnableBankingClient(transactions: [$first, $second]));
+    expect(app(EnableBankingConnectionManager::class)->syncAccount($remote)->status)->toBe(BankSyncRun::STATUS_SUCCEEDED);
+    expect(Posting::query()->count())->toBe(2);
+});
+
+test('conflicting repeated bank references fail the entire import instead of overwriting a payment', function () {
+    $user = User::factory()->create();
+    $local = BankAccount::factory()->for($user)->create();
+    $remote = BankConnectionAccount::factory()->for(BankConnection::factory()->for($user)->create())->linkedTo($local)->create();
+    $first = enableBankingTransactionsPayload()[0];
+    $second = $first;
+    $second['transaction_amount']['amount'] = '999.00';
+    app()->instance(EnableBankingClient::class, new FakeEnableBankingClient(transactions: [$first, $second]));
+    expect(app(EnableBankingConnectionManager::class)->syncAccount($remote)->status)->toBe(BankSyncRun::STATUS_FAILED);
+    expect(Posting::query()->count())->toBe(0);
+});
+
+test('fallback matching keeps different amounts currencies dates and local accounts separate', function () {
+    $user = User::factory()->create();
+    $account = BankAccount::factory()->for($user)->create();
+    $remote = BankConnectionAccount::factory()->for(BankConnection::factory()->for($user)->create())->linkedTo($account)->create();
+    $base = enableBankingTransactionsPayload()[0];
+    unset($base['entry_reference']);
+    $transactions = [$base];
+    foreach ([['transaction_amount' => ['currency' => 'DKK', 'amount' => '129.00']], ['transaction_amount' => ['currency' => 'EUR', 'amount' => '128.00']], ['booking_date' => '2026-06-18'], ['credit_debit_indicator' => 'CRDT']] as $change) {
+        $transactions[] = array_replace($base, $change);
+    }
+    app()->instance(EnableBankingClient::class, new FakeEnableBankingClient(transactions: $transactions));
+    expect(app(EnableBankingConnectionManager::class)->syncAccount($remote)->status)->toBe(BankSyncRun::STATUS_SUCCEEDED);
+    expect(Posting::query()->count())->toBe(5);
+    expect(app(EnableBankingConnectionManager::class)->syncAccount($remote)->status)->toBe(BankSyncRun::STATUS_SUCCEEDED);
+    $other = BankConnectionAccount::factory()->for(BankConnection::factory()->for($user)->create())->linkedTo(BankAccount::factory()->for($user)->create())->create();
+    expect(app(EnableBankingConnectionManager::class)->syncAccount($other)->status)->toBe(BankSyncRun::STATUS_SUCCEEDED);
+    expect(Posting::query()->count())->toBe(10);
+});
+
+test('reference-less imports reject invalid money identity fields', function (array $changes) {
+    $user = User::factory()->create();
+    $account = BankAccount::factory()->for($user)->create();
+    $remote = BankConnectionAccount::factory()->for(BankConnection::factory()->for($user)->create())->linkedTo($account)->create();
+    $transaction = enableBankingTransactionsPayload()[0];
+    unset($transaction['entry_reference']);
+    $transaction = array_replace_recursive($transaction, $changes);
+    app()->instance(EnableBankingClient::class, new FakeEnableBankingClient(transactions: [$transaction]));
+    expect(app(EnableBankingConnectionManager::class)->syncAccount($remote)->status)->toBe(BankSyncRun::STATUS_FAILED);
+    expect(Posting::query()->count())->toBe(0);
+})->with([
+    'invalid amount' => [['transaction_amount' => ['amount' => 'invalid']]],
+    'invalid currency' => [['transaction_amount' => ['currency' => '']]],
+    'invalid direction' => [['credit_debit_indicator' => 'unknown']],
+]);
+
+test('placeholder entry references use the fallback and missing descriptions fail visibly', function () {
+    $user = User::factory()->create();
+    $account = BankAccount::factory()->for($user)->create();
+    $remote = BankConnectionAccount::factory()->for(BankConnection::factory()->for($user)->create())->linkedTo($account)->create();
+    $transaction = enableBankingTransactionsPayload()[0];
+    $transaction['entry_reference'] = '*** hidden ***';
+    app()->instance(EnableBankingClient::class, new FakeEnableBankingClient(transactions: [$transaction]));
+    expect(app(EnableBankingConnectionManager::class)->syncAccount($remote)->status)->toBe(BankSyncRun::STATUS_SUCCEEDED);
+    expect(Posting::query()->sole()->external_posting_id)->toBeNull();
+    unset($transaction['remittance_information']);
+    app()->instance(EnableBankingClient::class, new FakeEnableBankingClient(transactions: [$transaction]));
+    expect(app(EnableBankingConnectionManager::class)->syncAccount($remote)->status)->toBe(BankSyncRun::STATUS_FAILED);
+    expect(Posting::query()->count())->toBe(1);
+});
+
+test('reauthorization rejects ambiguous account identifiers without changing local links', function () {
+    $user = User::factory()->create();
+    $connection = BankConnection::factory()->for($user)->create(['state' => 'ambiguous-consent']);
+    $local = BankAccount::factory()->for($user)->create();
+    $first = BankConnectionAccount::factory()->for($connection)->linkedTo($local)->create();
+    $second = BankConnectionAccount::factory()->for($connection)->create();
+    app()->instance(EnableBankingClient::class, new FakeEnableBankingClient(session: enableBankingSessionPayload()));
+
+    expect(fn () => app(EnableBankingConnectionManager::class)->completeAuthorization($user, 'ambiguous-consent', 'code'))
+        ->toThrow(RuntimeException::class, 'Bank account identifiers match multiple accounts.');
+    expect($first->refresh()->bank_account_id)->toBe($local->id)
+        ->and($second->refresh()->bank_account_id)->toBeNull()
+        ->and($connection->refresh()->state)->toBe('ambiguous-consent');
+});
+
+test('reauthorization rejects matches across multiple existing connections', function () {
+    $user = User::factory()->create();
+    $pending = BankConnection::factory()->for($user)->create(['state' => 'ambiguous-connections']);
+    foreach (range(1, 2) as $index) {
+        BankConnectionAccount::factory()->for(BankConnection::factory()->for($user)->create())->create();
+    }
+    app()->instance(EnableBankingClient::class, new FakeEnableBankingClient(session: enableBankingSessionPayload()));
+
+    expect(fn () => app(EnableBankingConnectionManager::class)->completeAuthorization($user, 'ambiguous-connections', 'code'))
+        ->toThrow(RuntimeException::class, 'Bank account identifiers match multiple connections.');
+    expect($pending->refresh()->state)->toBe('ambiguous-connections');
+});
+
+test('reauthorization rejects account currency changes without modifying the local link', function () {
+    $user = User::factory()->create();
+    $connection = BankConnection::factory()->for($user)->create(['state' => 'currency-change']);
+    $local = BankAccount::factory()->for($user)->create();
+    $remote = BankConnectionAccount::factory()->for($connection)->linkedTo($local)->create();
+    $session = enableBankingSessionPayload();
+    $session['accounts'][0]['currency'] = 'EUR';
+    app()->instance(EnableBankingClient::class, new FakeEnableBankingClient(session: $session));
+
+    expect(fn () => app(EnableBankingConnectionManager::class)->completeAuthorization($user, 'currency-change', 'code'))
+        ->toThrow(RuntimeException::class, 'A reauthorized bank account changed currency.');
+    expect($remote->refresh()->bank_account_id)->toBe($local->id)
+        ->and($remote->currency)->toBe('DKK');
+});

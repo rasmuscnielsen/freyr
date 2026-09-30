@@ -10,6 +10,7 @@ use App\Models\BankSyncRun;
 use App\Models\Posting;
 use App\Models\User;
 use Carbon\CarbonImmutable;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Http\Client\RequestException;
 use Illuminate\Support\Arr;
@@ -210,14 +211,11 @@ class EnableBankingConnectionManager
                     $recentTransactions = [];
                 }
 
-                $transactions = collect([...$transactions, ...$recentTransactions])
-                    ->keyBy(fn (array $transaction): string => $this->transactionMapper->transactionId($transaction))
-                    ->values()
-                    ->all();
+                $transactions = [...$transactions, ...$recentTransactions];
             }
 
             $booked = $this->bookedBalance($balances);
-            $postedTransactions = $this->postedTransactions($transactions, $balances);
+            $postedTransactions = $this->postedTransactions($this->deduplicateTransactions($transactions), $balances);
             $lastTransactionDate = collect($postedTransactions)
                 ->map(fn (array $transaction): CarbonImmutable => $this->transactionMapper->transactionDate($transaction))
                 ->max();
@@ -240,6 +238,7 @@ class EnableBankingConnectionManager
                     return;
                 }
 
+                BankAccount::query()->whereKey($account->bank_account_id)->lockForUpdate()->firstOrFail();
                 $account->refresh();
                 $counts = $this->importTransactions($account, $postedTransactions);
                 $this->updateBankAccountBalances($account, $booked, $lastTransactionDate);
@@ -391,17 +390,23 @@ class EnableBankingConnectionManager
             return null;
         }
 
-        return BankConnection::query()
+        $matches = BankConnection::query()
             ->where('user_id', $connection->user_id)
             ->whereKeyNot($connection)
             ->with('accounts:id,bank_connection_id,identification_hash,iban')
             ->get()
-            ->first(
+            ->filter(
                 fn (BankConnection $candidate): bool => $candidate->accounts->contains(
                     fn (BankConnectionAccount $remote): bool => ($remote->identification_hash !== null && in_array($remote->identification_hash, $identificationHashes, true))
                         || ($remote->iban !== null && in_array($remote->iban, $ibans, true))
                 )
             );
+
+        if ($matches->count() > 1) {
+            throw new RuntimeException('Bank account identifiers match multiple connections.');
+        }
+
+        return $matches->first();
     }
 
     /**
@@ -413,26 +418,22 @@ class EnableBankingConnectionManager
         $uidHash = hash('sha256', $uid);
         $identificationHash = $accountPayload['identification_hash'] ?? null;
 
-        $account = BankConnectionAccount::query()
-            ->whereBelongsTo($connection)
-            ->where(function ($query) use ($uidHash, $identificationHash): void {
-                $query->where('external_account_uid_hash', $uidHash);
-
-                if (filled($identificationHash)) {
-                    $query->orWhere('identification_hash', $identificationHash);
-                }
-            })
-            ->first();
-
-        // Identifiers can rotate between consents: fall back to the IBAN so a
-        // re-authorized account still lands on its existing row — and its
-        // link. The column is encrypted, so the comparison runs on the
-        // decrypted models.
         $iban = data_get($accountPayload, 'account_id.iban');
+        // IBAN is encrypted, so compare all identifiers on decrypted accounts.
+        $matches = $connection->accounts()->get()->filter(
+            fn (BankConnectionAccount $remote): bool => $remote->external_account_uid_hash === $uidHash
+                || (filled($identificationHash) && $remote->identification_hash === $identificationHash)
+                || (filled($iban) && $remote->iban === $iban),
+        );
 
-        if ($account === null && filled($iban)) {
-            $account = $connection->accounts()->whereNotNull('iban')->get()
-                ->first(fn (BankConnectionAccount $remote): bool => $remote->iban === $iban);
+        if ($matches->count() > 1) {
+            throw new RuntimeException('Bank account identifiers match multiple accounts.');
+        }
+
+        $account = $matches->first();
+
+        if ($account !== null && $account->currency !== ($accountPayload['currency'] ?? null)) {
+            throw new RuntimeException('A reauthorized bank account changed currency.');
         }
 
         $attributes = [
@@ -474,6 +475,56 @@ class EnableBankingConnectionManager
 
     /**
      * @param  list<array<string, mixed>>  $transactions
+     * @return list<array<string, mixed>>
+     */
+    private function deduplicateTransactions(array $transactions): array
+    {
+        $referenced = [];
+        $unreferenced = [];
+
+        foreach ($transactions as $transaction) {
+            if (($transaction['status'] ?? null) !== 'BOOK') {
+                continue;
+            }
+
+            $reference = $this->transactionMapper->entryReference($transaction);
+
+            if ($reference === null) {
+                $unreferenced[] = $transaction;
+
+                continue;
+            }
+
+            if (isset($referenced[$reference])) {
+                $previous = $referenced[$reference];
+
+                if ($this->transactionMapper->signedAmount($previous) !== $this->transactionMapper->signedAmount($transaction)
+                    || data_get($previous, 'transaction_amount.currency') !== data_get($transaction, 'transaction_amount.currency')
+                    || ($previous['booking_date'] ?? null) !== ($transaction['booking_date'] ?? null)) {
+                    throw new RuntimeException('Conflicting bank transactions share an entry reference.');
+                }
+            }
+
+            $referenced[$reference] = $transaction;
+        }
+
+        return [...array_values($referenced), ...$unreferenced];
+    }
+
+    /**
+     * @param  Builder<Posting>  $query
+     */
+    private function findPosting(Builder $query): ?Posting
+    {
+        try {
+            return $query->sole();
+        } catch (ModelNotFoundException) {
+            return null;
+        }
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $transactions
      * @return array{new_postings_count:int, updated_postings_count:int, duplicate_postings_count:int}
      */
     private function importTransactions(BankConnectionAccount $account, array $transactions): array
@@ -487,9 +538,9 @@ class EnableBankingConnectionManager
         $ignorePostingsBefore = $account->bankAccount?->ignore_postings_before;
 
         foreach ($transactions as $transaction) {
-            $transactionId = $this->transactionMapper->transactionId($transaction);
+            $entryReference = $this->transactionMapper->entryReference($transaction);
 
-            if ($transactionId === '' || $account->bank_account_id === null) {
+            if ($account->bank_account_id === null) {
                 continue;
             }
 
@@ -498,32 +549,50 @@ class EnableBankingConnectionManager
                 continue;
             }
 
-            $posting = Posting::query()
+            $attributes = $this->transactionMapper->postingAttributes($account, $transaction);
+            $query = Posting::query()
                 ->where('user_id', $account->bankConnection->user_id)
                 ->where('bank_account_id', $account->bank_account_id)
-                ->where('source', BankConnectionAccount::SOURCE_ENABLE_BANKING)
-                ->where(function ($query) use ($transaction, $transactionId): void {
-                    $query->whereIn('external_posting_id', array_unique(array_filter([
-                        $transactionId,
-                        $transaction['transaction_id'] ?? null,
-                    ])));
+                ->where('source', BankConnectionAccount::SOURCE_ENABLE_BANKING);
 
-                    if (filled($transaction['entry_reference'] ?? null)) {
-                        $query->orWhere('extra_data->entry_reference', $transaction['entry_reference']);
-                    }
-                })
-                ->first();
+            $posting = $entryReference === null ? null : $this->findPosting((clone $query)
+                ->where(function ($query) use ($entryReference): void {
+                    $query->where('external_posting_id', $entryReference)
+                        ->orWhere('extra_data->entry_reference', $entryReference);
+                }));
 
-            $attributes = $this->transactionMapper->postingAttributes($account, $transaction);
+            if ($posting === null) {
+                // note: identical reference-less payments collapse; occurrence matching if this becomes a real issue.
+                $posting = $this->findPosting((clone $query)
+                    ->when($entryReference !== null, fn (Builder $query): Builder => $query->whereNull('external_posting_id'))
+                    ->where('original_description', $attributes['original_description'])
+                    ->whereDate('date', $attributes['date'])
+                    ->where('original_amount', $attributes['original_amount'])
+                    ->where('original_currency', $attributes['original_currency'])
+                );
+            }
 
             if ($posting instanceof Posting) {
                 $reportingAmount = $posting->amount;
 
+                if ($entryReference === null && $posting->external_posting_id !== null) {
+                    $attributes['external_posting_id'] = $posting->external_posting_id;
+                }
+
+                if ($posting->description !== $posting->original_description) {
+                    unset($attributes['description']);
+                }
+
+                // PostgreSQL JSONB reorders object keys; that alone is not a provider update.
+                if ($posting->extra_data == $attributes['extra_data']) {
+                    unset($attributes['extra_data']);
+                }
+
+                $posting->fill($attributes);
+
                 // A completed reporting conversion is stable: a re-sync must
                 // not wipe it back to pending just because the bank sends the
                 // account amount again.
-                $posting->fill($attributes);
-
                 if ($attributes['amount'] === null
                     && $reportingAmount !== null
                     && ! $posting->isDirty(['original_amount', 'original_currency', 'date'])) {
