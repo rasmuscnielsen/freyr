@@ -53,13 +53,13 @@ export function CategoryCombobox({
     const optionIdPrefix = useId();
 
     const containerRef = useRef<HTMLDivElement>(null);
+    const anchorRef = useRef<HTMLSpanElement>(null);
     const inputRef = useRef<HTMLInputElement>(null);
     const listRef = useRef<HTMLDivElement>(null);
 
     const [search, setSearch] = useState('');
     const [debouncedSearch, setDebouncedSearch] = useState('');
     const [rawActiveIndex, setActiveIndex] = useState(0);
-    const [flipUp, setFlipUp] = useState(false);
 
     const filteredOptions = useMemo(() => {
         const needle = debouncedSearch.trim().toLowerCase();
@@ -118,23 +118,37 @@ export function CategoryCombobox({
         activeEl?.scrollIntoView({ block: 'nearest' });
     }, [activeIndex, optionId, filteredOptions]);
 
-    // Decide whether to render above or below the trigger based on available
-    // room, so the popup stays within the viewport near the bottom of the page.
+    // The native top layer escapes table overflow while keeping the popup
+    // inside its owning dialog's focus scope.
     useLayoutEffect(() => {
         const container = containerRef.current;
+        const anchor = anchorRef.current?.parentElement;
 
-        if (!container) {
+        if (!container || !anchor) {
             return;
         }
 
-        const rect = container.getBoundingClientRect();
-        const spaceBelow = window.innerHeight - rect.top;
+        container.showPopover();
 
-        // Popup can grow to roughly 22rem; flip up when there is not enough room
-        // below but there is more room above.
-        const estimatedHeight = 352;
+        const positionPopup = () => {
+            const rect = anchor.getBoundingClientRect();
+            const height = container.offsetHeight;
+            const spaceBelow = window.innerHeight - rect.top;
+            const flipUp = spaceBelow < height && rect.top > spaceBelow;
 
-        setFlipUp(spaceBelow < estimatedHeight && rect.top > spaceBelow);
+            container.style.left = `${Math.max(8, Math.min(rect.left + 8, window.innerWidth - container.offsetWidth - 8))}px`;
+            container.style.top = `${Math.max(8, flipUp ? rect.bottom - height : rect.top)}px`;
+        };
+
+        positionPopup();
+        window.addEventListener('resize', positionPopup);
+        window.addEventListener('scroll', positionPopup, true);
+
+        return () => {
+            window.removeEventListener('resize', positionPopup);
+            window.removeEventListener('scroll', positionPopup, true);
+            container.hidePopover();
+        };
     }, []);
 
     // Close on click / pointer outside the popup.
@@ -241,93 +255,94 @@ export function CategoryCombobox({
     const activeDescendant = hasResults ? optionId(activeIndex) : undefined;
 
     return (
-        <div
-            ref={containerRef}
-            className={cn(
-                'absolute left-2 z-20 w-80 rounded-md border bg-popover p-2 shadow-lg',
-                flipUp ? 'bottom-1' : 'top-1',
-            )}
-        >
-            <div className="relative">
-                <Input
-                    ref={inputRef}
-                    role="combobox"
-                    aria-expanded={hasResults}
-                    aria-controls={listboxId}
-                    aria-activedescendant={activeDescendant}
-                    aria-autocomplete="list"
-                    aria-label="Search category"
-                    autoComplete="off"
-                    disabled={isSaving}
-                    value={search}
-                    onChange={(event) => {
-                        setSearch(event.target.value);
-                        setActiveIndex(0);
-                    }}
-                    onKeyDown={handleKeyDown}
-                    placeholder="Search category"
-                    className={cn(isSaving && 'pr-9')}
-                />
-                {isSaving && (
-                    <Spinner className="pointer-events-none absolute top-2.5 right-3 text-muted-foreground" />
-                )}
-            </div>
+        <>
+            <span ref={anchorRef} className="hidden" />
             <div
-                ref={listRef}
-                id={listboxId}
-                role="listbox"
-                aria-label="Categories"
-                className="mt-2 max-h-64 overflow-y-auto"
+                ref={containerRef}
+                popover="manual"
+                className="fixed inset-auto m-0 w-80 max-w-[calc(100vw-1rem)] rounded-md border bg-popover p-2 text-popover-foreground shadow-lg"
             >
-                {hasResults ? (
-                    filteredOptions.map((option, index) => (
-                        <button
-                            key={option.id}
-                            id={optionId(index)}
-                            type="button"
-                            role="option"
-                            aria-selected={index === activeIndex}
-                            tabIndex={-1}
-                            disabled={isSaving}
-                            className={cn(
-                                'flex w-full items-center justify-between rounded-sm px-2 py-1.5 text-left text-sm',
-                                index === activeIndex && 'bg-accent',
-                            )}
-                            onMouseEnter={() => setActiveIndex(index)}
-                            onClick={() => onSelect(option.id)}
-                        >
-                            <span>{option.label}</span>
-                            {index === activeIndex && (
-                                <Check className="size-4 shrink-0 text-muted-foreground" />
-                            )}
-                        </button>
-                    ))
-                ) : (
-                    <p className="px-2 py-1.5 text-sm text-muted-foreground">
-                        No categories found
-                    </p>
-                )}
-            </div>
-            <div className="mt-2 flex justify-between border-t pt-2">
-                <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    disabled={isSaving}
-                    onClick={() => onSelect(null)}
+                <div className="relative">
+                    <Input
+                        ref={inputRef}
+                        role="combobox"
+                        aria-expanded={hasResults}
+                        aria-controls={listboxId}
+                        aria-activedescendant={activeDescendant}
+                        aria-autocomplete="list"
+                        aria-label="Search category"
+                        autoComplete="off"
+                        disabled={isSaving}
+                        value={search}
+                        onChange={(event) => {
+                            setSearch(event.target.value);
+                            setActiveIndex(0);
+                        }}
+                        onKeyDown={handleKeyDown}
+                        placeholder="Search category"
+                        className={cn(isSaving && 'pr-9')}
+                    />
+                    {isSaving && (
+                        <Spinner className="pointer-events-none absolute top-2.5 right-3 text-muted-foreground" />
+                    )}
+                </div>
+                <div
+                    ref={listRef}
+                    id={listboxId}
+                    role="listbox"
+                    aria-label="Categories"
+                    className="mt-2 max-h-64 overflow-y-auto"
                 >
-                    Clear
-                </Button>
-                <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    disabled={isSaving}
-                    onClick={onClose}
-                >
-                    Close
-                </Button>
+                    {hasResults ? (
+                        filteredOptions.map((option, index) => (
+                            <button
+                                key={option.id}
+                                id={optionId(index)}
+                                type="button"
+                                role="option"
+                                aria-selected={index === activeIndex}
+                                tabIndex={-1}
+                                disabled={isSaving}
+                                className={cn(
+                                    'flex w-full items-center justify-between rounded-sm px-2 py-1.5 text-left text-sm',
+                                    index === activeIndex && 'bg-accent',
+                                )}
+                                onMouseEnter={() => setActiveIndex(index)}
+                                onClick={() => onSelect(option.id)}
+                            >
+                                <span>{option.label}</span>
+                                {index === activeIndex && (
+                                    <Check className="size-4 shrink-0 text-muted-foreground" />
+                                )}
+                            </button>
+                        ))
+                    ) : (
+                        <p className="px-2 py-1.5 text-sm text-muted-foreground">
+                            No categories found
+                        </p>
+                    )}
+                </div>
+                <div className="mt-2 flex justify-between border-t pt-2">
+                    <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        disabled={isSaving}
+                        onClick={() => onSelect(null)}
+                    >
+                        Clear
+                    </Button>
+                    <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        disabled={isSaving}
+                        onClick={onClose}
+                    >
+                        Close
+                    </Button>
+                </div>
             </div>
-        </div>
+        </>
     );
 }

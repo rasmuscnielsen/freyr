@@ -179,8 +179,11 @@ export default function Postings({
     const [category, setCategory] = useState(String(filters.category ?? ''));
     const [type, setType] = useState(String(filters.type ?? ''));
     const [text, setText] = useState(String(filters.text ?? ''));
-    const [from, setFrom] = useState('');
-    const [to, setTo] = useState('');
+    const [initialFrom = '', initialTo = ''] = String(
+        filters.posted_between ?? '',
+    ).split(',');
+    const [from, setFrom] = useState(initialFrom);
+    const [to, setTo] = useState(initialTo);
     const [uncategorized, setUncategorized] = useState(
         filters.uncategorized === true || filters.uncategorized === '1',
     );
