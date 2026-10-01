@@ -4,7 +4,6 @@ namespace App\Http\Requests\Platform;
 
 use App\Http\Requests\Platform\Concerns\ValidatesSubcategoryExpenseType;
 use App\Models\Category;
-use App\Models\Subcategory;
 use Illuminate\Foundation\Http\FormRequest;
 
 class UpdateSubcategoryRequest extends FormRequest
@@ -25,19 +24,17 @@ class UpdateSubcategoryRequest extends FormRequest
     public function rules(): array
     {
         return [
+            'category_id' => ['required', 'integer', 'exists:categories,id'],
             'name' => ['required', 'string', 'max:100'],
             'expense_type' => $this->expenseTypeRules(),
         ];
     }
 
     /**
-     * The parent category is fixed on update; resolve it from the bound
-     * subcategory so the `expense_type` rule matches its current parent.
+     * Validate the expense type against the selected destination category.
      */
     protected function targetCategory(): ?Category
     {
-        $subcategory = $this->route('subcategory');
-
-        return $subcategory instanceof Subcategory ? $subcategory->category : null;
+        return Category::query()->find($this->integer('category_id'));
     }
 }

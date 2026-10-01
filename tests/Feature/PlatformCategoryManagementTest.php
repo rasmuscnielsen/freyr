@@ -15,6 +15,71 @@ function platformAdmin(): User
     return User::factory()->platformAdmin()->create();
 }
 
+test('moving a subcategory preserves its postings and applies the destination expense type', function (CategoryType $sourceType, CategoryType $destinationType, ?ExpenseType $expenseType) {
+    $source = Category::factory()->create(['type' => $sourceType]);
+    $destination = Category::factory()->create(['type' => $destinationType]);
+    $subcategory = Subcategory::factory()->forCategory($source)->create([
+        'expense_type' => $sourceType === CategoryType::Expense ? ExpenseType::Fixed : null,
+    ]);
+    $posting = Posting::factory()->create(['categorized_subcategory_id' => $subcategory->id]);
+
+    $this->actingAs(platformAdmin())
+        ->patch(route('platform.subcategories.update', $subcategory), [
+            'category_id' => $destination->id,
+            'name' => $subcategory->name,
+            'expense_type' => $expenseType?->value,
+        ])
+        ->assertRedirect()
+        ->assertSessionHasNoErrors();
+
+    expect($subcategory->refresh()->category_id)->toBe($destination->id)
+        ->and($subcategory->expense_type)->toBe($expenseType);
+    expect($posting->refresh()->categorized_subcategory_id)->toBe($subcategory->id)
+        ->and($posting->categorizedSubcategory->category->id)->toBe($destination->id);
+})->with([
+    'expense to expense' => [CategoryType::Expense, CategoryType::Expense, ExpenseType::Fixed],
+    'expense to income' => [CategoryType::Expense, CategoryType::Income, null],
+    'income to expense' => [CategoryType::Income, CategoryType::Expense, ExpenseType::Variable],
+]);
+
+test('invalid subcategory destinations or expense types leave the category unchanged', function (?int $categoryId, CategoryType $destinationType, ?string $expenseType, string $error) {
+    $source = Category::factory()->create(['type' => CategoryType::Income]);
+    $destination = Category::factory()->create(['type' => $destinationType]);
+    $subcategory = Subcategory::factory()->forCategory($source)->create(['expense_type' => null]);
+
+    $this->actingAs(platformAdmin())
+        ->patch(route('platform.subcategories.update', $subcategory), [
+            'category_id' => $categoryId === 0 ? $destination->id : $categoryId,
+            'name' => $subcategory->name,
+            'expense_type' => $expenseType,
+        ])
+        ->assertSessionHasErrors($error);
+
+    expect($subcategory->refresh()->category_id)->toBe($source->id)
+        ->and($subcategory->expense_type)->toBeNull();
+})->with([
+    'missing category' => [null, CategoryType::Income, null, 'category_id'],
+    'unknown category' => [999999, CategoryType::Income, null, 'category_id'],
+    'expense requires type' => [0, CategoryType::Expense, null, 'expense_type'],
+    'expense rejects unknown type' => [0, CategoryType::Expense, 'invalid', 'expense_type'],
+    'income prohibits expense type' => [0, CategoryType::Income, ExpenseType::Fixed->value, 'expense_type'],
+]);
+
+test('non-admin users cannot move subcategories', function () {
+    app(PlatformSettings::class)->markOnboardingCompleted();
+    $subcategory = Subcategory::factory()->create();
+    $destination = Category::factory()->create();
+
+    $this->actingAs(User::factory()->create())
+        ->patch(route('platform.subcategories.update', $subcategory), [
+            'category_id' => $destination->id,
+            'name' => $subcategory->name,
+        ])
+        ->assertForbidden();
+
+    expect($subcategory->refresh()->category_id)->not->toBe($destination->id);
+});
+
 test('a category can be created', function () {
     $this->actingAs(platformAdmin())
         ->post(route('platform.categories.store'), [

@@ -278,6 +278,7 @@ export default function Categories({
             />
 
             <SubcategoryDialog
+                categories={categories}
                 key={
                     editingSubcategory === null
                         ? `subcategory-dialog-${creatingSubcategoryFor?.id ?? 'closed'}`
@@ -551,12 +552,14 @@ type SubcategoryForm = {
 };
 
 function SubcategoryDialog({
+    categories,
     category,
     subcategory,
     expenseTypes,
     open,
     onClose,
 }: {
+    categories: Category[];
     category: Category | null;
     subcategory: Subcategory | null;
     expenseTypes: string[];
@@ -564,14 +567,17 @@ function SubcategoryDialog({
     onClose: () => void;
 }) {
     const isEditing = subcategory !== null;
-    const isExpense = category?.type === EXPENSE_TYPE;
     const form = useForm<SubcategoryForm>({
         category_id: category?.id ?? 0,
         name: subcategory?.name ?? '',
-        expense_type: isExpense
-            ? (subcategory?.expense_type ?? expenseTypes[0] ?? null)
-            : null,
+        expense_type:
+            category?.type === EXPENSE_TYPE
+                ? (subcategory?.expense_type ?? expenseTypes[0] ?? null)
+                : null,
     });
+    const isExpense =
+        categories.find((option) => option.id === form.data.category_id)
+            ?.type === EXPENSE_TYPE;
 
     const submit = () => {
         form.transform((data) => ({
@@ -602,13 +608,53 @@ function SubcategoryDialog({
                         {isEditing ? 'Edit subcategory' : 'Add subcategory'}
                     </DialogTitle>
                     <DialogDescription>
-                        {category
-                            ? `Under ${category.name} (${category.type}).`
-                            : null}
+                        {isEditing
+                            ? 'Moving a subcategory also moves its postings for all users.'
+                            : 'Choose the category for this subcategory.'}
                     </DialogDescription>
                 </DialogHeader>
 
                 <div className="grid gap-4">
+                    <div className="grid gap-2">
+                        <Label htmlFor="subcategory-category">Category</Label>
+                        <Select
+                            value={String(form.data.category_id)}
+                            onValueChange={(value) => {
+                                const categoryId = Number(value);
+                                form.setData({
+                                    ...form.data,
+                                    category_id: categoryId,
+                                    expense_type:
+                                        categories.find(
+                                            (option) =>
+                                                option.id === categoryId,
+                                        )?.type === EXPENSE_TYPE
+                                            ? (form.data.expense_type ??
+                                              expenseTypes[0] ??
+                                              null)
+                                            : null,
+                                });
+                            }}
+                        >
+                            <SelectTrigger
+                                id="subcategory-category"
+                                className="w-full"
+                            >
+                                <SelectValue placeholder="Select a category" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                {categories.map((option) => (
+                                    <SelectItem
+                                        key={option.id}
+                                        value={String(option.id)}
+                                    >
+                                        {option.name} ({option.type})
+                                    </SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                        <InputError message={form.errors.category_id} />
+                    </div>
                     <div className="grid gap-2">
                         <Label htmlFor="subcategory-name">Name</Label>
                         <Input

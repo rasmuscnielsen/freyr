@@ -31,6 +31,7 @@ class SubcategoryController extends Controller
         $data = $request->validated();
 
         $subcategory->update([
+            'category_id' => $data['category_id'],
             'name' => $data['name'],
             'hyphenated_name' => Str::slug($data['name']),
             'expense_type' => $data['expense_type'] ?? null,
