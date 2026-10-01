@@ -114,6 +114,45 @@ test('it fails when the export path is not a directory', function () {
         ->assertFailed();
 });
 
+test('spiir account group duplicates are skipped without collapsing identical unflagged postings', function () {
+    $path = sys_get_temp_dir().'/freyr-spiir-duplicates-'.bin2hex(random_bytes(6));
+    mkdir($path);
+    foreach (glob(base_path('tests/Fixtures/spiir-export/*')) as $fixture) {
+        copy($fixture, $path.'/'.basename($fixture));
+    }
+    $lines = file($path.'/Posting.csv', FILE_IGNORE_NEW_LINES);
+    $salary = str_getcsv($lines[1], ';', '"', '\\');
+    $lines[0] .= ';IsAccountGroupDuplicate';
+    foreach ($lines as $index => $line) {
+        if ($index > 0) {
+            $lines[$index] = $line.';False';
+        }
+    }
+    $salary[0] = 'post-identical';
+    $lines[] = implode(';', $salary).';False';
+    $salary[0] = 'post-duplicate';
+    $salary[1] = 'acc-2';
+    $lines[] = implode(';', $salary).';True';
+    file_put_contents($path.'/Posting.csv', implode("\n", $lines)."\n");
+    $user = User::factory()->create();
+
+    try {
+        foreach (range(1, 2) as $run) {
+            $summary = app(SpiirExportImporter::class)->importExport($path, $user);
+
+            expect($summary['postings'])->toBe(8)
+                ->and(Posting::query()->count())->toBe(8)
+                ->and(Posting::query()->where('legacy_id', 'post-duplicate')->exists())->toBeFalse()
+                ->and(Posting::query()->whereIn('legacy_id', ['post-1', 'post-identical'])->count())->toBe(2);
+        }
+    } finally {
+        foreach (glob($path.'/*') as $file) {
+            unlink($file);
+        }
+        rmdir($path);
+    }
+});
+
 test('spiir placeholder external IDs remain missing after repeated imports', function () {
     $path = sys_get_temp_dir().'/freyr-spiir-placeholder-'.bin2hex(random_bytes(6));
     mkdir($path);

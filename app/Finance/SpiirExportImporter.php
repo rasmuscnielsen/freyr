@@ -309,7 +309,7 @@ class SpiirExportImporter
             $accountLegacyId = $this->nullableString($row['AccountId'] ?? null);
             $account = $accountLegacyId === null ? null : $accounts->get($accountLegacyId);
 
-            if ($legacyId === null || ! $account instanceof BankAccount) {
+            if ($legacyId === null || ! $account instanceof BankAccount || $this->boolean($row['IsAccountGroupDuplicate'] ?? null)) {
                 continue;
             }
 
