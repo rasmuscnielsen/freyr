@@ -1,12 +1,5 @@
 import { Link, usePage } from '@inertiajs/react';
-import {
-    BarChart3,
-    ListChecks,
-    Settings,
-    SlidersHorizontal,
-    Tags,
-    WalletCards,
-} from 'lucide-react';
+import { BarChart3, ListChecks, Settings, WalletCards } from 'lucide-react';
 import AppLogo from '@/components/layout/app-logo';
 import { NavFooter } from '@/components/layout/nav-footer';
 import { NavMain } from '@/components/layout/nav-main';
@@ -22,8 +15,6 @@ import {
 } from '@/components/ui/sidebar';
 import { dashboard } from '@/routes';
 import { index as bankAccountsIndex } from '@/routes/bank-accounts';
-import { index as categoriesIndex } from '@/routes/platform/categories';
-import { edit as platformSettingsEdit } from '@/routes/platform/settings';
 import { index as postingsIndex } from '@/routes/postings';
 import { edit as profileEdit } from '@/routes/profile';
 import type { NavItem } from '@/types';
@@ -46,23 +37,9 @@ const accountNavItems: NavItem[] = [
     },
 ];
 
-const platformNavItems: NavItem[] = [
-    {
-        title: 'Categories',
-        href: categoriesIndex(),
-        icon: Tags,
-    },
-    {
-        title: 'Settings',
-        href: platformSettingsEdit(),
-        icon: SlidersHorizontal,
-    },
-];
-
 const footerNavItems: NavItem[] = [];
 
 export function AppSidebar() {
-    const { auth } = usePage().props;
     const { url } = usePage();
 
     return (
@@ -81,9 +58,6 @@ export function AppSidebar() {
 
             <SidebarContent>
                 <NavMain label="Account" items={accountNavItems} />
-                {auth.isPlatformAdmin && (
-                    <NavMain label="Platform" items={platformNavItems} />
-                )}
             </SidebarContent>
 
             <SidebarFooter>
@@ -92,7 +66,10 @@ export function AppSidebar() {
                     <SidebarMenuItem>
                         <SidebarMenuButton
                             asChild
-                            isActive={url.startsWith('/settings')}
+                            isActive={
+                                url.startsWith('/settings') ||
+                                url.startsWith('/platform')
+                            }
                             tooltip={{ children: 'Settings' }}
                         >
                             <Link href={profileEdit()} prefetch>

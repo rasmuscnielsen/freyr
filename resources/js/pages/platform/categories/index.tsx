@@ -1,6 +1,7 @@
 import { Head, useForm } from '@inertiajs/react';
 import { CornerDownRight, Pencil, Plus, Tags, Trash2 } from 'lucide-react';
 import { useMemo, useState } from 'react';
+import Heading from '@/components/heading';
 import InputError from '@/components/input-error';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -165,17 +166,13 @@ export default function Categories({
     return (
         <>
             <Head title="Categories" />
-            <div className="flex flex-col gap-4 p-4 md:p-6">
-                <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
-                    <div>
-                        <h1 className="text-2xl font-semibold tracking-tight">
-                            Categories
-                        </h1>
-                        <p className="text-sm text-muted-foreground">
-                            Manage the shared category taxonomy that buckets
-                            every posting across the platform.
-                        </p>
-                    </div>
+            <div className="flex flex-col gap-4">
+                <div className="flex items-end justify-between gap-3">
+                    <Heading
+                        variant="small"
+                        title="Categories"
+                        description="Manage the shared category taxonomy that buckets every posting across the platform."
+                    />
                     <Button onClick={() => setIsCreatingCategory(true)}>
                         <Plus className="size-4" />
                         New category
