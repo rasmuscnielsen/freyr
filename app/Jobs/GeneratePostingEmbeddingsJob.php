@@ -30,7 +30,7 @@ class GeneratePostingEmbeddingsJob implements ShouldBeUnique, ShouldQueue
      * Upper bound on batches per run (~20k postings); the sweep finishes
      * the rest so a single run cannot monopolize the queue.
      */
-    private const int MAX_ITERATIONS = 1;
+    private const int MAX_ITERATIONS = 40;
 
     public function handle(
         PostingDescriptionEmbeddingGenerator $embeddings,

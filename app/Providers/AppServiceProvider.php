@@ -20,7 +20,7 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        $this->app->singleton(PlatformSettings::class);
+        $this->app->scoped(PlatformSettings::class);
 
         $this->app->bind(EnableBankingClient::class, fn (): EnableBankingClient => new EnableBankingClient(
             $this->app->make(PlatformSettings::class)->enableBankingConfig(),
