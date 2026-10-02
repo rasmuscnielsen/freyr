@@ -1,7 +1,8 @@
 <?php
 
-namespace App\Finance\Fx;
+namespace App\Services\Frankfurter;
 
+use App\Exceptions\FxRequestException;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Arr;
@@ -12,7 +13,7 @@ use Illuminate\Support\Facades\Http;
  * One base unit equals `rate` quote units. Returns only publication dates —
  * non-publication days are simply absent from the response.
  */
-class FrankfurterClient
+class Client
 {
     public const string PROVIDER = 'frankfurter-ecb';
 

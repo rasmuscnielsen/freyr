@@ -2,13 +2,13 @@
 
 namespace App\Http\Controllers;
 
-use App\Finance\AccountBalanceRecalculator;
-use App\Finance\MoneyMath;
+use App\Actions\RecalculateAccountBalance;
 use App\Http\Requests\StorePostingRequest;
 use App\Http\Requests\UpdatePostingRequest;
-use App\Jobs\ConvertReportingAmountsJob;
+use App\Jobs\ConvertReportingAmounts;
 use App\Models\BankAccount;
 use App\Models\Posting;
+use App\Support\MoneyMath;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 
@@ -18,7 +18,7 @@ use Illuminate\Http\Request;
  */
 class BankAccountPostingController extends Controller
 {
-    public function __construct(private AccountBalanceRecalculator $balanceRecalculator) {}
+    public function __construct(private RecalculateAccountBalance $balanceRecalculator) {}
 
     public function store(StorePostingRequest $request, BankAccount $bankAccount): RedirectResponse
     {
@@ -36,10 +36,10 @@ class BankAccountPostingController extends Controller
         $posting->applyReportingAmount($bankAccount->user->reporting_currency ?? $bankAccount->currency);
         $bankAccount->postings()->save($posting);
 
-        $this->balanceRecalculator->recalculate($bankAccount, $accountAmount);
+        $this->balanceRecalculator->handle($bankAccount, $accountAmount);
 
         if ($posting->amount === null && $posting->original_amount !== null) {
-            ConvertReportingAmountsJob::dispatch($bankAccount->user_id)->afterCommit();
+            ConvertReportingAmounts::dispatch($bankAccount->user_id)->afterCommit();
         }
 
         return back();
@@ -70,11 +70,11 @@ class BankAccountPostingController extends Controller
         $posting->save();
 
         if ($monetaryChanged) {
-            $this->balanceRecalculator->recalculate($bankAccount, $delta);
+            $this->balanceRecalculator->handle($bankAccount, $delta);
         }
 
         if ($monetaryChanged && $posting->amount === null && $posting->original_amount !== null) {
-            ConvertReportingAmountsJob::dispatch($bankAccount->user_id)->afterCommit();
+            ConvertReportingAmounts::dispatch($bankAccount->user_id)->afterCommit();
         }
 
         return back();
@@ -89,7 +89,7 @@ class BankAccountPostingController extends Controller
 
         $posting->delete();
 
-        $this->balanceRecalculator->recalculate($bankAccount, $delta);
+        $this->balanceRecalculator->handle($bankAccount, $delta);
 
         return back();
     }

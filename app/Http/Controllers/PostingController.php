@@ -2,14 +2,14 @@
 
 namespace App\Http\Controllers;
 
-use App\Finance\PostingSimilarity;
 use App\Http\Requests\BulkUpdatePostingCategoriesRequest;
 use App\Http\Requests\UpdatePostingCategoryRequest;
-use App\Jobs\ConvertReportingAmountsJob;
+use App\Jobs\ConvertReportingAmounts;
 use App\Models\BankAccount;
 use App\Models\Category;
 use App\Models\Posting;
 use App\Queries\PostingFilters;
+use App\Queries\PostingSimilarity;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -124,7 +124,7 @@ class PostingController extends Controller
      */
     public function retryConversions(Request $request): RedirectResponse
     {
-        ConvertReportingAmountsJob::dispatch($request->user()->id)->afterCommit();
+        ConvertReportingAmounts::dispatch($request->user()->id)->afterCommit();
 
         return back();
     }

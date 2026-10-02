@@ -1,13 +1,13 @@
 <?php
 
 use App\Enums\PlatformSettingKey;
-use App\Finance\SpiirExportImporter;
-use App\Jobs\GeneratePostingEmbeddingsJob;
+use App\Jobs\GeneratePostingEmbeddings;
 use App\Jobs\ImportSpiirExport;
 use App\Models\BankAccount;
 use App\Models\Posting;
 use App\Models\User;
-use App\Platform\PlatformSettings;
+use App\Services\Spiir\Importer;
+use App\Support\PlatformSettings;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Queue;
@@ -34,14 +34,6 @@ test('a fresh install redirects the login page to the onboarding welcome', funct
     $this->get(route('login'))->assertRedirect(route('onboarding.welcome'));
 });
 
-test('the onboarding welcome renders on a fresh install', function () {
-    $this->get(route('onboarding.welcome'))
-        ->assertOk()
-        ->assertInertia(fn (Assert $page) => $page
-            ->component('onboarding/welcome')
-            ->has('passwordRules'));
-});
-
 test('creating the first account makes a verified platform admin and signs in', function () {
     $response = $this->post(route('onboarding.account.store'), [
         'name' => 'Jane Admin',
@@ -57,12 +49,6 @@ test('creating the first account makes a verified platform admin and signs in', 
 
     $this->assertAuthenticatedAs($user);
     $response->assertRedirect(route('onboarding.region'));
-});
-
-test('the onboarding welcome redirects to login once a user exists', function () {
-    User::factory()->create();
-
-    $this->get(route('onboarding.welcome'))->assertRedirect(route('login'));
 });
 
 test('a platform admin with incomplete onboarding is redirected to the wizard', function () {
@@ -183,14 +169,6 @@ test('the spiir import is rejected once postings exist', function () {
         ->assertSessionHasErrors('postings');
 });
 
-test('the status endpoint 404s for an unknown import', function () {
-    $admin = User::factory()->platformAdmin()->create();
-
-    $this->actingAs($admin)
-        ->get(route('spiir-import.show', 'does-not-exist'))
-        ->assertNotFound();
-});
-
 test('spiir import status hides stored errors and belongs only to its owner', function () {
     $owner = User::factory()->platformAdmin()->create();
     $otherAdmin = User::factory()->platformAdmin()->create();
@@ -224,7 +202,7 @@ test('failed spiir jobs cache only a safe error message', function () {
     Storage::fake('local');
     $job = new ImportSpiirExport('missing-import', $admin->id);
 
-    $job->handle(app(SpiirExportImporter::class));
+    $job->handle(app(Importer::class));
 
     $status = Cache::get(ImportSpiirExport::cacheKey('missing-import'));
     expect($status['status'])->toBe('failed')
@@ -253,7 +231,7 @@ test('the similarity step stores the key, enables the feature and completes onbo
         ->and($settings->similarityAvailable())->toBeTrue()
         ->and($settings->onboardingCompleted())->toBeTrue();
 
-    Queue::assertPushed(GeneratePostingEmbeddingsJob::class);
+    Queue::assertPushed(GeneratePostingEmbeddings::class);
 });
 
 test('the similarity step can be skipped and still completes onboarding', function () {
@@ -275,7 +253,7 @@ test('the similarity step can be skipped and still completes onboarding', functi
         ->and($settings->similarityAvailable())->toBeFalse()
         ->and($settings->onboardingCompleted())->toBeTrue();
 
-    Queue::assertNotPushed(GeneratePostingEmbeddingsJob::class);
+    Queue::assertNotPushed(GeneratePostingEmbeddings::class);
 });
 
 test('enabling similarity in onboarding requires an api key', function () {

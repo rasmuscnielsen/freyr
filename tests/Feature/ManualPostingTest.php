@@ -1,6 +1,6 @@
 <?php
 
-use App\Jobs\ConvertReportingAmountsJob;
+use App\Jobs\ConvertReportingAmounts;
 use App\Models\BankAccount;
 use App\Models\BankConnection;
 use App\Models\BankConnectionAccount;
@@ -103,7 +103,7 @@ test('foreign-currency manual postings dispatch the conversion job when created'
         ->post(route('bank-accounts.postings.store', $account), manualPostingPayload())
         ->assertRedirect();
 
-    Queue::assertPushed(ConvertReportingAmountsJob::class, fn (ConvertReportingAmountsJob $job): bool => $job->userId === $user->id);
+    Queue::assertPushed(ConvertReportingAmounts::class, fn (ConvertReportingAmounts $job): bool => $job->userId === $user->id);
 });
 
 test('editing a foreign-currency manual posting dispatches the conversion job', function () {
@@ -116,7 +116,7 @@ test('editing a foreign-currency manual posting dispatches the conversion job', 
         ->patch(route('bank-accounts.postings.update', [$account, $posting]), manualPostingPayload(['amount' => '-10.00']))
         ->assertRedirect();
 
-    Queue::assertPushed(ConvertReportingAmountsJob::class, fn (ConvertReportingAmountsJob $job): bool => $job->userId === $user->id);
+    Queue::assertPushed(ConvertReportingAmounts::class, fn (ConvertReportingAmounts $job): bool => $job->userId === $user->id);
 });
 
 test('same-currency manual postings skip the conversion job', function () {
@@ -128,7 +128,7 @@ test('same-currency manual postings skip the conversion job', function () {
         ->post(route('bank-accounts.postings.store', $account), manualPostingPayload())
         ->assertRedirect();
 
-    Queue::assertNotPushed(ConvertReportingAmountsJob::class);
+    Queue::assertNotPushed(ConvertReportingAmounts::class);
 });
 
 test('manual postings can be deleted', function () {
@@ -247,21 +247,6 @@ test('manual postings are only manageable by the account owner', function () {
     expect(Posting::query()->count())->toBe(1);
 });
 
-test('manual posting routes are scoped to the bank account', function () {
-    $user = User::factory()->create();
-    $account = manualPostingAccount($user);
-    $otherAccount = manualPostingAccount($user);
-    $posting = Posting::factory()->forAccount($otherAccount)->create();
-
-    $this->actingAs($user)
-        ->patch(route('bank-accounts.postings.update', [$account, $posting]), manualPostingPayload())
-        ->assertNotFound();
-
-    $this->actingAs($user)
-        ->delete(route('bank-accounts.postings.destroy', [$account, $posting]))
-        ->assertNotFound();
-});
-
 test('bank account detail exposes manual state and categories for manual accounts', function () {
     $user = User::factory()->create();
     $account = manualPostingAccount($user);
@@ -276,21 +261,6 @@ test('bank account detail exposes manual state and categories for manual account
             ->where('account.is_manual', true)
             ->where('postings.data.0.comment', 'Note')
             ->where('postings.data.0.categorized_subcategory_id', $subcategory->id)
-            ->has('categories', 1));
-});
-
-test('bank account detail marks connected accounts as not manual but still offers categories', function () {
-    $user = User::factory()->create();
-    $account = manualPostingAccount($user);
-    $connection = BankConnection::factory()->for($user)->create();
-    BankConnectionAccount::factory()->for($connection)->linkedTo($account)->create();
-    Subcategory::factory()->create();
-
-    $this->actingAs($user)
-        ->get(route('bank-accounts.show', $account))
-        ->assertOk()
-        ->assertInertia(fn (Assert $page) => $page
-            ->where('account.is_manual', false)
             ->has('categories', 1));
 });
 

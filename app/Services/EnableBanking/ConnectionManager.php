@@ -1,9 +1,9 @@
 <?php
 
-namespace App\Finance\EnableBanking;
+namespace App\Services\EnableBanking;
 
-use App\Jobs\ConvertReportingAmountsJob;
-use App\Jobs\GeneratePostingEmbeddingsJob;
+use App\Jobs\ConvertReportingAmounts;
+use App\Jobs\GeneratePostingEmbeddings;
 use App\Models\BankAccount;
 use App\Models\BankConnection;
 use App\Models\BankConnectionAccount;
@@ -21,11 +21,11 @@ use Illuminate\Support\Str;
 use RuntimeException;
 use Throwable;
 
-class EnableBankingConnectionManager
+final class ConnectionManager
 {
     public function __construct(
-        private readonly EnableBankingClient $client,
-        private readonly EnableBankingTransactionMapper $transactionMapper,
+        private readonly Client $client,
+        private readonly TransactionMapper $transactionMapper,
     ) {}
 
     public function startAuthorization(User $user, ?BankConnection $connection = null, ?string $aspspName = null, ?string $aspspCountry = null): string
@@ -274,13 +274,13 @@ class EnableBankingConnectionManager
         // later run retries whatever is still unresolved.
         if ($run->refresh()->status === BankSyncRun::STATUS_SUCCEEDED) {
             try {
-                ConvertReportingAmountsJob::dispatch($connection->user_id)->afterCommit();
+                ConvertReportingAmounts::dispatch($connection->user_id)->afterCommit();
             } catch (Throwable) {
                 // The next sync or a manual retry picks up the backlog.
             }
 
             try {
-                GeneratePostingEmbeddingsJob::dispatch()->afterCommit();
+                GeneratePostingEmbeddings::dispatch()->afterCommit();
             } catch (Throwable) {
                 // The hourly sweep picks it up instead.
             }

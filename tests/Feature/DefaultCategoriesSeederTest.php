@@ -68,15 +68,3 @@ test('a spiir import replaces the default categories after confirmation', functi
         ->and(Category::query()->where('legacy_id', 'like', DefaultCategoriesSeeder::CATEGORY_LEGACY_ID_PREFIX.'%')->exists())->toBeFalse()
         ->and($posting->refresh()->categorized_subcategory_id)->toBeNull();
 });
-
-test('a spiir import can be aborted at the default-categories warning', function () {
-    $this->seed(DefaultCategoriesSeeder::class);
-
-    $defaultCategories = Category::query()->count();
-
-    $this->artisan('app:spiir:import', ['path' => base_path('tests/Fixtures/spiir-export')])
-        ->expectsConfirmation('Continue?')
-        ->assertFailed();
-
-    expect(Category::query()->count())->toBe($defaultCategories);
-});

@@ -2,7 +2,7 @@
 
 namespace App\Console\Commands;
 
-use App\Finance\SpiirExportImporter;
+use App\Services\Spiir\Importer;
 use Illuminate\Console\Attributes\Description;
 use Illuminate\Console\Attributes\Signature;
 use Illuminate\Console\Command;
@@ -14,7 +14,7 @@ class ImportSpiirExportCommand extends Command
     /**
      * Execute the console command.
      */
-    public function handle(SpiirExportImporter $importer): int
+    public function handle(Importer $importer): int
     {
         $path = (string) $this->argument('path');
 

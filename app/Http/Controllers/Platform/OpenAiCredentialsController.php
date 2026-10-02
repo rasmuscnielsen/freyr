@@ -3,8 +3,8 @@
 namespace App\Http\Controllers\Platform;
 
 use App\Http\Controllers\Controller;
-use App\Jobs\GeneratePostingEmbeddingsJob;
-use App\Platform\PlatformSettings;
+use App\Jobs\GeneratePostingEmbeddings;
+use App\Support\PlatformSettings;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 
@@ -19,7 +19,7 @@ class OpenAiCredentialsController extends Controller
         $settings->storeOpenAiApiKey(trim($data['api_key']));
 
         if ($settings->similarityAvailable()) {
-            GeneratePostingEmbeddingsJob::dispatch()->afterCommit();
+            GeneratePostingEmbeddings::dispatch()->afterCommit();
         }
 
         return back();

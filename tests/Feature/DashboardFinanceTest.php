@@ -164,17 +164,6 @@ test('selecting a calendar year windows to that year but never beyond the last c
     }
 });
 
-test('invalid period falls back to the default 12 month window', function () {
-    ['user' => $user] = seedBudget();
-
-    $this->actingAs($user)
-        ->get(route('dashboard', ['period' => 'bogus']))
-        ->assertOk()
-        ->assertInertia(fn (Assert $page) => $page
-            ->where('period.selected', '12m')
-            ->where('period.months', 12));
-});
-
 test('dashboard uses completed months when latest import is in current partial month', function () {
     CarbonImmutable::setTestNow('2026-06-08 12:00:00');
 

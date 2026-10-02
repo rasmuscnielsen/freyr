@@ -2,9 +2,9 @@
 
 namespace App\Mcp\Tools;
 
-use App\Finance\PostingSimilarity;
 use App\Http\Resources\PostingResource;
 use App\Models\Posting;
+use App\Queries\PostingSimilarity;
 use Illuminate\Contracts\JsonSchema\JsonSchema;
 use Laravel\Mcp\Request;
 use Laravel\Mcp\Response;

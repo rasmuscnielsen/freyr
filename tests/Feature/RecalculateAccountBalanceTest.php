@@ -1,6 +1,6 @@
 <?php
 
-use App\Finance\AccountBalanceRecalculator;
+use App\Actions\RecalculateAccountBalance;
 use App\Models\BankAccount;
 use App\Models\BankConnection;
 use App\Models\BankConnectionAccount;
@@ -9,7 +9,7 @@ use App\Models\User;
 
 function recalculateManualAccount(BankAccount $account, string $delta = '0'): void
 {
-    app(AccountBalanceRecalculator::class)->recalculate($account, $delta);
+    app(RecalculateAccountBalance::class)->handle($account, $delta);
 }
 
 function manualBalanceAccount(array $attributes = []): BankAccount

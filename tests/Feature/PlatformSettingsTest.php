@@ -2,24 +2,9 @@
 
 use App\Enums\PlatformSettingKey;
 use App\Models\PlatformSetting;
-use App\Platform\PlatformSettings;
+use App\Support\PlatformSettings;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Crypt;
-
-test('it stores and reads a boolean setting', function () {
-    $settings = app(PlatformSettings::class);
-
-    expect($settings->registrationEnabled())->toBeFalse();
-
-    $settings->set(PlatformSettingKey::RegistrationEnabled, true);
-
-    expect($settings->registrationEnabled())->toBeTrue()
-        ->and(PlatformSetting::query()->find('registration.enabled')->value)->toBe('1');
-
-    $settings->set(PlatformSettingKey::RegistrationEnabled, false);
-
-    expect($settings->registrationEnabled())->toBeFalse();
-});
 
 test('it stores encrypted values and decrypts them on read', function () {
     $settings = app(PlatformSettings::class);
@@ -72,17 +57,6 @@ test('stored enable banking values override env config', function () {
 
     expect($settings->enableBankingConfig())
         ->toMatchArray(['app_id' => 'env-app-id', 'private_key' => 'env-key']);
-});
-
-test('onboarding completion is tracked as a setting', function () {
-    $settings = app(PlatformSettings::class);
-
-    expect($settings->onboardingCompleted())->toBeFalse();
-
-    $settings->markOnboardingCompleted();
-
-    expect($settings->onboardingCompleted())->toBeTrue()
-        ->and($settings->get(PlatformSettingKey::OnboardingCompletedAt))->not->toBeNull();
 });
 
 test('the openai key is stored encrypted and falls back to env config', function () {

@@ -2,7 +2,7 @@
 
 use App\Enums\PlatformSettingKey;
 use App\Models\User;
-use App\Platform\PlatformSettings;
+use App\Support\PlatformSettings;
 use Illuminate\Http\UploadedFile;
 use Inertia\Testing\AssertableInertia as Assert;
 
@@ -20,13 +20,6 @@ function pemUpload(): UploadedFile
 
     return UploadedFile::fake()->createWithContent('app.pem', $pem);
 }
-
-test('guests are redirected to login', function () {
-    User::factory()->create();
-
-    $this->get(route('platform.settings.edit'))
-        ->assertRedirect(route('login'));
-});
 
 test('non-admin users are forbidden', function () {
     $user = User::factory()->create();

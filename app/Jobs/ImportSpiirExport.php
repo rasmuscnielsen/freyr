@@ -2,15 +2,15 @@
 
 namespace App\Jobs;
 
-use App\Finance\SpiirExportImporter;
 use App\Models\User;
+use App\Services\Spiir\Importer;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Storage;
 use Throwable;
 
-class ImportSpiirExport implements ShouldQueue
+final class ImportSpiirExport implements ShouldQueue
 {
     use Queueable;
 
@@ -34,7 +34,7 @@ class ImportSpiirExport implements ShouldQueue
      * Run the import off the queued job and mirror progress in the cache so
      * the UI can poll it. The uploaded directory is always removed.
      */
-    public function handle(SpiirExportImporter $importer): void
+    public function handle(Importer $importer): void
     {
         $key = self::cacheKey($this->importId);
         $directory = "spiir-imports/{$this->importId}";
@@ -47,7 +47,7 @@ class ImportSpiirExport implements ShouldQueue
                 User::query()->find($this->userId),
             );
 
-            GeneratePostingEmbeddingsJob::dispatch()->afterCommit();
+            GeneratePostingEmbeddings::dispatch()->afterCommit();
 
             $this->storeStatus($key, ['status' => 'completed', 'summary' => $summary]);
         } catch (Throwable $exception) {

@@ -4,7 +4,7 @@ namespace App\Http\Controllers\Platform;
 
 use App\Enums\PlatformSettingKey;
 use App\Http\Controllers\Controller;
-use App\Platform\PlatformSettings;
+use App\Support\PlatformSettings;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 

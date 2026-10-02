@@ -2,25 +2,19 @@
 
 namespace App\Jobs;
 
-use App\Finance\EnableBanking\EnableBankingConnectionManager;
 use App\Models\BankConnectionAccount;
+use App\Services\EnableBanking\ConnectionManager;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 
-class SyncBankConnectionAccountJob implements ShouldBeUnique, ShouldQueue
+final class SyncBankConnectionAccount implements ShouldBeUnique, ShouldQueue
 {
     use Queueable;
 
-    /**
-     * Create a new job instance.
-     */
     public function __construct(public BankConnectionAccount $bankConnectionAccount) {}
 
-    /**
-     * Execute the job.
-     */
-    public function handle(EnableBankingConnectionManager $manager): void
+    public function handle(ConnectionManager $manager): void
     {
         $manager->syncAccount($this->bankConnectionAccount);
     }

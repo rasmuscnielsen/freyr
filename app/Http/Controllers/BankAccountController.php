@@ -2,13 +2,10 @@
 
 namespace App\Http\Controllers;
 
-use App\Finance\AccountBalanceRecalculator;
-use App\Finance\EnableBanking\EnableBankingClient;
-use App\Finance\Fx\ExchangeRateStore;
-use App\Finance\MoneyMath;
+use App\Actions\RecalculateAccountBalance;
 use App\Http\Requests\StoreBankAccountRequest;
 use App\Http\Requests\UpdateBankAccountRequest;
-use App\Jobs\ConvertReportingAmountsJob;
+use App\Jobs\ConvertReportingAmounts;
 use App\Models\BankAccount;
 use App\Models\BankConnection;
 use App\Models\BankConnectionAccount;
@@ -16,6 +13,9 @@ use App\Models\BankSyncRun;
 use App\Models\Category;
 use App\Models\Posting;
 use App\Models\User;
+use App\Services\EnableBanking\Client;
+use App\Services\Frankfurter\ExchangeRateStore;
+use App\Support\MoneyMath;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -31,7 +31,7 @@ use Throwable;
 
 class BankAccountController extends Controller
 {
-    public function index(Request $request, EnableBankingClient $enableBanking): Response
+    public function index(Request $request, Client $enableBanking): Response
     {
         $user = $request->user();
         $accounts = BankAccount::query()
@@ -219,7 +219,7 @@ class BankAccountController extends Controller
         return back();
     }
 
-    public function update(UpdateBankAccountRequest $request, BankAccount $bankAccount, AccountBalanceRecalculator $balanceRecalculator): RedirectResponse
+    public function update(UpdateBankAccountRequest $request, BankAccount $bankAccount, RecalculateAccountBalance $balanceRecalculator): RedirectResponse
     {
         $validated = $request->validated();
 
@@ -251,7 +251,7 @@ class BankAccountController extends Controller
         $bankAccount->update($validated);
 
         if ($openingBalanceChanged) {
-            $balanceRecalculator->recalculate($bankAccount);
+            $balanceRecalculator->handle($bankAccount);
         }
 
         if ($openingBalanceChanged || $currencyChanged) {
@@ -291,7 +291,7 @@ class BankAccountController extends Controller
             return;
         }
 
-        ConvertReportingAmountsJob::dispatch($user->id)->afterCommit();
+        ConvertReportingAmounts::dispatch($user->id)->afterCommit();
     }
 
     /**
@@ -443,7 +443,7 @@ class BankAccountController extends Controller
     /**
      * @return list<array{key:string,name:string,country:string}>
      */
-    private function availableBanks(EnableBankingClient $enableBanking, User $user): array
+    private function availableBanks(Client $enableBanking, User $user): array
     {
         $defaultCountry = $user->country_code ?? (string) config('services.enable_banking.aspsp_country', 'DK');
 

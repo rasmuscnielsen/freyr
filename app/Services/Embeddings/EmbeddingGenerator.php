@@ -1,14 +1,14 @@
 <?php
 
-namespace App\Finance;
+namespace App\Services\Embeddings;
 
 use App\Models\Posting;
-use App\Platform\PlatformSettings;
+use App\Support\PlatformSettings;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 use Laravel\Ai\Embeddings;
 
-class PostingDescriptionEmbeddingGenerator
+final class EmbeddingGenerator
 {
     /**
      * The runtime provider name the API key is injected into. Keeping it

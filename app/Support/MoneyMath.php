@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Finance;
+namespace App\Support;
 
 /**
  * Decimal-string money arithmetic. Monetary values are stored and compared

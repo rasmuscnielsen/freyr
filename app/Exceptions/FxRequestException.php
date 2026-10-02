@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Finance\Fx;
+namespace App\Exceptions;
 
 use RuntimeException;
 

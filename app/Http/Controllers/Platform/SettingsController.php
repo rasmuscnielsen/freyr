@@ -3,17 +3,17 @@
 namespace App\Http\Controllers\Platform;
 
 use App\Enums\PlatformSettingKey;
-use App\Finance\SpiirExportImporter;
 use App\Http\Controllers\Controller;
 use App\Http\Controllers\SpiirImportController;
-use App\Platform\PlatformSettings;
+use App\Services\Spiir\Importer;
+use App\Support\PlatformSettings;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Inertia\Response;
 
 class SettingsController extends Controller
 {
-    public function edit(Request $request, PlatformSettings $settings, SpiirExportImporter $importer): Response
+    public function edit(Request $request, PlatformSettings $settings, Importer $importer): Response
     {
         return Inertia::render('platform/settings/index', [
             'registrationEnabled' => $settings->registrationEnabled(),

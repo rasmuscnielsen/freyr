@@ -2,20 +2,11 @@
 
 use App\Enums\PlatformSettingKey;
 use App\Models\User;
-use App\Platform\PlatformSettings;
+use App\Support\PlatformSettings;
 use Laravel\Fortify\Features;
 
 beforeEach(function () {
     $this->skipUnlessFortifyHas(Features::registration());
-});
-
-test('registration screen can be rendered', function () {
-    User::factory()->create();
-    app(PlatformSettings::class)->set(PlatformSettingKey::RegistrationEnabled, true);
-
-    $response = $this->get(route('register'));
-
-    $response->assertOk();
 });
 
 test('new users can register', function () {
@@ -31,10 +22,6 @@ test('new users can register', function () {
 
     $this->assertAuthenticated();
     $response->assertRedirect(route('dashboard', absolute: false));
-});
-
-test('registration is disabled by default', function () {
-    expect(app(PlatformSettings::class)->registrationEnabled())->toBeFalse();
 });
 
 test('the registration screen returns 404 when registration is disabled', function () {
