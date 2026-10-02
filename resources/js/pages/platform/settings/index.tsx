@@ -409,10 +409,22 @@ export default function PlatformSettingsIndex({
                                                         destroyOpenAi.url(),
                                                         {
                                                             preserveScroll: true,
-                                                            onSuccess: () =>
+                                                            onSuccess: () => {
                                                                 setOpenAiDialogOpen(
                                                                     false,
-                                                                ),
+                                                                );
+                                                                // The server cascade
+                                                                // disables similarity
+                                                                // flags — mirror it.
+                                                                similarity.setData(
+                                                                    {
+                                                                        ...similarity.data,
+                                                                        enabled: false,
+                                                                        auto_categorize:
+                                                                            false,
+                                                                    },
+                                                                );
+                                                            },
                                                         },
                                                     )
                                                 }

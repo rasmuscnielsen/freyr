@@ -70,7 +70,10 @@ export default function OnboardingSimilarity({
                     {({ processing, errors }) => (
                         <>
                             {keyFieldVisible && (
-                                <OpenAiApiKeyField errors={errors} />
+                                <OpenAiApiKeyField
+                                    errors={errors}
+                                    required={enabled}
+                                />
                             )}
 
                             {openAi.configured && !showReplaceForm && (

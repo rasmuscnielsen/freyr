@@ -49,8 +49,10 @@ export function SimilarityIntro() {
 
 export function OpenAiApiKeyField({
     errors,
+    required = true,
 }: {
     errors: Partial<Record<'api_key', string>>;
+    required?: boolean;
 }) {
     return (
         <div className="grid gap-2">
@@ -58,7 +60,7 @@ export function OpenAiApiKeyField({
             <Input
                 id="api_key"
                 type="password"
-                required
+                required={required}
                 name="api_key"
                 placeholder="sk-..."
                 autoComplete="off"
