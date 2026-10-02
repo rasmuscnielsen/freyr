@@ -22,6 +22,15 @@ class SettingsController extends Controller
                 'appId' => $settings->get(PlatformSettingKey::EnableBankingAppId),
                 'source' => $this->enableBankingSource($settings),
             ],
+            'openAi' => [
+                'configured' => $settings->openAiConfigured(),
+                'source' => $this->openAiSource($settings),
+            ],
+            'similarity' => [
+                'enabled' => $settings->similarityEnabled(),
+                'since' => $settings->similaritySince(),
+                'autoCategorize' => $settings->similarityAutoCategorize(),
+            ],
             'spiir' => [
                 'canImport' => $importer->canImport(),
                 'hasDefaultCategories' => $importer->hasDefaultCategories(),
@@ -42,5 +51,18 @@ class SettingsController extends Controller
         }
 
         return $settings->enableBankingConfigured() ? 'environment' : null;
+    }
+
+    /**
+     * Whether the OpenAI key comes from a stored setting or only from the
+     * environment fallback.
+     */
+    private function openAiSource(PlatformSettings $settings): ?string
+    {
+        if ($settings->isStored(PlatformSettingKey::OpenAiApiKey)) {
+            return 'database';
+        }
+
+        return $settings->openAiConfigured() ? 'environment' : null;
     }
 }

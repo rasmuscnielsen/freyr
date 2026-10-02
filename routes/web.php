@@ -7,8 +7,10 @@ use App\Http\Controllers\BankConnectionController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\Platform\CategoryController;
 use App\Http\Controllers\Platform\EnableBankingCredentialsController;
+use App\Http\Controllers\Platform\OpenAiCredentialsController;
 use App\Http\Controllers\Platform\RegistrationController;
 use App\Http\Controllers\Platform\SettingsController;
+use App\Http\Controllers\Platform\SimilaritySettingsController;
 use App\Http\Controllers\Platform\SubcategoryController;
 use App\Http\Controllers\PostingController;
 use App\Http\Controllers\RegionSetupController;
@@ -37,6 +39,7 @@ Route::middleware(['auth', 'verified', 'requires-region-setup'])->group(function
     Route::post('bank-connection-accounts/{bankConnectionAccount}/sync', [BankConnectionAccountController::class, 'sync'])->name('bank-connection-accounts.sync');
     Route::patch('postings', [PostingController::class, 'bulkUpdate'])->name('postings.bulk-update');
     Route::post('postings/retry-conversions', [PostingController::class, 'retryConversions'])->name('postings.retry-conversions');
+    Route::get('postings/{posting}/similar', [PostingController::class, 'similar'])->name('postings.similar');
     Route::resource('postings', PostingController::class)->only(['index', 'update']);
     Route::resource('bank-accounts', BankAccountController::class)->only(['index', 'show', 'store', 'update', 'destroy']);
     Route::resource('bank-accounts.postings', BankAccountPostingController::class)->only(['store', 'update', 'destroy'])->scoped();
@@ -61,6 +64,9 @@ Route::middleware(['auth', 'verified', 'platform-admin', 'requires-region-setup'
     Route::patch('settings/registration', [RegistrationController::class, 'update'])->name('settings.registration.update');
     Route::put('settings/enable-banking', [EnableBankingCredentialsController::class, 'update'])->name('settings.enable-banking.update');
     Route::delete('settings/enable-banking', [EnableBankingCredentialsController::class, 'destroy'])->name('settings.enable-banking.destroy');
+    Route::put('settings/openai', [OpenAiCredentialsController::class, 'update'])->name('settings.openai.update');
+    Route::delete('settings/openai', [OpenAiCredentialsController::class, 'destroy'])->name('settings.openai.destroy');
+    Route::patch('settings/similarity', [SimilaritySettingsController::class, 'update'])->name('settings.similarity.update');
 });
 
 require __DIR__.'/onboarding.php';

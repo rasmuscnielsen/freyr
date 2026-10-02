@@ -47,6 +47,8 @@ class ImportSpiirExport implements ShouldQueue
                 User::query()->find($this->userId),
             );
 
+            GeneratePostingEmbeddingsJob::dispatch()->afterCommit();
+
             $this->storeStatus($key, ['status' => 'completed', 'summary' => $summary]);
         } catch (Throwable $exception) {
             report($exception);

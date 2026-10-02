@@ -5,6 +5,7 @@ namespace App\Platform;
 use App\Enums\PlatformSettingKey;
 use App\Models\PlatformSetting;
 use App\Models\User;
+use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Crypt;
 
@@ -137,6 +138,102 @@ class PlatformSettings
     {
         $this->forget(PlatformSettingKey::EnableBankingAppId);
         $this->forget(PlatformSettingKey::EnableBankingPrivateKey);
+    }
+
+    public function openAiApiKey(): ?string
+    {
+        $key = $this->get(PlatformSettingKey::OpenAiApiKey);
+
+        return $key === null ? null : (string) $key;
+    }
+
+    /**
+     * Whether an OpenAI key resolves to a non-empty value, either stored or
+     * via the environment fallback.
+     */
+    public function openAiConfigured(): bool
+    {
+        return filled($this->openAiApiKey());
+    }
+
+    public function storeOpenAiApiKey(string $apiKey): void
+    {
+        $this->set(PlatformSettingKey::OpenAiApiKey, $apiKey);
+    }
+
+    /**
+     * Removing the key also turns similarity features off — without a key
+     * they cannot run, and a stale enabled flag would be misleading.
+     */
+    public function forgetOpenAiApiKey(): void
+    {
+        $this->forget(PlatformSettingKey::OpenAiApiKey);
+        $this->set(PlatformSettingKey::SimilarityEnabled, false);
+        $this->set(PlatformSettingKey::SimilarityAutoCategorize, false);
+    }
+
+    public function similarityEnabled(): bool
+    {
+        return (bool) $this->get(PlatformSettingKey::SimilarityEnabled);
+    }
+
+    /**
+     * The API key the embedding provider should use. For OpenAI (the
+     * default) this is the stored platform key or its env fallback; custom
+     * providers configured via `services.statement_embeddings.provider`
+     * resolve their own `ai.providers.<name>.key` instead.
+     */
+    public function embeddingApiKey(): ?string
+    {
+        $driver = (string) config('services.statement_embeddings.provider', 'openai');
+
+        $key = $driver === 'openai'
+            ? $this->openAiApiKey()
+            : config("ai.providers.{$driver}.key");
+
+        return filled($key) ? (string) $key : null;
+    }
+
+    /**
+     * Whether similarity features can actually run: enabled and an
+     * embedding API key resolves. This is the single gate every caller
+     * should check.
+     */
+    public function similarityAvailable(): bool
+    {
+        return $this->similarityEnabled() && $this->embeddingApiKey() !== null;
+    }
+
+    /**
+     * How far back postings should be analyzed: '1y', '2y', '5y' or 'all'.
+     */
+    public function similaritySince(): string
+    {
+        $since = (string) $this->get(PlatformSettingKey::SimilaritySince);
+
+        return in_array($since, ['1y', '2y', '5y', 'all'], strict: true) ? $since : 'all';
+    }
+
+    /**
+     * The earliest posting date embeddings cover, or null for all time.
+     */
+    public function similaritySinceDate(): ?CarbonImmutable
+    {
+        return match ($this->similaritySince()) {
+            '1y' => now()->subYear()->toImmutable(),
+            '2y' => now()->subYears(2)->toImmutable(),
+            '5y' => now()->subYears(5)->toImmutable(),
+            default => null,
+        };
+    }
+
+    /**
+     * Whether high-confidence category suggestions are applied as confirmed
+     * categorizations instead of staying suggestions. Opt-in.
+     */
+    public function similarityAutoCategorize(): bool
+    {
+        return (bool) $this->get(PlatformSettingKey::SimilarityAutoCategorize);
     }
 
     /**

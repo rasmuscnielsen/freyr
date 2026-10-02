@@ -3,6 +3,7 @@
 use App\Enums\PlatformSettingKey;
 use App\Models\PlatformSetting;
 use App\Platform\PlatformSettings;
+use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Crypt;
 
 test('it stores and reads a boolean setting', function () {
@@ -82,4 +83,68 @@ test('onboarding completion is tracked as a setting', function () {
 
     expect($settings->onboardingCompleted())->toBeTrue()
         ->and($settings->get(PlatformSettingKey::OnboardingCompletedAt))->not->toBeNull();
+});
+
+test('the openai key is stored encrypted and falls back to env config', function () {
+    config()->set('ai.providers.openai.key', 'env-openai-key');
+
+    $settings = app(PlatformSettings::class);
+
+    expect($settings->openAiApiKey())->toBe('env-openai-key')
+        ->and($settings->openAiConfigured())->toBeTrue();
+
+    $settings->storeOpenAiApiKey('sk-stored-key');
+
+    $row = PlatformSetting::query()->find('openai.api_key');
+
+    expect($row->is_encrypted)->toBeTrue()
+        ->and(Crypt::decryptString($row->value))->toBe('sk-stored-key')
+        ->and($settings->openAiApiKey())->toBe('sk-stored-key');
+});
+
+test('forgetting the openai key also disables similarity settings', function () {
+    $settings = app(PlatformSettings::class);
+
+    $settings->storeOpenAiApiKey('sk-stored-key');
+    $settings->set(PlatformSettingKey::SimilarityEnabled, true);
+    $settings->set(PlatformSettingKey::SimilarityAutoCategorize, true);
+
+    $settings->forgetOpenAiApiKey();
+
+    expect($settings->isStored(PlatformSettingKey::OpenAiApiKey))->toBeFalse()
+        ->and($settings->similarityEnabled())->toBeFalse()
+        ->and($settings->similarityAutoCategorize())->toBeFalse();
+});
+
+test('similarity availability needs both the enabled flag and a resolvable key', function () {
+    config()->set('ai.providers.openai.key', null);
+
+    $settings = app(PlatformSettings::class);
+
+    expect($settings->similarityAvailable())->toBeFalse();
+
+    $settings->set(PlatformSettingKey::SimilarityEnabled, true);
+    expect($settings->similarityAvailable())->toBeFalse();
+
+    $settings->storeOpenAiApiKey('sk-stored-key');
+    expect($settings->similarityAvailable())->toBeTrue();
+
+    $settings->set(PlatformSettingKey::SimilarityEnabled, false);
+    expect($settings->similarityAvailable())->toBeFalse()
+        ->and($settings->openAiConfigured())->toBeTrue();
+});
+
+test('the similarity lookback validates stored values and maps to a date', function () {
+    $settings = app(PlatformSettings::class);
+
+    expect($settings->similaritySince())->toBe('all')
+        ->and($settings->similaritySinceDate())->toBeNull();
+
+    $settings->set(PlatformSettingKey::SimilaritySince, 'nonsense');
+    expect($settings->similaritySince())->toBe('all');
+
+    $settings->set(PlatformSettingKey::SimilaritySince, '1y');
+    expect($settings->similaritySince())->toBe('1y')
+        ->and($settings->similaritySinceDate())->toBeInstanceOf(CarbonImmutable::class)
+        ->and($settings->similaritySinceDate()->isSameDay(now()->subYear()))->toBeTrue();
 });

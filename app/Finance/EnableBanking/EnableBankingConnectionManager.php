@@ -3,6 +3,7 @@
 namespace App\Finance\EnableBanking;
 
 use App\Jobs\ConvertReportingAmountsJob;
+use App\Jobs\GeneratePostingEmbeddingsJob;
 use App\Models\BankAccount;
 use App\Models\BankConnection;
 use App\Models\BankConnectionAccount;
@@ -276,6 +277,12 @@ class EnableBankingConnectionManager
                 ConvertReportingAmountsJob::dispatch($connection->user_id)->afterCommit();
             } catch (Throwable) {
                 // The next sync or a manual retry picks up the backlog.
+            }
+
+            try {
+                GeneratePostingEmbeddingsJob::dispatch()->afterCommit();
+            } catch (Throwable) {
+                // The hourly sweep picks it up instead.
             }
         }
 

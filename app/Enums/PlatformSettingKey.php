@@ -12,13 +12,21 @@ enum PlatformSettingKey: string
 
     case EnableBankingPrivateKey = 'enable_banking.private_key';
 
+    case OpenAiApiKey = 'openai.api_key';
+
+    case SimilarityEnabled = 'similarity.enabled';
+
+    case SimilaritySince = 'similarity.since';
+
+    case SimilarityAutoCategorize = 'similarity.auto_categorize';
+
     /**
      * Whether the stored value should be encrypted at rest.
      */
     public function isEncrypted(): bool
     {
         return match ($this) {
-            self::EnableBankingAppId, self::EnableBankingPrivateKey => true,
+            self::EnableBankingAppId, self::EnableBankingPrivateKey, self::OpenAiApiKey => true,
             default => false,
         };
     }
@@ -28,7 +36,10 @@ enum PlatformSettingKey: string
      */
     public function isBoolean(): bool
     {
-        return $this === self::RegistrationEnabled;
+        return match ($this) {
+            self::RegistrationEnabled, self::SimilarityEnabled, self::SimilarityAutoCategorize => true,
+            default => false,
+        };
     }
 
     /**
@@ -41,6 +52,9 @@ enum PlatformSettingKey: string
             self::RegistrationEnabled => false,
             self::EnableBankingAppId => config('services.enable_banking.app_id'),
             self::EnableBankingPrivateKey => config('services.enable_banking.private_key'),
+            self::OpenAiApiKey => config('ai.providers.openai.key'),
+            self::SimilarityEnabled, self::SimilarityAutoCategorize => false,
+            self::SimilaritySince => 'all',
             default => null,
         };
     }

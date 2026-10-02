@@ -41,7 +41,7 @@ class RedirectToOnboarding
         if ($request->user()?->isPlatformAdmin() && ! $this->settings->onboardingCompleted()) {
             return redirect()->route(
                 $request->user()->hasCompletedRegionSetup()
-                    ? 'onboarding.registration'
+                    ? 'onboarding.enable-banking'
                     : 'onboarding.region',
             );
         }

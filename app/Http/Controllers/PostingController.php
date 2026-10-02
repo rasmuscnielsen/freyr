@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Finance\PostingSimilarity;
 use App\Http\Requests\BulkUpdatePostingCategoriesRequest;
 use App\Http\Requests\UpdatePostingCategoryRequest;
 use App\Jobs\ConvertReportingAmountsJob;
@@ -9,6 +10,7 @@ use App\Models\BankAccount;
 use App\Models\Category;
 use App\Models\Posting;
 use App\Queries\PostingFilters;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -21,7 +23,7 @@ class PostingController extends Controller
         $user = $request->user();
         $baseQuery = Posting::query()
             ->forUser($user)
-            ->with(['bankAccount', 'categorizedSubcategory.category']);
+            ->with(['bankAccount', 'categorizedSubcategory.category', 'subcategory.category']);
 
         $query = PostingFilters::apply($baseQuery);
 
@@ -63,6 +65,40 @@ class PostingController extends Controller
         $posting->update($request->validated());
 
         return back();
+    }
+
+    /**
+     * JSON detail for the posting sheet: the posting itself, its nearest
+     * similar postings (when similarity features are on), and any category
+     * suggestion — computing and storing one lazily when the slot is still
+     * empty, the same fill the sweep job performs.
+     */
+    public function similar(Request $request, Posting $posting, PostingSimilarity $similarity): JsonResponse
+    {
+        abort_unless($posting->user_id === $request->user()->id, 404);
+
+        $posting->loadMissing(['bankAccount', 'categorizedSubcategory.category', 'subcategory.category']);
+
+        if ($similarity->supported()
+            && $posting->categorized_subcategory_id === null
+            && $posting->subcategory_id === null
+            && $posting->description_embedding !== null
+            && ($suggestion = $similarity->suggestionFor($posting)) !== null) {
+            $posting->update(['subcategory_id' => $suggestion['subcategory_id']]);
+            $posting->load('subcategory.category');
+        }
+
+        return response()->json([
+            'posting' => $this->postingPayload($posting),
+            'similar' => $similarity->similarTo($posting)
+                ->map(fn (Posting $match): array => [
+                    ...$this->postingPayload($match),
+                    'similarity' => $match->similarity,
+                ])
+                ->values()
+                ->all(),
+            'similarity_enabled' => $similarity->supported(),
+        ]);
     }
 
     /**
@@ -109,6 +145,7 @@ class PostingController extends Controller
             'original_amount' => $posting->original_amount === null ? null : (float) $posting->original_amount,
             'original_currency' => $posting->original_currency,
             'is_extraordinary' => $posting->is_extraordinary,
+            'categorized_by' => $posting->categorized_by,
             'bank_account' => [
                 'id' => $posting->bankAccount->id,
                 'name' => $posting->bankAccount->name,
@@ -123,6 +160,11 @@ class PostingController extends Controller
                 'id' => $posting->categorizedSubcategory->id,
                 'name' => $posting->categorizedSubcategory->name,
                 'type' => $posting->categorizedSubcategory->category?->type,
+            ],
+            'suggested_subcategory' => $posting->subcategory === null ? null : [
+                'id' => $posting->subcategory->id,
+                'name' => $posting->subcategory->name,
+                'category_name' => $posting->subcategory->category?->name,
             ],
         ];
     }

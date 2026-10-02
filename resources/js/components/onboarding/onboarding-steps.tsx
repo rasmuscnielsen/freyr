@@ -4,16 +4,16 @@ import { cn } from '@/lib/utils';
 export type OnboardingStep =
     | 'account'
     | 'region'
-    | 'registration'
     | 'bank'
-    | 'spiir';
+    | 'spiir'
+    | 'similarity';
 
 const steps: { key: OnboardingStep; label: string }[] = [
     { key: 'account', label: 'Account' },
     { key: 'region', label: 'Region' },
-    { key: 'registration', label: 'Registration' },
     { key: 'bank', label: 'Bank' },
     { key: 'spiir', label: 'Spiir import' },
+    { key: 'similarity', label: 'Similar postings' },
 ];
 
 export default function OnboardingSteps({
