@@ -2,6 +2,7 @@
 
 use App\Enums\PlatformSettingKey;
 use App\Finance\SpiirExportImporter;
+use App\Jobs\GeneratePostingEmbeddingsJob;
 use App\Jobs\ImportSpiirExport;
 use App\Models\BankAccount;
 use App\Models\Posting;
@@ -69,7 +70,7 @@ test('a platform admin with incomplete onboarding is redirected to the wizard', 
 
     $this->actingAs($admin)
         ->get(route('dashboard'))
-        ->assertRedirect(route('onboarding.registration'));
+        ->assertRedirect(route('onboarding.enable-banking'));
 });
 
 test('a regular user with incomplete onboarding is not redirected', function () {
@@ -78,16 +79,6 @@ test('a regular user with incomplete onboarding is not redirected', function () 
     $this->actingAs($user)
         ->get(route('dashboard'))
         ->assertOk();
-});
-
-test('the registration step stores the setting', function () {
-    $admin = User::factory()->platformAdmin()->create();
-
-    $this->actingAs($admin)
-        ->post(route('onboarding.registration.store'), ['enabled' => '1'])
-        ->assertRedirect(route('onboarding.enable-banking'));
-
-    expect(app(PlatformSettings::class)->registrationEnabled())->toBeTrue();
 });
 
 test('the enable banking step stores encrypted credentials', function () {
@@ -240,6 +231,71 @@ test('failed spiir jobs cache only a safe error message', function () {
         ->and($status['error'])->toBe(ImportSpiirExport::FAILED_MESSAGE);
 });
 
+test('the similarity step stores the key, enables the feature and completes onboarding', function () {
+    Queue::fake();
+
+    $admin = User::factory()->platformAdmin()->create();
+
+    $this->actingAs($admin)
+        ->post(route('onboarding.similarity.store'), [
+            'api_key' => 'sk-test-1234567890',
+            'enabled' => '1',
+            'since' => '2y',
+            'auto_categorize' => '1',
+        ])
+        ->assertRedirect(route('dashboard'));
+
+    $settings = app(PlatformSettings::class);
+    expect($settings->openAiApiKey())->toBe('sk-test-1234567890')
+        ->and($settings->similarityEnabled())->toBeTrue()
+        ->and($settings->similaritySince())->toBe('2y')
+        ->and($settings->similarityAutoCategorize())->toBeTrue()
+        ->and($settings->similarityAvailable())->toBeTrue()
+        ->and($settings->onboardingCompleted())->toBeTrue();
+
+    Queue::assertPushed(GeneratePostingEmbeddingsJob::class);
+});
+
+test('the similarity step can be skipped and still completes onboarding', function () {
+    Queue::fake();
+
+    $admin = User::factory()->platformAdmin()->create();
+
+    $this->actingAs($admin)
+        ->post(route('onboarding.similarity.store'), [
+            'enabled' => '0',
+            'since' => 'all',
+            'auto_categorize' => '0',
+        ])
+        ->assertRedirect(route('dashboard'));
+
+    $settings = app(PlatformSettings::class);
+    expect($settings->isStored(PlatformSettingKey::OpenAiApiKey))->toBeFalse()
+        ->and($settings->similarityEnabled())->toBeFalse()
+        ->and($settings->similarityAvailable())->toBeFalse()
+        ->and($settings->onboardingCompleted())->toBeTrue();
+
+    Queue::assertNotPushed(GeneratePostingEmbeddingsJob::class);
+});
+
+test('enabling similarity in onboarding requires an api key', function () {
+    Queue::fake();
+    config()->set('ai.providers.openai.key', null);
+
+    $admin = User::factory()->platformAdmin()->create();
+
+    $this->actingAs($admin)
+        ->from(route('onboarding.similarity'))
+        ->post(route('onboarding.similarity.store'), [
+            'enabled' => '1',
+            'since' => 'all',
+            'auto_categorize' => '0',
+        ])
+        ->assertSessionHasErrors('api_key');
+
+    expect(app(PlatformSettings::class)->onboardingCompleted())->toBeFalse();
+});
+
 test('completing onboarding marks it done and unlocks the app', function () {
     $admin = User::factory()->platformAdmin()->create();
 
@@ -250,7 +306,7 @@ test('completing onboarding marks it done and unlocks the app', function () {
     expect(app(PlatformSettings::class)->onboardingCompleted())->toBeTrue();
 
     $this->actingAs($admin)
-        ->get(route('onboarding.registration'))
+        ->get(route('onboarding.similarity'))
         ->assertRedirect(route('dashboard'));
 
     $this->actingAs($admin)

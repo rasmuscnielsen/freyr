@@ -8,6 +8,7 @@ use App\Mcp\Tools\GetPosting;
 use App\Mcp\Tools\ListBankAccounts;
 use App\Mcp\Tools\ListCategories;
 use App\Mcp\Tools\ListPostings;
+use App\Mcp\Tools\SimilarPostings;
 use Laravel\Mcp\Server;
 use Laravel\Mcp\Server\Tool;
 use Laravel\Mcp\Server\Tools\ToolSearch;
@@ -24,6 +25,7 @@ class FreyrServer extends Server
         GetPosting::class,
         ListCategories::class,
         ListBankAccounts::class,
+        SimilarPostings::class,
         CategorizePostings::class,
         EditPosting::class,
     ];
@@ -41,11 +43,14 @@ class FreyrServer extends Server
         belongs there.
 
         Use `list-postings` to browse and filter transactions. Additional
-        tools (posting detail, categories, bank accounts, categorizing and
-        editing postings) are discoverable via `search_tools` and callable via
-        `execute_tools`. The flagship workflow is categorization: list
-        uncategorized postings, inspect the category tree, then categorize in
-        bulk.
+        tools (posting detail, categories, bank accounts, similar postings,
+        categorizing and editing postings) are discoverable via `search_tools`
+        and callable via `execute_tools`. The flagship workflow is
+        categorization: list uncategorized postings, inspect the category
+        tree, then categorize in bulk. When the platform's similar-postings
+        feature is on, an uncategorized posting's `suggested_subcategory` is
+        similarity-derived and free to act on — call `similar-postings` only
+        when you need to see the evidence behind it before deciding.
         MARKDOWN;
 
     /**

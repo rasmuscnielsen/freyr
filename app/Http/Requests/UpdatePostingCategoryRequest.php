@@ -27,6 +27,7 @@ class UpdatePostingCategoryRequest extends FormRequest
     {
         return [
             'categorized_subcategory_id' => ['nullable', 'integer', 'exists:subcategories,id'],
+            'subcategory_id' => ['nullable', 'integer', 'exists:subcategories,id'],
             'comment' => ['nullable', 'string', 'max:2000'],
             'is_extraordinary' => ['sometimes', 'boolean'],
         ];

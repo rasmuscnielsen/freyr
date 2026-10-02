@@ -10,7 +10,7 @@ import {
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { CategoryCombobox } from '@/components/postings/category-combobox';
 import type { CategoryComboboxOption } from '@/components/postings/category-combobox';
-import { PostingFormDialog } from '@/components/postings/posting-form-dialog';
+import { PostingSheet } from '@/components/postings/posting-sheet';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
@@ -919,40 +919,10 @@ export default function Postings({
                 )}
             </div>
 
-            <PostingFormDialog
-                key={
-                    modalPosting === null
-                        ? 'posting-modal-closed'
-                        : `posting-modal-${modalPosting.id}`
-                }
-                open={modalPosting !== null}
+            <PostingSheet
+                postingId={modalPosting?.id ?? null}
                 onClose={() => setModalPosting(null)}
-                title="Edit posting"
-                description="Categorize the posting, add a comment, or mark it extraordinary. Date, description, and amount are managed on the account."
-                currency={
-                    modalPosting?.original_currency ??
-                    modalPosting?.currency ??
-                    'DKK'
-                }
                 categoryOptions={comboboxOptions}
-                initial={{
-                    date: modalPosting?.date ?? '',
-                    description: modalPosting?.description ?? '',
-                    amount:
-                        (
-                            modalPosting?.original_amount ??
-                            modalPosting?.amount
-                        )?.toFixed(2) ?? '',
-                    categorized_subcategory_id:
-                        modalPosting?.subcategory?.id ?? null,
-                    comment: modalPosting?.comment ?? '',
-                    is_extraordinary: modalPosting?.is_extraordinary ?? false,
-                }}
-                coreFieldsEditable={false}
-                action={{
-                    method: 'patch',
-                    url: updatePosting.url(modalPosting?.id ?? 0),
-                }}
             />
         </>
     );

@@ -51,8 +51,8 @@ return [
     ],
 
     'statement_embeddings' => [
-        'provider' => env('STATEMENT_EMBEDDINGS_PROVIDER'),
-        'model' => env('STATEMENT_EMBEDDINGS_MODEL'),
+        'provider' => env('STATEMENT_EMBEDDINGS_PROVIDER', 'openai'),
+        'model' => env('STATEMENT_EMBEDDINGS_MODEL', 'text-embedding-3-small'),
         'dimensions' => (int) env('STATEMENT_EMBEDDINGS_DIMENSIONS', 1536),
         'batch_size' => (int) env('STATEMENT_EMBEDDINGS_BATCH_SIZE', 50),
     ],

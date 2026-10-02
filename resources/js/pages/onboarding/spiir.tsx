@@ -1,10 +1,10 @@
-import { Form, Head } from '@inertiajs/react';
+import { Head, Link } from '@inertiajs/react';
 import { useState } from 'react';
 import SpiirImportForm from '@/components/spiir-import-form';
 import { Button } from '@/components/ui/button';
 import type { SpiirImportStatus } from '@/hooks/use-spiir-import-status';
 import OnboardingLayout from '@/layouts/onboarding-layout';
-import { complete } from '@/routes/onboarding';
+import { similarity } from '@/routes/onboarding';
 import { store } from '@/routes/onboarding/spiir';
 
 export default function OnboardingSpiir({
@@ -40,16 +40,16 @@ export default function OnboardingSpiir({
                         >
                             Yes, import my Spiir data
                         </Button>
-                        <Form {...complete.form()} className="flex flex-col">
-                            <Button
-                                type="submit"
-                                variant="secondary"
-                                className="w-full"
-                                data-test="finish-onboarding-button"
-                            >
+                        <Button
+                            variant="secondary"
+                            className="w-full"
+                            data-test="finish-onboarding-button"
+                            asChild
+                        >
+                            <Link href={similarity.url()}>
                                 Skip, I don't use Spiir
-                            </Button>
-                        </Form>
+                            </Link>
+                        </Button>
                     </div>
                 </div>
             </>
@@ -68,19 +68,18 @@ export default function OnboardingSpiir({
                     onStatusChange={setStatus}
                 />
 
-                <Form {...complete.form()} className="flex flex-col">
-                    <Button
-                        type="submit"
-                        variant={
-                            importFinished || !canImport
-                                ? 'default'
-                                : 'secondary'
-                        }
-                        data-test="finish-onboarding-button"
-                    >
+                <Button
+                    variant={
+                        importFinished || !canImport ? 'default' : 'secondary'
+                    }
+                    className="w-full"
+                    data-test="finish-onboarding-button"
+                    asChild
+                >
+                    <Link href={similarity.url()}>
                         {importFinished || !canImport ? 'Finish' : 'Skip'}
-                    </Button>
-                </Form>
+                    </Link>
+                </Button>
             </div>
         </>
     );

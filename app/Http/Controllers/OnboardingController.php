@@ -8,12 +8,14 @@ use App\Enums\PlatformSettingKey;
 use App\Finance\SpiirExportImporter;
 use App\Http\Requests\Platform\StoreEnableBankingCredentialsRequest;
 use App\Http\Requests\RegionSetupRequest;
+use App\Jobs\GeneratePostingEmbeddingsJob;
 use App\Models\User;
 use App\Platform\PlatformSettings;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Validation\Rules\Password;
+use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -80,24 +82,6 @@ class OnboardingController extends Controller
             'region_completed_at' => now(),
         ]);
 
-        return redirect()->route('onboarding.registration');
-    }
-
-    public function registration(PlatformSettings $settings): Response
-    {
-        return Inertia::render('onboarding/registration', [
-            'registrationEnabled' => $settings->registrationEnabled(),
-        ]);
-    }
-
-    public function storeRegistration(Request $request, PlatformSettings $settings): RedirectResponse
-    {
-        $data = $request->validate([
-            'enabled' => ['required', 'boolean'],
-        ]);
-
-        $settings->set(PlatformSettingKey::RegistrationEnabled, (bool) $data['enabled']);
-
         return redirect()->route('onboarding.enable-banking');
     }
 
@@ -130,6 +114,56 @@ class OnboardingController extends Controller
             'hasDefaultCategories' => $importer->hasDefaultCategories(),
             'import' => SpiirImportController::sessionImportStatus($request),
         ]);
+    }
+
+    public function similarity(PlatformSettings $settings): Response
+    {
+        return Inertia::render('onboarding/similarity', [
+            'openAi' => [
+                'configured' => $settings->openAiConfigured(),
+                'source' => $settings->isStored(PlatformSettingKey::OpenAiApiKey)
+                    ? 'database'
+                    : ($settings->openAiConfigured() ? 'environment' : null),
+            ],
+            'enabled' => $settings->similarityEnabled(),
+            'since' => $settings->similaritySince(),
+            'autoCategorize' => $settings->similarityAutoCategorize(),
+        ]);
+    }
+
+    /**
+     * The final wizard step: optionally store an OpenAI key, pick how far
+     * back to analyze postings, then mark onboarding complete either way.
+     */
+    public function storeSimilarity(Request $request, PlatformSettings $settings): RedirectResponse
+    {
+        $data = $request->validate([
+            'api_key' => ['nullable', 'string', 'min:10', 'max:255'],
+            'enabled' => ['required', 'boolean'],
+            'since' => ['required', 'string', 'in:1y,2y,5y,all'],
+            'auto_categorize' => ['required', 'boolean'],
+        ]);
+
+        if (filled($data['api_key'] ?? null)) {
+            $settings->storeOpenAiApiKey(trim($data['api_key']));
+        }
+
+        if ($data['enabled'] && ! $settings->openAiConfigured()) {
+            throw ValidationException::withMessages([
+                'api_key' => 'An OpenAI API key is required to enable similar postings.',
+            ]);
+        }
+
+        $settings->set(PlatformSettingKey::SimilarityEnabled, (bool) $data['enabled']);
+        $settings->set(PlatformSettingKey::SimilaritySince, $data['since']);
+        $settings->set(PlatformSettingKey::SimilarityAutoCategorize, (bool) $data['auto_categorize']);
+        $settings->markOnboardingCompleted();
+
+        if ($settings->similarityAvailable()) {
+            GeneratePostingEmbeddingsJob::dispatch()->afterCommit();
+        }
+
+        return redirect()->route('dashboard')->with('status', 'onboarding-completed');
     }
 
     public function complete(PlatformSettings $settings): RedirectResponse
