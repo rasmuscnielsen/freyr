@@ -1,19 +1,19 @@
 <?php
 
-use App\Finance\Fx\ExchangeRateStore;
-use App\Finance\Fx\FrankfurterClient;
-use App\Jobs\ConvertReportingAmountsJob;
+use App\Jobs\ConvertReportingAmounts;
 use App\Models\BankAccount;
 use App\Models\ExchangeRate;
 use App\Models\Posting;
 use App\Models\User;
+use App\Services\Frankfurter\Client;
+use App\Services\Frankfurter\ExchangeRateStore;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 
 function runConversion(User $user): void
 {
-    (new ConvertReportingAmountsJob($user->id))->handle(
-        app(FrankfurterClient::class),
+    (new ConvertReportingAmounts($user->id))->handle(
+        app(Client::class),
         app(ExchangeRateStore::class),
     );
 }
@@ -242,5 +242,5 @@ test('the retry endpoint dispatches the conversion job for the owner', function 
         ->post(route('postings.retry-conversions'))
         ->assertRedirect();
 
-    Queue::assertPushed(ConvertReportingAmountsJob::class, fn (ConvertReportingAmountsJob $job): bool => $job->userId === $user->id);
+    Queue::assertPushed(ConvertReportingAmounts::class, fn (ConvertReportingAmounts $job): bool => $job->userId === $user->id);
 });

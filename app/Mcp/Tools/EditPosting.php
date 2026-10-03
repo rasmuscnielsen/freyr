@@ -2,11 +2,11 @@
 
 namespace App\Mcp\Tools;
 
-use App\Finance\AccountBalanceRecalculator;
-use App\Finance\MoneyMath;
+use App\Actions\RecalculateAccountBalance;
 use App\Http\Resources\PostingResource;
-use App\Jobs\ConvertReportingAmountsJob;
+use App\Jobs\ConvertReportingAmounts;
 use App\Models\Posting;
+use App\Support\MoneyMath;
 use Illuminate\Contracts\JsonSchema\JsonSchema;
 use Laravel\Mcp\Request;
 use Laravel\Mcp\Response;
@@ -104,11 +104,11 @@ class EditPosting extends FreyrTool
         $posting->save();
 
         if ($monetaryChanged && $posting->amount === null && $posting->original_amount !== null) {
-            ConvertReportingAmountsJob::dispatch($posting->user_id)->afterCommit();
+            ConvertReportingAmounts::dispatch($posting->user_id)->afterCommit();
         }
 
         if ($monetaryChanged && ! $posting->bankAccount->hasBankConnection()) {
-            app(AccountBalanceRecalculator::class)->recalculate($posting->bankAccount, $delta);
+            app(RecalculateAccountBalance::class)->handle($posting->bankAccount, $delta);
         }
 
         $posting->refresh()->load(['bankAccount', 'categorizedSubcategory.category', 'subcategory']);

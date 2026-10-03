@@ -1,13 +1,13 @@
 <?php
 
 use App\Enums\PlatformSettingKey;
-use App\Finance\SpiirExportImporter;
-use App\Jobs\GeneratePostingEmbeddingsJob;
+use App\Jobs\GeneratePostingEmbeddings;
 use App\Jobs\ImportSpiirExport;
 use App\Models\BankAccount;
 use App\Models\Posting;
 use App\Models\User;
-use App\Platform\PlatformSettings;
+use App\Services\Spiir\Importer;
+use App\Support\PlatformSettings;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Queue;
@@ -224,7 +224,7 @@ test('failed spiir jobs cache only a safe error message', function () {
     Storage::fake('local');
     $job = new ImportSpiirExport('missing-import', $admin->id);
 
-    $job->handle(app(SpiirExportImporter::class));
+    $job->handle(app(Importer::class));
 
     $status = Cache::get(ImportSpiirExport::cacheKey('missing-import'));
     expect($status['status'])->toBe('failed')
@@ -253,7 +253,7 @@ test('the similarity step stores the key, enables the feature and completes onbo
         ->and($settings->similarityAvailable())->toBeTrue()
         ->and($settings->onboardingCompleted())->toBeTrue();
 
-    Queue::assertPushed(GeneratePostingEmbeddingsJob::class);
+    Queue::assertPushed(GeneratePostingEmbeddings::class);
 });
 
 test('the similarity step can be skipped and still completes onboarding', function () {
@@ -275,7 +275,7 @@ test('the similarity step can be skipped and still completes onboarding', functi
         ->and($settings->similarityAvailable())->toBeFalse()
         ->and($settings->onboardingCompleted())->toBeTrue();
 
-    Queue::assertNotPushed(GeneratePostingEmbeddingsJob::class);
+    Queue::assertNotPushed(GeneratePostingEmbeddings::class);
 });
 
 test('enabling similarity in onboarding requires an api key', function () {

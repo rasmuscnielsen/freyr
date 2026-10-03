@@ -1,16 +1,16 @@
 <?php
 
-use App\Finance\AccountBalanceRecalculator;
-use App\Finance\EnableBanking\EnableBankingConnectionManager;
-use App\Finance\Fx\ExchangeRateStore;
-use App\Finance\Fx\FrankfurterClient;
-use App\Jobs\ConvertReportingAmountsJob;
+use App\Actions\RecalculateAccountBalance;
+use App\Jobs\ConvertReportingAmounts;
 use App\Models\BankAccount;
 use App\Models\BankConnection;
 use App\Models\BankConnectionAccount;
 use App\Models\BankSyncRun;
 use App\Models\Posting;
 use App\Models\User;
+use App\Services\EnableBanking\ConnectionManager;
+use App\Services\Frankfurter\Client;
+use App\Services\Frankfurter\ExchangeRateStore;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
@@ -34,8 +34,8 @@ function correctionPosting(User $user, string $date, array $overrides = []): Pos
 
 function runCorrectionConversion(User $user, ?ExchangeRateStore $store = null): void
 {
-    (new ConvertReportingAmountsJob($user->id))->handle(
-        app(FrankfurterClient::class),
+    (new ConvertReportingAmounts($user->id))->handle(
+        app(Client::class),
         $store ?? app(ExchangeRateStore::class),
     );
 }
@@ -172,7 +172,7 @@ test('unknown account movements stop balance propagation and current balance cal
         'currency' => 'USD',
     ]);
 
-    app(AccountBalanceRecalculator::class)->recalculate($first->bankAccount);
+    app(RecalculateAccountBalance::class)->handle($first->bankAccount);
 
     expect($first->bankAccount->refresh()->current_balance)->toBeNull();
 });
@@ -200,21 +200,21 @@ test('corrected bank movement invalidates only a changed conversion', function (
     $remote = BankConnectionAccount::factory()->linkedTo($account)->create([
         'bank_connection_id' => $connection->id, 'currency' => 'EUR',
     ]);
-    $method = new ReflectionMethod(app(EnableBankingConnectionManager::class), 'importTransactions');
+    $method = new ReflectionMethod(app(ConnectionManager::class), 'importTransactions');
     $transaction = [
         'entry_reference' => 'synthetic-entry', 'booking_date' => '2026-01-09',
         'transaction_amount' => ['amount' => '10.00', 'currency' => 'EUR'],
         'credit_debit_indicator' => 'DBIT', 'remittance_information' => ['Synthetic merchant'],
     ];
-    $method->invoke(app(EnableBankingConnectionManager::class), $remote, [$transaction]);
+    $method->invoke(app(ConnectionManager::class), $remote, [$transaction]);
     $posting = $account->postings()->sole();
     $posting->update(['amount' => '-12.00']);
 
-    $method->invoke(app(EnableBankingConnectionManager::class), $remote, [$transaction]);
+    $method->invoke(app(ConnectionManager::class), $remote, [$transaction]);
     expect($posting->refresh()->amount)->toBe('-12.00');
 
     $transaction['transaction_amount']['amount'] = '20.00';
-    $method->invoke(app(EnableBankingConnectionManager::class), $remote, [$transaction]);
+    $method->invoke(app(ConnectionManager::class), $remote, [$transaction]);
     expect($posting->refresh()->amount)->toBeNull();
 });
 

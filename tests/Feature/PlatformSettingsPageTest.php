@@ -2,7 +2,7 @@
 
 use App\Enums\PlatformSettingKey;
 use App\Models\User;
-use App\Platform\PlatformSettings;
+use App\Support\PlatformSettings;
 use Illuminate\Http\UploadedFile;
 use Inertia\Testing\AssertableInertia as Assert;
 

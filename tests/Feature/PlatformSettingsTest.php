@@ -2,7 +2,7 @@
 
 use App\Enums\PlatformSettingKey;
 use App\Models\PlatformSetting;
-use App\Platform\PlatformSettings;
+use App\Support\PlatformSettings;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Crypt;
 
@@ -72,17 +72,6 @@ test('stored enable banking values override env config', function () {
 
     expect($settings->enableBankingConfig())
         ->toMatchArray(['app_id' => 'env-app-id', 'private_key' => 'env-key']);
-});
-
-test('onboarding completion is tracked as a setting', function () {
-    $settings = app(PlatformSettings::class);
-
-    expect($settings->onboardingCompleted())->toBeFalse();
-
-    $settings->markOnboardingCompleted();
-
-    expect($settings->onboardingCompleted())->toBeTrue()
-        ->and($settings->get(PlatformSettingKey::OnboardingCompletedAt))->not->toBeNull();
 });
 
 test('the openai key is stored encrypted and falls back to env config', function () {

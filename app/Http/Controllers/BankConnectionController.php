@@ -2,15 +2,17 @@
 
 namespace App\Http\Controllers;
 
+use App\Actions\CreateLinkedBankAccount;
+use App\Actions\IgnoreBankConnectionAccount;
+use App\Actions\LinkBankConnectionAccount;
 use App\Enums\SyncHistory;
-use App\Finance\BankConnectionAccountLinker;
-use App\Finance\EnableBanking\EnableBankingConnectionManager;
 use App\Http\Requests\MapBankConnectionAccountsRequest;
 use App\Http\Requests\StartBankConnectionRequest;
-use App\Jobs\SyncBankConnectionAccountJob;
+use App\Jobs\SyncBankConnectionAccount;
 use App\Models\BankAccount;
 use App\Models\BankConnection;
 use App\Models\BankConnectionAccount;
+use App\Services\EnableBanking\ConnectionManager;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -25,7 +27,7 @@ class BankConnectionController extends Controller
         return redirect()->route('bank-accounts.index');
     }
 
-    public function store(StartBankConnectionRequest $request, EnableBankingConnectionManager $manager): Response
+    public function store(StartBankConnectionRequest $request, ConnectionManager $manager): Response
     {
         // Re-issue an abandoned attempt's pending row instead of piling up
         // corpses. Whether the login is one we already hold is only decidable
@@ -46,7 +48,7 @@ class BankConnectionController extends Controller
         return Inertia::location($url);
     }
 
-    public function callback(Request $request, EnableBankingConnectionManager $manager): RedirectResponse
+    public function callback(Request $request, ConnectionManager $manager): RedirectResponse
     {
         if ($request->has('error')) {
             // The bank denied or aborted the consent: the pending row was never
@@ -79,7 +81,7 @@ class BankConnectionController extends Controller
             ->whereNotNull('bank_account_id')
             ->whereHas('bankAccount', fn ($query) => $query->where('is_active', true))
             ->get()
-            ->each(fn (BankConnectionAccount $account) => SyncBankConnectionAccountJob::dispatch($account));
+            ->each(fn (BankConnectionAccount $account) => SyncBankConnectionAccount::dispatch($account));
 
         if ($connection->accounts()->where('status', BankConnectionAccount::STATUS_UNLINKED)->exists()) {
             return redirect()->route('bank-accounts.index', ['setup' => $connection->id]);
@@ -88,7 +90,7 @@ class BankConnectionController extends Controller
         return redirect()->route('bank-accounts.index');
     }
 
-    public function renew(Request $request, BankConnection $bankConnection, EnableBankingConnectionManager $manager): Response
+    public function renew(Request $request, BankConnection $bankConnection, ConnectionManager $manager): Response
     {
         abort_unless($request->user()?->is($bankConnection->user), 403);
 
@@ -130,7 +132,7 @@ class BankConnectionController extends Controller
             ->whereNotNull('bank_account_id')
             ->whereHas('bankAccount', fn ($query) => $query->where('is_active', true))
             ->get()
-            ->each(fn (BankConnectionAccount $account) => SyncBankConnectionAccountJob::dispatch($account));
+            ->each(fn (BankConnectionAccount $account) => SyncBankConnectionAccount::dispatch($account));
 
         return back();
     }
@@ -139,23 +141,28 @@ class BankConnectionController extends Controller
      * Map a batch of remote accounts on the connection: link to an existing
      * local account, create a new local account, or ignore the remote account.
      */
-    public function mapAccounts(MapBankConnectionAccountsRequest $request, BankConnection $bankConnection, BankConnectionAccountLinker $linker): RedirectResponse
-    {
+    public function mapAccounts(
+        MapBankConnectionAccountsRequest $request,
+        BankConnection $bankConnection,
+        LinkBankConnectionAccount $link,
+        CreateLinkedBankAccount $create,
+        IgnoreBankConnectionAccount $ignore,
+    ): RedirectResponse {
         abort_unless($request->user()?->is($bankConnection->user), 403);
 
-        DB::transaction(function () use ($request, $bankConnection, $linker): void {
+        DB::transaction(function () use ($request, $bankConnection, $link, $create, $ignore): void {
             foreach ($request->validated('accounts') as $item) {
                 $remote = $bankConnection->accounts()->findOrFail($item['id']);
                 $history = isset($item['history']) ? SyncHistory::from($item['history']) : SyncHistory::Max;
 
                 match ($item['mode']) {
-                    'existing' => $linker->linkExisting(
+                    'existing' => $link->handle(
                         $remote,
                         $request->user()->bankAccounts()->findOrFail($item['bank_account_id']),
                         $history,
                     ),
-                    'create' => $linker->createAndLink($remote, $item['name'], $history),
-                    'ignore' => $linker->ignore($remote),
+                    'create' => $create->handle($remote, $item['name'], $history),
+                    'ignore' => $ignore->handle($remote),
                 };
             }
         });

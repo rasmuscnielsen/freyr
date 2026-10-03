@@ -1,14 +1,14 @@
 <?php
 
-use App\Finance\EnableBanking\EnableBankingClient;
-use App\Finance\Fx\ExchangeRateStore;
-use App\Jobs\ConvertReportingAmountsJob;
+use App\Jobs\ConvertReportingAmounts;
 use App\Models\BankAccount;
 use App\Models\BankConnection;
 use App\Models\BankConnectionAccount;
 use App\Models\BankSyncRun;
 use App\Models\Posting;
 use App\Models\User;
+use App\Services\EnableBanking\Client;
+use App\Services\Frankfurter\ExchangeRateStore;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Queue;
 use Inertia\Testing\AssertableInertia as Assert;
@@ -32,7 +32,7 @@ function bankAccountPayload(array $overrides = []): array
 test('bank accounts can be listed created updated and deleted', function () {
     $user = User::factory()->create();
     Cache::forget('enable-banking.aspsps.dk.personal.ais');
-    app()->instance(EnableBankingClient::class, new BankAccountCrudEnableBankingClient);
+    app()->instance(Client::class, new BankAccountCrudEnableBankingClient);
 
     $this->actingAs($user)
         ->get(route('bank-accounts.index'))
@@ -89,7 +89,7 @@ test('creating a manual account only needs a name and a currency', function () {
         ->and($account->isSpiirImported())->toBeFalse();
 
     Cache::forget('enable-banking.aspsps.dk.personal.ais');
-    app()->instance(EnableBankingClient::class, new BankAccountCrudEnableBankingClient);
+    app()->instance(Client::class, new BankAccountCrudEnableBankingClient);
 
     $this->actingAs($user)
         ->get(route('bank-accounts.index'))
@@ -140,7 +140,7 @@ test('creating a foreign-currency manual account dispatches the conversion job',
         ->post(route('bank-accounts.store'), bankAccountPayload(['currency' => 'EUR']))
         ->assertRedirect();
 
-    Queue::assertPushed(ConvertReportingAmountsJob::class, fn (ConvertReportingAmountsJob $job): bool => $job->userId === $user->id);
+    Queue::assertPushed(ConvertReportingAmounts::class, fn (ConvertReportingAmounts $job): bool => $job->userId === $user->id);
 });
 
 test('same-currency account changes skip the conversion job', function () {
@@ -157,7 +157,7 @@ test('same-currency account changes skip the conversion job', function () {
         ->patch(route('bank-accounts.update', $account), ['opening_balance' => '100.00'])
         ->assertRedirect();
 
-    Queue::assertNotPushed(ConvertReportingAmountsJob::class);
+    Queue::assertNotPushed(ConvertReportingAmounts::class);
 });
 
 test('setting an opening balance on a foreign-currency account dispatches the conversion job', function () {
@@ -173,13 +173,13 @@ test('setting an opening balance on a foreign-currency account dispatches the co
         ->patch(route('bank-accounts.update', $account), ['name' => 'Renamed'])
         ->assertRedirect();
 
-    Queue::assertNotPushed(ConvertReportingAmountsJob::class);
+    Queue::assertNotPushed(ConvertReportingAmounts::class);
 
     $this->actingAs($user)
         ->patch(route('bank-accounts.update', $account), ['opening_balance' => '100.00'])
         ->assertRedirect();
 
-    Queue::assertPushed(ConvertReportingAmountsJob::class, fn (ConvertReportingAmountsJob $job): bool => $job->userId === $user->id);
+    Queue::assertPushed(ConvertReportingAmounts::class, fn (ConvertReportingAmounts $job): bool => $job->userId === $user->id);
 });
 
 test('opening balance validation rejects values larger than the database column', function () {
@@ -195,7 +195,7 @@ test('opening balance validation rejects values larger than the database column'
 test('bank accounts page exposes connection state and linkable remote accounts', function () {
     $user = User::factory()->create();
     Cache::forget('enable-banking.aspsps.dk.personal.ais');
-    app()->instance(EnableBankingClient::class, new BankAccountCrudEnableBankingClient);
+    app()->instance(Client::class, new BankAccountCrudEnableBankingClient);
 
     $account = BankAccount::factory()->for($user)->create(['name' => 'Everyday']);
     $connection = BankConnection::factory()->for($user)->create();
@@ -224,7 +224,7 @@ test('bank accounts page exposes connection state and linkable remote accounts',
 test('bank accounts carry a balance valued in the reporting currency', function () {
     $user = User::factory()->create(['reporting_currency' => 'DKK']);
     Cache::forget('enable-banking.aspsps.dk.personal.ais');
-    app()->instance(EnableBankingClient::class, new BankAccountCrudEnableBankingClient);
+    app()->instance(Client::class, new BankAccountCrudEnableBankingClient);
 
     // Identical bank names push ordering onto the account name.
     BankAccount::factory()->for($user)->create([
@@ -296,7 +296,7 @@ test('deleting an account removes it and its postings and unlinks remote account
 test('bank accounts page does not expose reconciliation alerts', function () {
     $user = User::factory()->create();
     Cache::forget('enable-banking.aspsps.dk.personal.ais');
-    app()->instance(EnableBankingClient::class, new BankAccountCrudEnableBankingClient);
+    app()->instance(Client::class, new BankAccountCrudEnableBankingClient);
     $connection = BankConnection::factory()->for($user)->create();
     $account = BankAccount::factory()->for($user)->create();
     BankConnectionAccount::factory()->for($connection)->linkedTo($account)->create();
@@ -312,7 +312,7 @@ test('bank accounts page does not expose reconciliation alerts', function () {
 test('bank accounts page exposes the my banks connection panel', function () {
     $user = User::factory()->create();
     Cache::forget('enable-banking.aspsps.dk.personal.ais');
-    app()->instance(EnableBankingClient::class, new BankAccountCrudEnableBankingClient);
+    app()->instance(Client::class, new BankAccountCrudEnableBankingClient);
 
     $account = BankAccount::factory()->for($user)->create();
     $connection = BankConnection::factory()->for($user)->forBank('Demo Bank')->create();
@@ -344,7 +344,7 @@ test('bank pages never expose previously stored exception messages', function ()
         'error_message' => 'SQLSTATE[23503] secret-transfer-data',
     ]);
     Cache::forget('enable-banking.aspsps.dk.personal.ais');
-    app()->instance(EnableBankingClient::class, new BankAccountCrudEnableBankingClient);
+    app()->instance(Client::class, new BankAccountCrudEnableBankingClient);
 
     $this->actingAs($user)
         ->get(route('bank-accounts.index'))

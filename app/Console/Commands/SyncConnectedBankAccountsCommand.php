@@ -2,7 +2,7 @@
 
 namespace App\Console\Commands;
 
-use App\Jobs\SyncBankConnectionAccountJob;
+use App\Jobs\SyncBankConnectionAccount;
 use App\Models\BankConnection;
 use App\Models\BankConnectionAccount;
 use Illuminate\Console\Attributes\Description;
@@ -28,7 +28,7 @@ class SyncConnectedBankAccountsCommand extends Command
             ->orderBy('id')
             ->lazyById()
             ->each(function (BankConnectionAccount $bankConnectionAccount) use (&$count): void {
-                SyncBankConnectionAccountJob::dispatch($bankConnectionAccount);
+                SyncBankConnectionAccount::dispatch($bankConnectionAccount);
                 $count++;
             });
 

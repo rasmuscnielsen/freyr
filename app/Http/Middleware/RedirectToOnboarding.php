@@ -2,7 +2,7 @@
 
 namespace App\Http\Middleware;
 
-use App\Platform\PlatformSettings;
+use App\Support\PlatformSettings;
 use Closure;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Schema;

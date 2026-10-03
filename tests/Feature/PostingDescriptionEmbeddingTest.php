@@ -1,11 +1,11 @@
 <?php
 
 use App\Enums\PlatformSettingKey;
-use App\Finance\PostingDescriptionEmbeddingGenerator;
-use App\Finance\PostingSimilarity;
-use App\Jobs\GeneratePostingEmbeddingsJob;
+use App\Jobs\GeneratePostingEmbeddings;
 use App\Models\Posting;
-use App\Platform\PlatformSettings;
+use App\Queries\PostingSimilarity;
+use App\Services\Embeddings\EmbeddingGenerator;
+use App\Support\PlatformSettings;
 use Laravel\Ai\Embeddings;
 use Laravel\Ai\Prompts\EmbeddingsPrompt;
 
@@ -39,7 +39,7 @@ test('posting description embeddings can be generated for uncached postings', fu
     $first = Posting::factory()->create(['description' => 'Example Market']);
     $second = Posting::factory()->create(['description' => 'Netflix subscription']);
 
-    $count = app(PostingDescriptionEmbeddingGenerator::class)->generateMissing(limit: 10, batchSize: 2);
+    $count = app(EmbeddingGenerator::class)->generateMissing(limit: 10, batchSize: 2);
 
     expect($count)->toBe(2)
         ->and($first->refresh()->description_embedding)->toHaveCount(1536)
@@ -59,7 +59,7 @@ test('the generator is a no-op until an api key exists and the feature is enable
 
     Posting::factory()->create(['description' => 'Example Market']);
 
-    $generator = app(PostingDescriptionEmbeddingGenerator::class);
+    $generator = app(EmbeddingGenerator::class);
 
     // Neither enabled nor keyed.
     expect($generator->generateMissing(limit: 10))->toBe(0);
@@ -90,7 +90,7 @@ test('the lookback window skips older postings', function () {
         'date' => now()->subMonth()->toDateString(),
     ]);
 
-    app(PostingDescriptionEmbeddingGenerator::class)->generateMissing(limit: 10);
+    app(EmbeddingGenerator::class)->generateMissing(limit: 10);
 
     expect($old->refresh()->description_embedding)->toBeNull()
         ->and($recent->refresh()->description_embedding)->toHaveCount(1536);
@@ -102,8 +102,8 @@ test('the sweep job embeds missing postings when the feature is available', func
 
     Posting::factory()->create(['description' => 'Sweep me']);
 
-    (new GeneratePostingEmbeddingsJob)->handle(
-        app(PostingDescriptionEmbeddingGenerator::class),
+    (new GeneratePostingEmbeddings)->handle(
+        app(EmbeddingGenerator::class),
         app(PostingSimilarity::class),
     );
 
@@ -113,8 +113,8 @@ test('the sweep job embeds missing postings when the feature is available', func
 test('the sweep job is a no-op when similarity is unavailable', function () {
     Posting::factory()->create(['description' => 'Leave me alone']);
 
-    (new GeneratePostingEmbeddingsJob)->handle(
-        app(PostingDescriptionEmbeddingGenerator::class),
+    (new GeneratePostingEmbeddings)->handle(
+        app(EmbeddingGenerator::class),
         app(PostingSimilarity::class),
     );
 

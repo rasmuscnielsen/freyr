@@ -5,12 +5,12 @@ namespace App\Http\Controllers;
 use App\Concerns\PasswordValidationRules;
 use App\Concerns\ProfileValidationRules;
 use App\Enums\PlatformSettingKey;
-use App\Finance\SpiirExportImporter;
 use App\Http\Requests\Platform\StoreEnableBankingCredentialsRequest;
 use App\Http\Requests\RegionSetupRequest;
-use App\Jobs\GeneratePostingEmbeddingsJob;
+use App\Jobs\GeneratePostingEmbeddings;
 use App\Models\User;
-use App\Platform\PlatformSettings;
+use App\Services\Spiir\Importer;
+use App\Support\PlatformSettings;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -107,7 +107,7 @@ class OnboardingController extends Controller
         return redirect()->route('onboarding.spiir');
     }
 
-    public function spiir(Request $request, SpiirExportImporter $importer): Response
+    public function spiir(Request $request, Importer $importer): Response
     {
         return Inertia::render('onboarding/spiir', [
             'canImport' => $importer->canImport(),
@@ -160,7 +160,7 @@ class OnboardingController extends Controller
         $settings->markOnboardingCompleted();
 
         if ($settings->similarityAvailable()) {
-            GeneratePostingEmbeddingsJob::dispatch()->afterCommit();
+            GeneratePostingEmbeddings::dispatch()->afterCommit();
         }
 
         return redirect()->route('dashboard')->with('status', 'onboarding-completed');

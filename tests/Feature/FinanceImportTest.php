@@ -1,12 +1,12 @@
 <?php
 
 use App\Enums\CategoryType;
-use App\Finance\SpiirExportImporter;
 use App\Models\BankAccount;
 use App\Models\Category;
 use App\Models\Posting;
 use App\Models\Subcategory;
 use App\Models\User;
+use App\Services\Spiir\Importer;
 
 test('it imports a spiir export idempotently', function () {
     $path = base_path('tests/Fixtures/spiir-export');
@@ -79,7 +79,7 @@ test('it imports a spiir export idempotently', function () {
 test('re-import preserves Spiir snapshots but recalculates explicitly anchored manual totals', function () {
     $user = User::factory()->create(['reporting_currency' => 'DKK']);
     $path = base_path('tests/Fixtures/spiir-export');
-    $importer = app(SpiirExportImporter::class);
+    $importer = app(Importer::class);
 
     $importer->importExport($path, $user);
     $account = BankAccount::query()->where('legacy_id', 'acc-1')->firstOrFail();
@@ -102,7 +102,7 @@ test('it imports a spiir export for an explicit user', function () {
     $user = User::factory()->create();
     $path = base_path('tests/Fixtures/spiir-export');
 
-    $summary = app(SpiirExportImporter::class)->importExport($path, $user);
+    $summary = app(Importer::class)->importExport($path, $user);
 
     expect($summary['user_id'])->toBe($user->id)
         ->and(User::query()->count())->toBe(1)
@@ -138,7 +138,7 @@ test('spiir account group duplicates are skipped without collapsing identical un
 
     try {
         foreach (range(1, 2) as $run) {
-            $summary = app(SpiirExportImporter::class)->importExport($path, $user);
+            $summary = app(Importer::class)->importExport($path, $user);
 
             expect($summary['postings'])->toBe(8)
                 ->and(Posting::query()->count())->toBe(8)
@@ -170,8 +170,8 @@ test('spiir placeholder external IDs remain missing after repeated imports', fun
     $user = User::factory()->create();
 
     try {
-        app(SpiirExportImporter::class)->importExport($path, $user);
-        app(SpiirExportImporter::class)->importExport($path, $user);
+        app(Importer::class)->importExport($path, $user);
+        app(Importer::class)->importExport($path, $user);
 
         expect(Posting::query()->count())->toBe(7)
             ->and(Posting::query()->whereNotNull('external_posting_id')->count())->toBe(0);

@@ -2,7 +2,7 @@
 
 namespace Database\Seeders;
 
-use App\Finance\AccountBalanceRecalculator;
+use App\Actions\RecalculateAccountBalance;
 use App\Models\BankAccount;
 use App\Models\BankConnection;
 use App\Models\BankConnectionAccount;
@@ -286,7 +286,7 @@ class DemoSeeder extends Seeder
     {
         foreach ($accounts as $account) {
             if ($account->opening_balance !== null && ! $account->hasBankConnection()) {
-                app(AccountBalanceRecalculator::class)->recalculate($account);
+                app(RecalculateAccountBalance::class)->handle($account);
 
                 continue;
             }

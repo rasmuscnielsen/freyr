@@ -2,11 +2,11 @@
 
 namespace Tests\Fakes;
 
-use App\Finance\EnableBanking\EnableBankingClient;
+use App\Services\EnableBanking\Client;
 use Carbon\CarbonInterface;
 use Closure;
 
-class FakeEnableBankingClient extends EnableBankingClient
+class FakeEnableBankingClient extends Client
 {
     /**
      * @var list<string|null>

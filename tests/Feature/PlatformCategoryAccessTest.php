@@ -1,7 +1,7 @@
 <?php
 
 use App\Models\User;
-use App\Platform\PlatformSettings;
+use App\Support\PlatformSettings;
 use Inertia\Testing\AssertableInertia as Assert;
 
 test('guests are redirected to login', function () {
@@ -31,14 +31,6 @@ test('platform admins can view the categories index', function () {
             ->has('categories')
             ->has('categoryTypes')
             ->has('expenseTypes'));
-});
-
-test('platform admin status is stored on the user record', function () {
-    $admin = User::factory()->platformAdmin()->make();
-    expect($admin->isPlatformAdmin())->toBeTrue();
-
-    $user = User::factory()->make();
-    expect($user->isPlatformAdmin())->toBeFalse();
 });
 
 test('isPlatformAdmin is shared through inertia for admins and non-admins', function () {

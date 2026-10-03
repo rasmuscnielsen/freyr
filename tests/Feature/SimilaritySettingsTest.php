@@ -1,11 +1,11 @@
 <?php
 
 use App\Enums\PlatformSettingKey;
-use App\Jobs\GeneratePostingEmbeddingsJob;
+use App\Jobs\GeneratePostingEmbeddings;
 use App\Models\PlatformSetting;
 use App\Models\Posting;
 use App\Models\User;
-use App\Platform\PlatformSettings;
+use App\Support\PlatformSettings;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Queue;
 
@@ -64,7 +64,7 @@ test('enabling similarity kicks off the embeddings job', function () {
     expect($settings->similarityEnabled())->toBeTrue()
         ->and($settings->similarityAvailable())->toBeTrue();
 
-    Queue::assertPushed(GeneratePostingEmbeddingsJob::class);
+    Queue::assertPushed(GeneratePostingEmbeddings::class);
 });
 
 test('the openai key can be stored and removed', function () {
@@ -104,7 +104,7 @@ test('storing an openai key while similarity is enabled kicks off the job', func
         ])
         ->assertRedirect();
 
-    Queue::assertPushed(GeneratePostingEmbeddingsJob::class);
+    Queue::assertPushed(GeneratePostingEmbeddings::class);
 });
 
 test('the similar endpoint returns the posting payload with similarity disabled on unsupported databases', function () {

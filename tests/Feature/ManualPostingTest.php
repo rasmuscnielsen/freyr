@@ -1,6 +1,6 @@
 <?php
 
-use App\Jobs\ConvertReportingAmountsJob;
+use App\Jobs\ConvertReportingAmounts;
 use App\Models\BankAccount;
 use App\Models\BankConnection;
 use App\Models\BankConnectionAccount;
@@ -103,7 +103,7 @@ test('foreign-currency manual postings dispatch the conversion job when created'
         ->post(route('bank-accounts.postings.store', $account), manualPostingPayload())
         ->assertRedirect();
 
-    Queue::assertPushed(ConvertReportingAmountsJob::class, fn (ConvertReportingAmountsJob $job): bool => $job->userId === $user->id);
+    Queue::assertPushed(ConvertReportingAmounts::class, fn (ConvertReportingAmounts $job): bool => $job->userId === $user->id);
 });
 
 test('editing a foreign-currency manual posting dispatches the conversion job', function () {
@@ -116,7 +116,7 @@ test('editing a foreign-currency manual posting dispatches the conversion job', 
         ->patch(route('bank-accounts.postings.update', [$account, $posting]), manualPostingPayload(['amount' => '-10.00']))
         ->assertRedirect();
 
-    Queue::assertPushed(ConvertReportingAmountsJob::class, fn (ConvertReportingAmountsJob $job): bool => $job->userId === $user->id);
+    Queue::assertPushed(ConvertReportingAmounts::class, fn (ConvertReportingAmounts $job): bool => $job->userId === $user->id);
 });
 
 test('same-currency manual postings skip the conversion job', function () {
@@ -128,7 +128,7 @@ test('same-currency manual postings skip the conversion job', function () {
         ->post(route('bank-accounts.postings.store', $account), manualPostingPayload())
         ->assertRedirect();
 
-    Queue::assertNotPushed(ConvertReportingAmountsJob::class);
+    Queue::assertNotPushed(ConvertReportingAmounts::class);
 });
 
 test('manual postings can be deleted', function () {

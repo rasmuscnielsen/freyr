@@ -2,9 +2,9 @@
 
 namespace Tests\Fakes;
 
-use App\Finance\EnableBanking\EnableBankingClient;
+use App\Services\EnableBanking\Client;
 
-class BankAccountCrudEnableBankingClient extends EnableBankingClient
+class BankAccountCrudEnableBankingClient extends Client
 {
     /**
      * @return array<string, mixed>

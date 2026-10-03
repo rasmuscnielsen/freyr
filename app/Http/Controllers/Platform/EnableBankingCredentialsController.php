@@ -4,7 +4,7 @@ namespace App\Http\Controllers\Platform;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Platform\StoreEnableBankingCredentialsRequest;
-use App\Platform\PlatformSettings;
+use App\Support\PlatformSettings;
 use Illuminate\Http\RedirectResponse;
 
 class EnableBankingCredentialsController extends Controller

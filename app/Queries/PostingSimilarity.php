@@ -1,9 +1,9 @@
 <?php
 
-namespace App\Finance;
+namespace App\Queries;
 
 use App\Models\Posting;
-use App\Platform\PlatformSettings;
+use App\Support\PlatformSettings;
 use Illuminate\Database\Eloquent\Collection;
 
 /**
@@ -11,7 +11,7 @@ use Illuminate\Database\Eloquent\Collection;
  * embeddings, and derives category suggestions from the closest
  * already-categorized neighbors.
  */
-class PostingSimilarity
+final class PostingSimilarity
 {
     /**
      * How many nearest neighbors feed a category suggestion.

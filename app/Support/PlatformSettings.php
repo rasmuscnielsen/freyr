@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Platform;
+namespace App\Support;
 
 use App\Enums\PlatformSettingKey;
 use App\Models\PlatformSetting;
@@ -9,7 +9,7 @@ use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Crypt;
 
-class PlatformSettings
+final class PlatformSettings
 {
     private const CACHE_KEY = 'platform_settings';
 

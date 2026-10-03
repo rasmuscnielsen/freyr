@@ -1,7 +1,8 @@
 <?php
 
-namespace App\Finance;
+namespace App\Services\Spiir;
 
+use App\Actions\RecalculateAccountBalance;
 use App\Enums\CategoryType;
 use App\Enums\ExpenseType;
 use App\Models\BankAccount;
@@ -19,9 +20,9 @@ use Illuminate\Support\Str;
 use RuntimeException;
 use SplFileObject;
 
-class SpiirExportImporter
+final class Importer
 {
-    public function __construct(private AccountBalanceRecalculator $balanceRecalculator) {}
+    public function __construct(private RecalculateAccountBalance $balanceRecalculator) {}
 
     /**
      * @return array{categories:int, subcategories:int}
@@ -214,7 +215,7 @@ class SpiirExportImporter
     {
         $accounts->each(function (BankAccount $account): void {
             if ($account->opening_balance !== null && ! $account->hasBankConnection()) {
-                $this->balanceRecalculator->recalculate($account);
+                $this->balanceRecalculator->handle($account);
             }
         });
     }

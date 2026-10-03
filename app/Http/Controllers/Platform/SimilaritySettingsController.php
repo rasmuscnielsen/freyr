@@ -5,8 +5,8 @@ namespace App\Http\Controllers\Platform;
 use App\Enums\PlatformSettingKey;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Platform\UpdateSimilaritySettingsRequest;
-use App\Jobs\GeneratePostingEmbeddingsJob;
-use App\Platform\PlatformSettings;
+use App\Jobs\GeneratePostingEmbeddings;
+use App\Support\PlatformSettings;
 use Illuminate\Http\RedirectResponse;
 
 class SimilaritySettingsController extends Controller
@@ -28,7 +28,7 @@ class SimilaritySettingsController extends Controller
         }
 
         if ($settings->similarityAvailable()) {
-            GeneratePostingEmbeddingsJob::dispatch()->afterCommit();
+            GeneratePostingEmbeddings::dispatch()->afterCommit();
         }
 
         return back();

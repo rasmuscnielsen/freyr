@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Finance\EnableBanking;
+namespace App\Services\EnableBanking;
 
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
@@ -11,7 +11,7 @@ use Illuminate\Support\Str;
 use JsonException;
 use RuntimeException;
 
-class EnableBankingClient
+class Client
 {
     /**
      * @param  array<string, mixed>|null  $config
@@ -61,59 +61,10 @@ class EnableBankingClient
     /**
      * @return array<string, mixed>
      */
-    public function fetchSessionData(string $code, CarbonInterface|string|null $dateFrom = null): array
-    {
-        $session = $this->createSession($code);
-        $accounts = Arr::wrap($session['accounts'] ?? []);
-        $dateFrom = $this->transactionDateFrom($dateFrom);
-
-        $accountData = collect($accounts)
-            ->map(function (array $account) use ($dateFrom): array {
-                $accountUid = (string) ($account['uid'] ?? '');
-
-                if ($accountUid === '') {
-                    return [
-                        'account' => $account,
-                        'balances' => [],
-                        'transactions' => [],
-                        'error' => 'Account is missing uid.',
-                    ];
-                }
-
-                return [
-                    'account' => $account,
-                    'balances' => $this->balances($accountUid),
-                    'transactions' => $this->transactions($accountUid, $dateFrom),
-                ];
-            })
-            ->values()
-            ->all();
-
-        return [
-            'session' => $session,
-            'accounts' => $accountData,
-            'transaction_date_from' => $dateFrom->toDateString(),
-        ];
-    }
-
-    /**
-     * @return array<string, mixed>
-     */
     public function createSession(string $code): array
     {
         return $this->request()
             ->post('/sessions', ['code' => $code])
-            ->throw()
-            ->json();
-    }
-
-    /**
-     * @return array<string, mixed>
-     */
-    public function session(string $sessionId): array
-    {
-        return $this->request()
-            ->get(sprintf('/sessions/%s', $sessionId))
             ->throw()
             ->json();
     }
@@ -210,19 +161,6 @@ class EnableBankingClient
         }
 
         throw new RuntimeException('Enable Banking private key is not configured.');
-    }
-
-    private function transactionDateFrom(CarbonInterface|string|null $dateFrom): CarbonInterface
-    {
-        if ($dateFrom instanceof CarbonInterface) {
-            return $dateFrom;
-        }
-
-        if (is_string($dateFrom)) {
-            return CarbonImmutable::parse($dateFrom);
-        }
-
-        return CarbonImmutable::now()->subDays((int) $this->config('transaction_days', 30));
     }
 
     private function config(string $key, mixed $default = null): mixed

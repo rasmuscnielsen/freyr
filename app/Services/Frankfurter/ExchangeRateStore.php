@@ -1,7 +1,8 @@
 <?php
 
-namespace App\Finance\Fx;
+namespace App\Services\Frankfurter;
 
+use App\Exceptions\FxRequestException;
 use App\Models\ExchangeRate;
 use Carbon\CarbonImmutable;
 use Illuminate\Contracts\Cache\Lock;
@@ -40,7 +41,7 @@ class ExchangeRateStore
     public function rateFor(string $base, string $quote, CarbonImmutable $date): ?array
     {
         $row = ExchangeRate::query()
-            ->where('provider', FrankfurterClient::PROVIDER)
+            ->where('provider', Client::PROVIDER)
             ->where('base_currency', $base)
             ->where('quote_currency', $quote)
             ->where('effective_date', '<=', $date->toDateString())
@@ -120,7 +121,7 @@ class ExchangeRateStore
 
         ExchangeRate::query()->upsert(
             array_map(fn (array $row): array => [
-                'provider' => FrankfurterClient::PROVIDER,
+                'provider' => Client::PROVIDER,
                 'base_currency' => $row['base'],
                 'quote_currency' => $row['quote'],
                 'effective_date' => $row['date'],
@@ -140,7 +141,7 @@ class ExchangeRateStore
     public function latestStoredDate(string $base, string $quote): ?CarbonImmutable
     {
         $date = ExchangeRate::query()
-            ->where('provider', FrankfurterClient::PROVIDER)
+            ->where('provider', Client::PROVIDER)
             ->where('base_currency', $base)
             ->where('quote_currency', $quote)
             ->max('effective_date');

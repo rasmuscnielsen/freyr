@@ -1,8 +1,9 @@
 <?php
 
-namespace App\Finance;
+namespace App\Actions;
 
 use App\Models\BankAccount;
+use App\Support\MoneyMath;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -15,9 +16,9 @@ use Illuminate\Support\Facades\DB;
  * the change caused by the current write (new minus old movement) and is
  * ignored once an opening balance exists, since the total is recomputed.
  */
-class AccountBalanceRecalculator
+final class RecalculateAccountBalance
 {
-    public function recalculate(BankAccount $bankAccount, string $delta = '0'): void
+    public function handle(BankAccount $bankAccount, string $delta = '0'): void
     {
         DB::transaction(function () use ($bankAccount, $delta): void {
             $account = BankAccount::query()

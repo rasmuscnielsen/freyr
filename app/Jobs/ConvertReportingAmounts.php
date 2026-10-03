@@ -2,13 +2,13 @@
 
 namespace App\Jobs;
 
-use App\Finance\Fx\ExchangeRateStore;
-use App\Finance\Fx\FrankfurterClient;
-use App\Finance\Fx\FxRequestException;
-use App\Finance\MoneyMath;
+use App\Exceptions\FxRequestException;
 use App\Models\BankAccount;
 use App\Models\Posting;
 use App\Models\User;
+use App\Services\Frankfurter\Client;
+use App\Services\Frankfurter\ExchangeRateStore;
+use App\Support\MoneyMath;
 use Carbon\CarbonImmutable;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -28,7 +28,7 @@ use Illuminate\Support\Facades\Log;
  * sync or a manual retry. Works identically under the sync queue driver and
  * a worker.
  */
-class ConvertReportingAmountsJob implements ShouldBeUnique, ShouldQueue
+final class ConvertReportingAmounts implements ShouldBeUnique, ShouldQueue
 {
     use Queueable;
 
@@ -54,7 +54,7 @@ class ConvertReportingAmountsJob implements ShouldBeUnique, ShouldQueue
         return (string) $this->userId;
     }
 
-    public function handle(FrankfurterClient $client, ExchangeRateStore $rates): void
+    public function handle(Client $client, ExchangeRateStore $rates): void
     {
         $user = User::query()->find($this->userId);
         $quote = $user?->reporting_currency;

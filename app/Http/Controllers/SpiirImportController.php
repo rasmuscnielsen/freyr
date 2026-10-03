@@ -2,8 +2,8 @@
 
 namespace App\Http\Controllers;
 
-use App\Finance\SpiirExportImporter;
 use App\Jobs\ImportSpiirExport;
+use App\Services\Spiir\Importer;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -14,7 +14,7 @@ use Illuminate\Validation\ValidationException;
 
 class SpiirImportController extends Controller
 {
-    public function store(Request $request, SpiirExportImporter $importer): RedirectResponse
+    public function store(Request $request, Importer $importer): RedirectResponse
     {
         $data = $request->validate([
             'categories' => ['required', 'file', 'max:10240'],

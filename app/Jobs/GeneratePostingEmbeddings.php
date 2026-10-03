@@ -2,8 +2,8 @@
 
 namespace App\Jobs;
 
-use App\Finance\PostingDescriptionEmbeddingGenerator;
-use App\Finance\PostingSimilarity;
+use App\Queries\PostingSimilarity;
+use App\Services\Embeddings\EmbeddingGenerator;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
@@ -14,7 +14,7 @@ use Illuminate\Foundation\Queue\Queueable;
  * stages are no-ops when similarity features are off, so dispatching is
  * always safe — this also powers the hourly catch-up sweep.
  */
-class GeneratePostingEmbeddingsJob implements ShouldBeUnique, ShouldQueue
+final class GeneratePostingEmbeddings implements ShouldBeUnique, ShouldQueue
 {
     use Queueable;
 
@@ -33,7 +33,7 @@ class GeneratePostingEmbeddingsJob implements ShouldBeUnique, ShouldQueue
     private const int MAX_ITERATIONS = 40;
 
     public function handle(
-        PostingDescriptionEmbeddingGenerator $embeddings,
+        EmbeddingGenerator $embeddings,
         PostingSimilarity $similarity,
     ): void {
         $iterations = 0;

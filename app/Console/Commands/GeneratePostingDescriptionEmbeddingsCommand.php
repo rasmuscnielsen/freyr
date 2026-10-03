@@ -2,7 +2,7 @@
 
 namespace App\Console\Commands;
 
-use App\Finance\PostingDescriptionEmbeddingGenerator;
+use App\Services\Embeddings\EmbeddingGenerator;
 use Illuminate\Console\Attributes\Description;
 use Illuminate\Console\Attributes\Signature;
 use Illuminate\Console\Command;
@@ -14,7 +14,7 @@ class GeneratePostingDescriptionEmbeddingsCommand extends Command
     /**
      * Execute the console command.
      */
-    public function handle(PostingDescriptionEmbeddingGenerator $embeddings): int
+    public function handle(EmbeddingGenerator $embeddings): int
     {
         $count = $embeddings->generateMissing(
             limit: max(1, (int) $this->option('limit')),

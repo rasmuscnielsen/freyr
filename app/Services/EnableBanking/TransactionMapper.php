@@ -1,14 +1,14 @@
 <?php
 
-namespace App\Finance\EnableBanking;
+namespace App\Services\EnableBanking;
 
-use App\Finance\MoneyMath;
 use App\Models\BankConnectionAccount;
+use App\Support\MoneyMath;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Arr;
 use RuntimeException;
 
-class EnableBankingTransactionMapper
+final class TransactionMapper
 {
     /**
      * @param  array<string, mixed>  $transaction
