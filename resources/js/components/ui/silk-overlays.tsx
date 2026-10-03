@@ -25,9 +25,11 @@ export type OverlayPresentation =
 
 const TRACK_BY_PRESENTATION: Record<
     OverlayPresentation,
-    'top' | 'bottom' | 'left' | 'right'
+    'top' | 'bottom' | 'left' | 'right' | ['top', 'bottom']
 > = {
-    center: 'top',
+    // Centered dialogs can enter from and dismiss to either vertical edge,
+    // matching Silk's responsive center/bottom recipe.
+    center: ['top', 'bottom'],
     bottom: 'bottom',
     top: 'top',
     left: 'left',
@@ -127,8 +129,11 @@ export function AdaptiveOverlayContent({
                             'h-full w-3/4 border-r sm:max-w-xs',
                         presentation === 'top' &&
                             'max-h-[85dvh] w-full border-b',
+                        // Silk sizes center-placed content to a fixed
+                        // fraction of the view; h-auto restores the
+                        // shrink-to-fit sizing dialogs should have.
                         isCenter &&
-                            'max-h-[85dvh] w-full max-w-[calc(100%-2rem)] rounded-lg border sm:max-w-lg',
+                            'h-auto max-h-[85dvh] w-full max-w-[calc(100%-2rem)] rounded-lg border sm:max-w-lg',
                         className,
                     )}
                     travelAnimation={

@@ -26,14 +26,14 @@ export function SimilarityIntro() {
         <div className="flex flex-col gap-3 text-sm text-muted-foreground">
             <p>
                 With an OpenAI API key, Freyr can understand your posting
-                descriptions and find similar postings — powering smarter
-                search and automatic category suggestions.
+                descriptions and find similar postings — powering smarter search
+                and automatic category suggestions.
             </p>
             <p>
-                It is entirely optional — everything works without it.
-                Posting descriptions are sent to OpenAI for analysis, and
-                usage is billed by OpenAI (fractions of a cent per posting).
-                Create a key at{' '}
+                It is entirely optional — everything works without it. Posting
+                descriptions are sent to OpenAI for analysis, and usage is
+                billed by OpenAI (fractions of a cent per posting). Create a key
+                at{' '}
                 <TextLink
                     href="https://platform.openai.com/api-keys"
                     target="_blank"
@@ -91,7 +91,11 @@ export function SimilaritySinceSelect({
     return (
         <>
             {name !== undefined && (
-                <input type="hidden" name={name} value={value ?? defaultValue} />
+                <input
+                    type="hidden"
+                    name={name}
+                    value={value ?? defaultValue}
+                />
             )}
             <Select
                 value={value}

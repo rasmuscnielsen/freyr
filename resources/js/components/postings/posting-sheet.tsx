@@ -1,5 +1,7 @@
 import { useForm } from '@inertiajs/react';
-import { ChevronsUpDown, Sparkles, StarIcon } from 'lucide-react';
+import { Sheet, SheetStack } from '@silk-hq/components';
+import type { SheetContentProps } from '@silk-hq/components';
+import { ChevronsUpDown, Sparkles, StarIcon, XIcon } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import InputError from '@/components/input-error';
 import { CategoryCombobox } from '@/components/postings/category-combobox';
@@ -8,13 +10,9 @@ import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import {
-    Sheet,
-    SheetContent,
-    SheetDescription,
-    SheetTitle,
-} from '@/components/ui/sheet';
+import { OverlayRoot } from '@/components/ui/silk-overlays';
 import { Spinner } from '@/components/ui/spinner';
+import { useIsMobile } from '@/hooks/use-mobile';
 import { formatDate, formatDayMonth } from '@/lib/dates';
 import { formatMoney } from '@/lib/money';
 import { useRegion } from '@/lib/region';
@@ -72,7 +70,33 @@ type PostingFormValues = {
     is_extraordinary: boolean;
 };
 
-const STACK_OFFSET_PX = 16;
+type StackEntry = { postingId: number; presented: boolean; exited: boolean };
+
+/**
+ * The receding effect a covered sheet plays as deeper levels stack on top,
+ * matching Silk's "Sheet with Stacking" recipe: scale down and shift away
+ * from the incoming edge so the sheet below keeps peeking out.
+ */
+function stackingAnimation(
+    presentation: 'bottom' | 'right',
+): SheetContentProps['stackingAnimation'] {
+    const translate = ({ progress }: { progress: number }) =>
+        progress <= 1
+            ? `${progress * -10}px`
+            : `calc(-12.5px + 2.5px * ${progress})`;
+
+    return presentation === 'right'
+        ? {
+              translateX: translate,
+              scale: [1, 0.933],
+              transformOrigin: '0 50%',
+          }
+        : {
+              translateY: translate,
+              scale: [1, 0.933],
+              transformOrigin: '50% 0',
+          };
+}
 
 async function fetchDetail(postingId: number): Promise<SheetDetail> {
     const response = await fetch(postingsSimilar.url(postingId), {
@@ -182,7 +206,10 @@ function SheetLevel({
     const categorizedBy = formatCategorizedBy(posting?.categorized_by ?? null);
 
     return (
-        <div className="flex h-full min-h-0 flex-col">
+        // Percentage heights don't resolve against Silk's measured content
+        // box, so mobile pins a tall detent while desktop fills the edge
+        // slide-over's explicit height.
+        <div className="flex h-[85dvh] min-h-0 flex-col md:h-full">
             <div className="flex min-w-0 flex-col gap-1 border-b p-4 pr-12">
                 {posting === null ? (
                     <div className="flex h-16 items-center justify-center">
@@ -408,9 +435,137 @@ function SheetLevel({
 }
 
 /**
- * Posting detail sheet with stacking: clicking a similar posting pushes a new
- * level on top, and each level below peeks out as a strip on the left. Click a
- * strip to jump back to that level.
+ * One real Silk sheet per stack level. Sheets nest logically inside each
+ * other's content — as a deeper level presents, the level below recedes with
+ * the stacking animation and is dimmed by the deeper sheet's backdrop.
+ */
+function StackedSheetLevel({
+    levels,
+    index,
+    onPush,
+    onDismissLevel,
+    onExited,
+    categoryOptions,
+}: {
+    levels: StackEntry[];
+    index: number;
+    onPush: (postingId: number) => void;
+    onDismissLevel: (index: number) => void;
+    onExited: (index: number) => void;
+    categoryOptions: CategoryComboboxOption[];
+}) {
+    const isMobile = useIsMobile();
+    const entry = levels[index];
+    const presentation = isMobile ? 'bottom' : 'right';
+    const next = index + 1 < levels.length ? index + 1 : null;
+    const isTop =
+        index === levels.map((level) => level.presented).lastIndexOf(true);
+
+    if (entry === undefined || (!entry.presented && entry.exited)) {
+        return null;
+    }
+
+    return (
+        <OverlayRoot
+            forComponent="closest"
+            open={entry.presented}
+            onOpenChange={(open) => {
+                if (!open) {
+                    onDismissLevel(index);
+                }
+            }}
+        >
+            <Sheet.Portal>
+                <Sheet.View
+                    contentPlacement={presentation}
+                    tracks={presentation}
+                    swipeOvershoot={isMobile}
+                    nativeEdgeSwipePrevention={true}
+                    className="z-50"
+                    style={
+                        isMobile
+                            ? undefined
+                            : {
+                                  height: 'calc(var(--silk-100-lvh-dvh-pct) + 60px)',
+                              }
+                    }
+                    onTravelStatusChange={(status) => {
+                        if (status === 'idleOutside' && !entry.presented) {
+                            onExited(index);
+                        }
+                    }}
+                >
+                    <Sheet.Backdrop
+                        themeColorDimming="auto"
+                        travelAnimation={{
+                            opacity: [0, index === 0 ? 0.5 : 0.25],
+                        }}
+                    />
+                    <Sheet.Content
+                        className={cn(
+                            'flex flex-col bg-background shadow-xl',
+                            isMobile
+                                ? 'max-h-[92dvh] w-full rounded-t-2xl border-t pb-[env(safe-area-inset-bottom,0px)]'
+                                : 'h-full w-full border-l sm:max-w-xl',
+                        )}
+                        stackingAnimation={stackingAnimation(presentation)}
+                    >
+                        {isMobile && (
+                            <>
+                                <Sheet.BleedingBackground className="bg-background" />
+                                <Sheet.Handle
+                                    action="dismiss"
+                                    aria-label="Close"
+                                    className="mx-auto mt-2 mb-1 h-[5px] w-9 shrink-0 rounded-full border-0 bg-muted-foreground/30"
+                                />
+                            </>
+                        )}
+                        <Sheet.Title className="sr-only">
+                            Posting details
+                        </Sheet.Title>
+                        <Sheet.Description className="sr-only">
+                            Edit the posting's category and comment, and browse
+                            similar postings.
+                        </Sheet.Description>
+
+                        <SheetLevel
+                            postingId={entry.postingId}
+                            isTop={isTop}
+                            categoryOptions={categoryOptions}
+                            onOpenPosting={onPush}
+                        />
+
+                        {/* The next level nests inside this sheet's content so
+                            Silk tracks it as stacked above in the SheetStack. */}
+                        {next !== null && (
+                            <StackedSheetLevel
+                                levels={levels}
+                                index={next}
+                                onPush={onPush}
+                                onDismissLevel={onDismissLevel}
+                                onExited={onExited}
+                                categoryOptions={categoryOptions}
+                            />
+                        )}
+
+                        <Sheet.Trigger
+                            action="dismiss"
+                            className="absolute top-4 right-4 rounded-xs opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:outline-hidden disabled:pointer-events-none [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4"
+                        >
+                            <XIcon />
+                            <span className="sr-only">Close</span>
+                        </Sheet.Trigger>
+                    </Sheet.Content>
+                </Sheet.View>
+            </Sheet.Portal>
+        </OverlayRoot>
+    );
+}
+
+/**
+ * Posting detail sheet with real sheet stacking: clicking a similar posting
+ * presents a new sheet on top while the covered level recedes and dims.
+ * Dismissing a level (X, swipe, Escape, backdrop) pops just that level.
  */
 export function PostingSheet({
     postingId,
@@ -421,96 +576,65 @@ export function PostingSheet({
     onClose: () => void;
     categoryOptions: CategoryComboboxOption[];
 }) {
-    const [stack, setStack] = useState<number[]>([]);
+    const [levels, setLevels] = useState<StackEntry[]>([]);
     const [openId, setOpenId] = useState<number | null>(null);
 
     // Reset the stack when a different posting is opened (render-phase
     // adjustment — React's sanctioned alternative to syncing via an effect).
     if (postingId !== openId) {
         setOpenId(postingId);
-        setStack(postingId === null ? [] : [postingId]);
+        setLevels((previous) =>
+            postingId === null
+                ? previous.map((entry) => ({ ...entry, presented: false }))
+                : [{ postingId, presented: true, exited: false }],
+        );
     }
 
+    // Levels stay mounted while they animate out; each reports idleOutside
+    // once gone and is then skipped.
     return (
-        <Sheet
-            open={postingId !== null}
-            onOpenChange={(open) => !open && onClose()}
-        >
-            <SheetContent
-                className="w-full gap-0 overflow-hidden bg-transparent shadow-none sm:max-w-xl"
-                contentClassName="gap-0"
-                style={{ border: 'none' }}
-            >
-                <SheetTitle className="sr-only">Posting details</SheetTitle>
-                <SheetDescription className="sr-only">
-                    Edit the posting's category and comment, and browse similar
-                    postings.
-                </SheetDescription>
+        <SheetStack.Root>
+            {levels.length > 0 && (
+                <StackedSheetLevel
+                    levels={levels}
+                    index={0}
+                    onPush={(nextId) =>
+                        setLevels((previous) => [
+                            ...previous,
+                            {
+                                postingId: nextId,
+                                presented: true,
+                                exited: false,
+                            },
+                        ])
+                    }
+                    onDismissLevel={(index) => {
+                        if (index === 0) {
+                            onClose();
 
-                {/* Percentage heights don't resolve inside Silk's scroll
-                    wrapper, so the stack pins itself to the viewport: full
-                    height on desktop edge presentation, a tall detent when
-                    the sheet becomes a bottom sheet on mobile. */}
-                <div className="relative h-[85dvh] md:h-svh">
-                    {stack.map((id, index) => {
-                        const isTop = index === stack.length - 1;
+                            return;
+                        }
 
-                        return (
-                            <div
-                                key={id}
-                                className={cn(
-                                    'absolute inset-y-0 right-0 flex flex-col overflow-hidden bg-background transition-all duration-300',
-                                    isTop ? 'shadow-xl' : 'border-l shadow-lg',
-                                )}
-                                style={{
-                                    // Each pushed sheet is indented further
-                                    // right, so every level below peeks out
-                                    // as a strip on the left.
-                                    left: index * STACK_OFFSET_PX,
-                                    // Under-sheets still render so their left
-                                    // strip peeks out; they are inert and dimmed.
-                                    pointerEvents: isTop ? 'auto' : 'none',
-                                }}
-                            >
-                                {!isTop && (
-                                    <div className="absolute inset-0 z-10 bg-black/20" />
-                                )}
-                                <SheetLevel
-                                    postingId={id}
-                                    isTop={isTop}
-                                    categoryOptions={categoryOptions}
-                                    onOpenPosting={(nextId) =>
-                                        setStack((previous) => [
-                                            ...previous,
-                                            nextId,
-                                        ])
-                                    }
-                                />
-                            </div>
+                        setLevels((previous) =>
+                            previous.map((entry, i) =>
+                                i >= index
+                                    ? { ...entry, presented: false }
+                                    : entry,
+                            ),
                         );
-                    })}
-
-                    {/* Clickable strips of the sheets underneath: jump back to
-                        that level by popping the stack. */}
-                    {stack.slice(0, -1).map((id, index) => (
-                        <button
-                            key={`strip-${id}`}
-                            type="button"
-                            aria-label="Back to previous posting"
-                            className="absolute inset-y-0 z-20"
-                            style={{
-                                left: index * STACK_OFFSET_PX,
-                                width: STACK_OFFSET_PX,
-                            }}
-                            onClick={() =>
-                                setStack((previous) =>
-                                    previous.slice(0, index + 1),
-                                )
-                            }
-                        />
-                    ))}
-                </div>
-            </SheetContent>
-        </Sheet>
+                    }}
+                    onExited={(index) =>
+                        setLevels((previous) =>
+                            previous.map((entry, i) =>
+                                i === index
+                                    ? { ...entry, exited: true }
+                                    : entry,
+                            ),
+                        )
+                    }
+                    categoryOptions={categoryOptions}
+                />
+            )}
+        </SheetStack.Root>
     );
 }
