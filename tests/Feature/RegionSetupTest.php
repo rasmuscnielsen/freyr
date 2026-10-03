@@ -2,6 +2,7 @@
 
 use App\Models\Posting;
 use App\Models\User;
+use Inertia\Testing\AssertableInertia as Assert;
 
 test('a user without region setup is redirected from the app to the setup page', function () {
     $user = User::factory()->withoutRegionSetup()->create();
@@ -9,6 +10,19 @@ test('a user without region setup is redirected from the app to the setup page',
     $this->actingAs($user)
         ->get(route('dashboard'))
         ->assertRedirect(route('region-setup.edit'));
+});
+
+test('the setup page stays reachable while setup is incomplete', function () {
+    $user = User::factory()->withoutRegionSetup()->create();
+
+    $this->actingAs($user)
+        ->get(route('region-setup.edit'))
+        ->assertOk()
+        ->assertInertia(fn (Assert $page) => $page
+            ->component('region-setup')
+            ->has('countries')
+            ->has('timezones')
+            ->has('currencies'));
 });
 
 test('submitting the setup stores the region preferences and unlocks the app', function () {
@@ -30,6 +44,20 @@ test('submitting the setup stores the region preferences and unlocks the app', f
         ->and($user->region_completed_at)->not->toBeNull();
 
     $this->actingAs($user)->get(route('dashboard'))->assertOk();
+});
+
+test('the setup allows a supported timezone independently of country', function () {
+    $user = User::factory()->withoutRegionSetup()->create();
+
+    $this->actingAs($user)
+        ->post(route('region-setup.store'), [
+            'country_code' => 'DK',
+            'timezone' => 'America/New_York',
+            'reporting_currency' => 'DKK',
+        ])
+        ->assertSessionHasNoErrors();
+
+    expect($user->refresh()->timezone)->toBe('America/New_York');
 });
 
 test('the reporting currency is rejected when it is not ECB-covered', function () {

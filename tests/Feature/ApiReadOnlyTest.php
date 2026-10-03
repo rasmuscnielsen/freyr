@@ -7,6 +7,16 @@ use App\Models\Subcategory;
 use App\Models\User;
 use Laravel\Passport\Passport;
 
+test('api routes require authentication', function () {
+    $this->getJson('/api/bank-accounts')->assertUnauthorized();
+});
+
+test('api routes require a read token ability', function () {
+    Passport::actingAs(User::factory()->create(), ['write']);
+
+    $this->getJson('/api/bank-accounts')->assertForbidden();
+});
+
 test('bank accounts can be read by their owner', function () {
     $user = User::factory()->create();
     $account = BankAccount::factory()->for($user)->create([
@@ -72,4 +82,28 @@ test('postings cannot be read across users', function () {
     $posting = Posting::factory()->create();
 
     $this->getJson("/api/postings/{$posting->id}")->assertNotFound();
+});
+
+test('categories can be read', function () {
+    $category = Category::factory()->create(['name' => 'Food']);
+    Subcategory::factory()->forCategory($category)->create(['name' => 'Groceries']);
+
+    Passport::actingAs(User::factory()->create(), ['read']);
+
+    $this->getJson('/api/categories')
+        ->assertOk()
+        ->assertJsonPath('data.0.name', 'Food')
+        ->assertJsonPath('data.0.subcategories.0.name', 'Groceries');
+
+    $this->getJson("/api/categories/{$category->id}")
+        ->assertOk()
+        ->assertJsonPath('data.name', 'Food');
+});
+
+test('api resource routes are read only', function () {
+    Passport::actingAs(User::factory()->create(), ['read']);
+
+    $this->postJson('/api/bank-accounts', [])->assertMethodNotAllowed();
+    $this->patchJson('/api/postings/1', [])->assertMethodNotAllowed();
+    $this->deleteJson('/api/categories/1')->assertMethodNotAllowed();
 });

@@ -274,6 +274,38 @@ test('sync endpoint dispatches a bank connection account sync job', function () 
     );
 });
 
+test('sync command dispatches jobs for linked connection accounts', function () {
+    $user = User::factory()->create();
+    $connection = BankConnection::factory()->for($user)->create();
+    $localAccount = BankAccount::factory()->for($user)->create();
+    $linkedAccount = BankConnectionAccount::factory()
+        ->for($connection)
+        ->linkedTo($localAccount)
+        ->create();
+
+    BankConnectionAccount::factory()
+        ->for($connection)
+        ->create(['user_id' => $user->id]);
+
+    BankConnectionAccount::factory()
+        ->for($connection)
+        ->create([
+            'user_id' => $user->id,
+            'status' => BankConnectionAccount::STATUS_IGNORED,
+        ]);
+
+    Queue::fake();
+
+    $this->artisan('app:bank-connections:sync')
+        ->assertSuccessful();
+
+    Queue::assertPushedTimes(SyncBankConnectionAccount::class, 1);
+    Queue::assertPushed(
+        SyncBankConnectionAccount::class,
+        fn (SyncBankConnectionAccount $job): bool => $job->bankConnectionAccount->is($linkedAccount),
+    );
+});
+
 test('callback persists an active connection and returned accounts', function () {
     $user = User::factory()->create();
     $connection = BankConnection::factory()->for($user)->create([

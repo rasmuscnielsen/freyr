@@ -6,6 +6,16 @@ use Inertia\Testing\AssertableInertia as Assert;
 use Laravel\Passport\ClientRepository;
 use Laravel\Passport\Passport;
 
+test('clients can self-register through dynamic client registration', function () {
+    $this->postJson('/oauth/register', [
+        'client_name' => 'Cursor',
+        'redirect_uris' => ['cursor://anypath/callback'],
+    ])
+        ->assertCreated()
+        ->assertJsonStructure(['client_id', 'redirect_uris', 'scope'])
+        ->assertJsonPath('scope', 'mcp:use');
+});
+
 test('authorization code + PKCE flow issues a token that works on /mcp', function () {
     $user = User::factory()->create();
 

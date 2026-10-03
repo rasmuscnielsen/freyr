@@ -247,6 +247,21 @@ test('manual postings are only manageable by the account owner', function () {
     expect(Posting::query()->count())->toBe(1);
 });
 
+test('manual posting routes are scoped to the bank account', function () {
+    $user = User::factory()->create();
+    $account = manualPostingAccount($user);
+    $otherAccount = manualPostingAccount($user);
+    $posting = Posting::factory()->forAccount($otherAccount)->create();
+
+    $this->actingAs($user)
+        ->patch(route('bank-accounts.postings.update', [$account, $posting]), manualPostingPayload())
+        ->assertNotFound();
+
+    $this->actingAs($user)
+        ->delete(route('bank-accounts.postings.destroy', [$account, $posting]))
+        ->assertNotFound();
+});
+
 test('bank account detail exposes manual state and categories for manual accounts', function () {
     $user = User::factory()->create();
     $account = manualPostingAccount($user);
@@ -261,6 +276,21 @@ test('bank account detail exposes manual state and categories for manual account
             ->where('account.is_manual', true)
             ->where('postings.data.0.comment', 'Note')
             ->where('postings.data.0.categorized_subcategory_id', $subcategory->id)
+            ->has('categories', 1));
+});
+
+test('bank account detail marks connected accounts as not manual but still offers categories', function () {
+    $user = User::factory()->create();
+    $account = manualPostingAccount($user);
+    $connection = BankConnection::factory()->for($user)->create();
+    BankConnectionAccount::factory()->for($connection)->linkedTo($account)->create();
+    Subcategory::factory()->create();
+
+    $this->actingAs($user)
+        ->get(route('bank-accounts.show', $account))
+        ->assertOk()
+        ->assertInertia(fn (Assert $page) => $page
+            ->where('account.is_manual', false)
             ->has('categories', 1));
 });
 

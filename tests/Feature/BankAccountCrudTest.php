@@ -182,6 +182,16 @@ test('setting an opening balance on a foreign-currency account dispatches the co
     Queue::assertPushed(ConvertReportingAmounts::class, fn (ConvertReportingAmounts $job): bool => $job->userId === $user->id);
 });
 
+test('opening balance validation rejects values larger than the database column', function () {
+    $user = User::factory()->create();
+    $account = BankAccount::factory()->for($user)->create();
+
+    $this->actingAs($user)
+        ->from(route('bank-accounts.index'))
+        ->patch(route('bank-accounts.update', $account), ['opening_balance' => '10000000000000.00'])
+        ->assertSessionHasErrors('opening_balance');
+});
+
 test('bank accounts page exposes connection state and linkable remote accounts', function () {
     $user = User::factory()->create();
     Cache::forget('enable-banking.aspsps.dk.personal.ais');
@@ -297,6 +307,27 @@ test('bank accounts page does not expose reconciliation alerts', function () {
         ->assertInertia(fn (Assert $page) => $page
             ->has('connections.0.accounts', 1)
             ->missing('connections.0.balance_mismatch'));
+});
+
+test('bank accounts page exposes the my banks connection panel', function () {
+    $user = User::factory()->create();
+    Cache::forget('enable-banking.aspsps.dk.personal.ais');
+    app()->instance(Client::class, new BankAccountCrudEnableBankingClient);
+
+    $account = BankAccount::factory()->for($user)->create();
+    $connection = BankConnection::factory()->for($user)->forBank('Demo Bank')->create();
+    BankConnectionAccount::factory()->for($connection)->linkedTo($account)->create(['details' => 'Everyday']);
+
+    $this->actingAs($user)
+        ->get(route('bank-accounts.index'))
+        ->assertOk()
+        ->assertInertia(fn (Assert $page) => $page
+            ->component('bank-accounts/index')
+            ->where('connections.0.aspsp_name', 'Demo Bank')
+            ->where('connections.0.linked_accounts_count', 1)
+            ->where('connections.0.accounts.0.name', 'Everyday')
+            ->where('connections.0.accounts.0.bank_account.name', $account->name)
+            ->where('connections.0.accounts.0.bank_account.is_active', true));
 });
 
 test('bank pages never expose previously stored exception messages', function () {

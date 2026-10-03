@@ -34,6 +34,14 @@ test('a fresh install redirects the login page to the onboarding welcome', funct
     $this->get(route('login'))->assertRedirect(route('onboarding.welcome'));
 });
 
+test('the onboarding welcome renders on a fresh install', function () {
+    $this->get(route('onboarding.welcome'))
+        ->assertOk()
+        ->assertInertia(fn (Assert $page) => $page
+            ->component('onboarding/welcome')
+            ->has('passwordRules'));
+});
+
 test('creating the first account makes a verified platform admin and signs in', function () {
     $response = $this->post(route('onboarding.account.store'), [
         'name' => 'Jane Admin',
@@ -49,6 +57,12 @@ test('creating the first account makes a verified platform admin and signs in', 
 
     $this->assertAuthenticatedAs($user);
     $response->assertRedirect(route('onboarding.region'));
+});
+
+test('the onboarding welcome redirects to login once a user exists', function () {
+    User::factory()->create();
+
+    $this->get(route('onboarding.welcome'))->assertRedirect(route('login'));
 });
 
 test('a platform admin with incomplete onboarding is redirected to the wizard', function () {
@@ -167,6 +181,14 @@ test('the spiir import is rejected once postings exist', function () {
             'postings' => fixtureUpload('Posting.csv'),
         ])
         ->assertSessionHasErrors('postings');
+});
+
+test('the status endpoint 404s for an unknown import', function () {
+    $admin = User::factory()->platformAdmin()->create();
+
+    $this->actingAs($admin)
+        ->get(route('spiir-import.show', 'does-not-exist'))
+        ->assertNotFound();
 });
 
 test('spiir import status hides stored errors and belongs only to its owner', function () {

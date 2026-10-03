@@ -54,6 +54,20 @@ function mcpCall(string $name, array $arguments = []): array
         : ['isError' => true, 'raw' => $text];
 }
 
+test('unauthenticated requests to /mcp get a JSON 401 with WWW-Authenticate', function () {
+    $response = $this->postJson('/mcp', [
+        'jsonrpc' => '2.0',
+        'id' => 1,
+        'method' => 'initialize',
+        'params' => [],
+    ])
+        ->assertUnauthorized()
+        ->assertHeader('WWW-Authenticate');
+    expect($response->headers->get('WWW-Authenticate'))
+        ->toContain('Bearer realm="mcp"')
+        ->toContain('resource_metadata=');
+});
+
 test('authenticated token requests reach the MCP server', function () {
     $user = User::factory()->create();
     Passport::actingAs($user, ['mcp:use']);
@@ -116,6 +130,25 @@ test('write tools require mcp:use and write scopes', function () {
 
     Passport::actingAs($user, ['mcp:use', 'write']);
     expect($categorize()['isError'])->toBeFalse();
+});
+
+test('a sole user can use all tools over stdio without authenticating', function () {
+    $user = User::factory()->create();
+    $subcategory = Subcategory::factory()->create();
+    $posting = Posting::factory()
+        ->forAccount(BankAccount::factory()->for($user)->create())
+        ->uncategorized()
+        ->create();
+
+    FreyrServer::tool(ListPostings::class)->assertOk();
+
+    $result = mcpCall('categorize-postings', [
+        'ids' => [$posting->id],
+        'categorized_subcategory_id' => $subcategory->id,
+    ]);
+
+    expect($result['isError'])->toBeFalse();
+    expect($posting->refresh()->categorized_subcategory_id)->toBe($subcategory->id);
 });
 
 test('list-postings returns only the acting user postings', function () {
@@ -316,4 +349,11 @@ test('edit-posting edits manual account postings and recalculates balances', fun
     expect((float) $posting->amount)->toBe(-250.00)
         ->and((float) $posting->balance)->toBe(900.00)
         ->and((float) $account->refresh()->current_balance)->toBe(750.00);
+});
+
+test('tools are not registered without an authenticated user or sole user', function () {
+    User::factory()->count(2)->create();
+
+    FreyrServer::tool(ListPostings::class)->assertNotRegistered();
+    expect(mcpCall('get-posting', ['id' => 1])['isError'])->toBeTrue();
 });

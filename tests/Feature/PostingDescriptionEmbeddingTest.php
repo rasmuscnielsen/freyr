@@ -110,6 +110,17 @@ test('the sweep job embeds missing postings when the feature is available', func
     expect(Posting::query()->sole()->description_embedding)->toHaveCount(1536);
 });
 
+test('the sweep job is a no-op when similarity is unavailable', function () {
+    Posting::factory()->create(['description' => 'Leave me alone']);
+
+    (new GeneratePostingEmbeddings)->handle(
+        app(EmbeddingGenerator::class),
+        app(PostingSimilarity::class),
+    );
+
+    expect(Posting::query()->sole()->description_embedding)->toBeNull();
+});
+
 test('updating a posting description clears the existing embedding', function () {
     $posting = Posting::factory()->create([
         'description' => 'Old description',

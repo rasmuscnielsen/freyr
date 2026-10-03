@@ -6,6 +6,21 @@ use App\Support\PlatformSettings;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Crypt;
 
+test('it stores and reads a boolean setting', function () {
+    $settings = app(PlatformSettings::class);
+
+    expect($settings->registrationEnabled())->toBeFalse();
+
+    $settings->set(PlatformSettingKey::RegistrationEnabled, true);
+
+    expect($settings->registrationEnabled())->toBeTrue()
+        ->and(PlatformSetting::query()->find('registration.enabled')->value)->toBe('1');
+
+    $settings->set(PlatformSettingKey::RegistrationEnabled, false);
+
+    expect($settings->registrationEnabled())->toBeFalse();
+});
+
 test('it stores encrypted values and decrypts them on read', function () {
     $settings = app(PlatformSettings::class);
 

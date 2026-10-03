@@ -9,6 +9,15 @@ beforeEach(function () {
     $this->skipUnlessFortifyHas(Features::registration());
 });
 
+test('registration screen can be rendered', function () {
+    User::factory()->create();
+    app(PlatformSettings::class)->set(PlatformSettingKey::RegistrationEnabled, true);
+
+    $response = $this->get(route('register'));
+
+    $response->assertOk();
+});
+
 test('new users can register', function () {
     User::factory()->create();
     app(PlatformSettings::class)->set(PlatformSettingKey::RegistrationEnabled, true);
