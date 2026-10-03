@@ -12,6 +12,7 @@ import {
     SidebarMenu,
     SidebarMenuButton,
     SidebarMenuItem,
+    useSidebar,
 } from '@/components/ui/sidebar';
 import { dashboard } from '@/routes';
 import { index as bankAccountsIndex } from '@/routes/bank-accounts';
@@ -41,6 +42,7 @@ const footerNavItems: NavItem[] = [];
 
 export function AppSidebar() {
     const { url } = usePage();
+    const { setOpenMobile } = useSidebar();
 
     return (
         <Sidebar collapsible="icon" variant="inset">
@@ -48,7 +50,11 @@ export function AppSidebar() {
                 <SidebarMenu>
                     <SidebarMenuItem>
                         <SidebarMenuButton size="lg" asChild>
-                            <Link href={dashboard()} prefetch>
+                            <Link
+                                href={dashboard()}
+                                prefetch
+                                onClick={() => setOpenMobile(false)}
+                            >
                                 <AppLogo />
                             </Link>
                         </SidebarMenuButton>
@@ -72,7 +78,11 @@ export function AppSidebar() {
                             }
                             tooltip={{ children: 'Settings' }}
                         >
-                            <Link href={profileEdit()} prefetch>
+                            <Link
+                                href={profileEdit()}
+                                prefetch
+                                onClick={() => setOpenMobile(false)}
+                            >
                                 <Settings />
                                 <span>Settings</span>
                             </Link>

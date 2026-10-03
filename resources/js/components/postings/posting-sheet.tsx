@@ -19,7 +19,10 @@ import { formatDate, formatDayMonth } from '@/lib/dates';
 import { formatMoney } from '@/lib/money';
 import { useRegion } from '@/lib/region';
 import { cn } from '@/lib/utils';
-import { similar as postingsSimilar, update as updatePosting } from '@/routes/postings';
+import {
+    similar as postingsSimilar,
+    update as updatePosting,
+} from '@/routes/postings';
 
 export type SheetPosting = {
     id: number;
@@ -434,7 +437,8 @@ export function PostingSheet({
             onOpenChange={(open) => !open && onClose()}
         >
             <SheetContent
-                className="w-full gap-0 overflow-hidden bg-transparent p-0 shadow-none sm:max-w-xl"
+                className="w-full gap-0 overflow-hidden bg-transparent shadow-none sm:max-w-xl"
+                contentClassName="gap-0"
                 style={{ border: 'none' }}
             >
                 <SheetTitle className="sr-only">Posting details</SheetTitle>
@@ -443,7 +447,11 @@ export function PostingSheet({
                     postings.
                 </SheetDescription>
 
-                <div className="relative h-full">
+                {/* Percentage heights don't resolve inside Silk's scroll
+                    wrapper, so the stack pins itself to the viewport: full
+                    height on desktop edge presentation, a tall detent when
+                    the sheet becomes a bottom sheet on mobile. */}
+                <div className="relative h-[85dvh] md:h-svh">
                     {stack.map((id, index) => {
                         const isTop = index === stack.length - 1;
 
@@ -452,9 +460,7 @@ export function PostingSheet({
                                 key={id}
                                 className={cn(
                                     'absolute inset-y-0 right-0 flex flex-col overflow-hidden bg-background transition-all duration-300',
-                                    isTop
-                                        ? 'shadow-xl'
-                                        : 'border-l shadow-lg',
+                                    isTop ? 'shadow-xl' : 'border-l shadow-lg',
                                 )}
                                 style={{
                                     // Each pushed sheet is indented further

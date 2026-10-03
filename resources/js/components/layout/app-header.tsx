@@ -1,5 +1,6 @@
 import { Link, usePage } from '@inertiajs/react';
 import { BarChart3, ListChecks, Menu, Search, WalletCards } from 'lucide-react';
+import { useState } from 'react';
 import AppLogo from '@/components/layout/app-logo';
 import AppLogoIcon from '@/components/layout/app-logo-icon';
 import { Breadcrumbs } from '@/components/layout/breadcrumbs';
@@ -69,14 +70,18 @@ export function AppHeader({ breadcrumbs = [] }: Props) {
     const { auth } = page.props;
     const getInitials = useInitials();
     const { isCurrentUrl, whenCurrentUrl } = useCurrentUrl();
+    const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
     return (
         <>
             <div className="border-b border-sidebar-border/80">
-                <div className="mx-auto flex h-16 items-center px-4 md:max-w-7xl">
+                <div className="mx-auto flex h-[calc(4rem+env(safe-area-inset-top,0px))] items-center px-4 pt-[env(safe-area-inset-top,0px)] md:max-w-7xl">
                     {/* Mobile Menu */}
                     <div className="lg:hidden">
-                        <Sheet>
+                        <Sheet
+                            open={mobileNavOpen}
+                            onOpenChange={setMobileNavOpen}
+                        >
                             <SheetTrigger asChild>
                                 <Button
                                     variant="ghost"
@@ -104,6 +109,9 @@ export function AppHeader({ breadcrumbs = [] }: Props) {
                                                     key={item.title}
                                                     href={item.href}
                                                     className="flex items-center space-x-2 font-medium"
+                                                    onClick={() =>
+                                                        setMobileNavOpen(false)
+                                                    }
                                                 >
                                                     {item.icon && (
                                                         <item.icon className="h-5 w-5" />
