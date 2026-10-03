@@ -6,6 +6,30 @@ use Inertia\Testing\AssertableInertia as Assert;
 use Laravel\Passport\ClientRepository;
 use Laravel\Passport\Passport;
 
+test('well-known endpoints advertise every scope and the passport endpoints', function () {
+    $this->getJson('/.well-known/oauth-authorization-server')
+        ->assertOk()
+        ->assertJsonPath('authorization_endpoint', route('passport.authorizations.authorize'))
+        ->assertJsonPath('token_endpoint', route('passport.token'))
+        ->assertJsonPath('registration_endpoint', url('oauth/register'))
+        ->assertJsonPath('code_challenge_methods_supported', ['S256'])
+        ->assertJsonPath('scopes_supported', ['read', 'write', 'mcp:use']);
+
+    $this->getJson('/.well-known/oauth-protected-resource')
+        ->assertOk()
+        ->assertJsonPath('scopes_supported', ['read', 'write', 'mcp:use']);
+
+    // Clients may append the resource path to the metadata URL (RFC 9728).
+    $this->getJson('/.well-known/oauth-protected-resource/mcp')
+        ->assertOk()
+        ->assertJsonPath('scopes_supported', ['read', 'write', 'mcp:use'])
+        ->assertJsonPath('resource', url('/mcp'));
+
+    $this->getJson('/.well-known/oauth-authorization-server/mcp')
+        ->assertOk()
+        ->assertJsonPath('scopes_supported', ['read', 'write', 'mcp:use']);
+});
+
 test('clients can self-register through dynamic client registration', function () {
     $this->postJson('/oauth/register', [
         'client_name' => 'Cursor',
