@@ -57,7 +57,7 @@ final class PostingSimilarity
      *
      * @return Collection<int, Posting>
      */
-    public function similarTo(Posting $posting, int $limit = 8): Collection
+    public function similarTo(Posting $posting, int $limit = 8, int $offset = 0): Collection
     {
         if (! $this->supported() || $posting->description_embedding === null) {
             return new Collection;
@@ -70,6 +70,9 @@ final class PostingSimilarity
             ->select('postings.*')
             ->selectVectorDistance('description_embedding', $posting->description_embedding, 'distance')
             ->orderByVectorDistance('description_embedding', $posting->description_embedding)
+            ->orderByDesc('postings.date')
+            ->orderBy('postings.id')
+            ->offset($offset)
             ->limit($limit)
             ->with(['bankAccount', 'categorizedSubcategory.category', 'subcategory'])
             ->get()

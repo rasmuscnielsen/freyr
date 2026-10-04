@@ -77,6 +77,9 @@ class PostingController extends Controller
     {
         abort_unless($posting->user_id === $request->user()->id, 404);
 
+        $validated = $request->validate(['offset' => ['sometimes', 'integer', 'min:0']]);
+        $offset = (int) ($validated['offset'] ?? 0);
+
         $posting->loadMissing(['bankAccount', 'categorizedSubcategory.category', 'subcategory.category']);
 
         if ($similarity->supported()
@@ -88,9 +91,11 @@ class PostingController extends Controller
             $posting->load('subcategory.category');
         }
 
+        $matches = $similarity->similarTo($posting, 9, $offset);
+
         return response()->json([
             'posting' => $this->postingPayload($posting),
-            'similar' => $similarity->similarTo($posting)
+            'similar' => $matches->take(8)
                 ->map(fn (Posting $match): array => [
                     ...$this->postingPayload($match),
                     'similarity' => $match->similarity,
@@ -98,6 +103,7 @@ class PostingController extends Controller
                 ->values()
                 ->all(),
             'similarity_enabled' => $similarity->supported(),
+            'has_more_similar' => $matches->count() > 8,
         ]);
     }
 

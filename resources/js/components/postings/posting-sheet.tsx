@@ -12,6 +12,11 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { OverlayRoot, useOverlayDetent } from '@/components/ui/silk-overlays';
 import { Spinner } from '@/components/ui/spinner';
+import {
+    Tooltip,
+    TooltipContent,
+    TooltipTrigger,
+} from '@/components/ui/tooltip';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { formatDate, formatDayMonth } from '@/lib/dates';
 import { formatMoney } from '@/lib/money';
@@ -62,6 +67,7 @@ type SheetDetail = {
     posting: SheetPosting;
     similar: SimilarMatch[];
     similarity_enabled: boolean;
+    has_more_similar: boolean;
 };
 
 type PostingFormValues = {
@@ -98,11 +104,17 @@ function stackingAnimation(
           };
 }
 
-async function fetchDetail(postingId: number): Promise<SheetDetail> {
-    const response = await fetch(postingsSimilar.url(postingId), {
-        headers: { Accept: 'application/json' },
-        credentials: 'same-origin',
-    });
+async function fetchDetail(
+    postingId: number,
+    offset = 0,
+): Promise<SheetDetail> {
+    const response = await fetch(
+        postingsSimilar.url(postingId, { query: { offset } }),
+        {
+            headers: { Accept: 'application/json' },
+            credentials: 'same-origin',
+        },
+    );
 
     if (!response.ok) {
         throw new Error('Failed to load posting');
@@ -142,6 +154,8 @@ function SheetLevel({
     const atLastDetent = useOverlayDetent() >= 2;
     const [detail, setDetail] = useState<SheetDetail | null>(null);
     const [loadFailed, setLoadFailed] = useState(false);
+    const [loadingMore, setLoadingMore] = useState(false);
+    const [loadMoreFailed, setLoadMoreFailed] = useState(false);
     const [isPickingCategory, setIsPickingCategory] = useState(false);
     const form = useForm<PostingFormValues>({
         categorized_subcategory_id: null,
@@ -174,6 +188,32 @@ function SheetLevel({
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [postingId]);
 
+    const loadMore = async () => {
+        if (detail === null || loadingMore) {
+            return;
+        }
+
+        setLoadingMore(true);
+        setLoadMoreFailed(false);
+
+        try {
+            const result = await fetchDetail(postingId, detail.similar.length);
+            setDetail((previous) =>
+                previous === null
+                    ? previous
+                    : {
+                          ...previous,
+                          similar: [...previous.similar, ...result.similar],
+                          has_more_similar: result.has_more_similar,
+                      },
+            );
+        } catch {
+            setLoadMoreFailed(true);
+        } finally {
+            setLoadingMore(false);
+        }
+    };
+
     const submit = () => {
         form.transform((data) => ({
             ...data,
@@ -202,6 +242,7 @@ function SheetLevel({
         )?.label ?? null;
 
     const posting = detail?.posting ?? null;
+    const currentYear = String(new Date().getFullYear());
     const suggestion = posting?.suggested_subcategory ?? null;
     const showSuggestion =
         suggestion !== null && form.data.categorized_subcategory_id === null;
@@ -415,7 +456,14 @@ function SheetLevel({
                                         <p className="text-sm font-medium">
                                             Similar postings
                                         </p>
-                                        <div className="grid gap-1">
+                                        {/* A compact echo of the postings
+                                            table: on md+ the rows share one
+                                            grid via subgrid so date, match
+                                            and amount form real columns;
+                                            below md each row wraps to two
+                                            lines so descriptions get the
+                                            full width. */}
+                                        <div className="divide-y overflow-hidden rounded-md border md:grid md:grid-cols-[auto_minmax(0,1fr)_auto_auto]">
                                             {detail.similar.map((match) => (
                                                 <button
                                                     key={match.id}
@@ -424,32 +472,107 @@ function SheetLevel({
                                                     onClick={() =>
                                                         onOpenPosting(match.id)
                                                     }
-                                                    className="flex min-w-0 items-center gap-2 rounded-md border px-3 py-2 text-left text-sm transition-colors hover:bg-accent"
+                                                    // w-full: <button> shrinks to
+                                                    // content even as a block flex
+                                                    // box — an explicit width keeps
+                                                    // it inside the card.
+                                                    className="w-full px-3 py-2 text-left text-sm transition-colors outline-none hover:bg-muted/40 focus-visible:bg-accent max-md:flex max-md:flex-wrap max-md:items-center max-md:gap-x-3 max-md:gap-y-1 md:col-span-full md:grid md:grid-cols-subgrid md:items-center md:gap-x-3"
                                                     data-test="similar-posting"
                                                 >
-                                                    <span className="min-w-0 flex-1 truncate">
-                                                        {match.description}
+                                                    <span className="text-xs whitespace-nowrap text-muted-foreground tabular-nums">
+                                                        {match.date.slice(
+                                                            0,
+                                                            4,
+                                                        ) === currentYear &&
+                                                        posting.date.slice(
+                                                            0,
+                                                            4,
+                                                        ) === currentYear
+                                                            ? formatDayMonth(
+                                                                  match.date,
+                                                                  locale,
+                                                              )
+                                                            : formatDate(
+                                                                  match.date,
+                                                                  locale,
+                                                              )}
                                                     </span>
-                                                    <span className="shrink-0 text-xs text-muted-foreground">
-                                                        {formatDayMonth(
-                                                            match.date,
-                                                            locale,
-                                                        )}
-                                                    </span>
-                                                    <span className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-xs font-medium tabular-nums">
+                                                    {/* The trigger is a plain
+                                                        span — the row stays a
+                                                        single button and the
+                                                        tooltip only appears
+                                                        for hover pointers. */}
+                                                    <Tooltip>
+                                                        <TooltipTrigger asChild>
+                                                            <span className="flex min-w-0 items-center gap-1.5 max-md:order-first max-md:w-full">
+                                                                <span className="truncate font-medium">
+                                                                    {
+                                                                        match.description
+                                                                    }
+                                                                </span>
+                                                                {match.is_extraordinary && (
+                                                                    <StarIcon className="size-3.5 shrink-0 fill-current" />
+                                                                )}
+                                                            </span>
+                                                        </TooltipTrigger>
+                                                        <TooltipContent>
+                                                            <p>
+                                                                {
+                                                                    match.description
+                                                                }
+                                                            </p>
+                                                        </TooltipContent>
+                                                    </Tooltip>
+                                                    <span className="justify-self-center rounded-full bg-muted px-1.5 py-0.5 text-xs font-medium tabular-nums">
                                                         {Math.round(
                                                             match.similarity *
                                                                 100,
                                                         )}
                                                         %
                                                     </span>
+                                                    <span
+                                                        className={cn(
+                                                            'justify-self-end font-medium whitespace-nowrap tabular-nums max-md:ml-auto',
+                                                            (match.amount ??
+                                                                match.original_amount ??
+                                                                0) >= 0 &&
+                                                                'text-chart-income',
+                                                        )}
+                                                    >
+                                                        {match.amount !== null
+                                                            ? formatMoney(
+                                                                  match.amount,
+                                                                  match.currency,
+                                                                  locale,
+                                                              )
+                                                            : match.original_amount !==
+                                                                null
+                                                              ? formatMoney(
+                                                                    match.original_amount,
+                                                                    match.original_currency,
+                                                                    locale,
+                                                                )
+                                                              : '—'}
+                                                    </span>
                                                 </button>
                                             ))}
                                         </div>
-                                        <p className="text-xs text-muted-foreground">
-                                            Click one to open it on top of this
-                                            sheet.
-                                        </p>
+                                        {detail.has_more_similar && (
+                                            <Button
+                                                type="button"
+                                                variant="outline"
+                                                disabled={!isTop || loadingMore}
+                                                onClick={loadMore}
+                                            >
+                                                {loadingMore && <Spinner />}
+                                                {loadingMore
+                                                    ? 'Loading…'
+                                                    : 'Load more'}
+                                            </Button>
+                                        )}
+                                        {loadMoreFailed && (
+                                            <InputError message="Could not load more postings. Please try again." />
+                                        )}
                                     </div>
                                 )}
                         </Scroll.Content>
