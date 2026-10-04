@@ -420,8 +420,7 @@ export default function PlatformSettingsIndex({
                                                                     {
                                                                         ...similarity.data,
                                                                         enabled: false,
-                                                                        auto_categorize:
-                                                                            false,
+                                                                        auto_categorize: false,
                                                                     },
                                                                 );
                                                             },

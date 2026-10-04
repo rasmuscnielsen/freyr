@@ -1,5 +1,7 @@
 import { useForm } from '@inertiajs/react';
-import { ChevronsUpDown, Sparkles, StarIcon } from 'lucide-react';
+import { Scroll, Sheet, SheetStack } from '@silk-hq/components';
+import type { SheetContentProps } from '@silk-hq/components';
+import { ChevronsUpDown, Sparkles, StarIcon, XIcon } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import InputError from '@/components/input-error';
 import { CategoryCombobox } from '@/components/postings/category-combobox';
@@ -8,18 +10,22 @@ import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import {
-    Sheet,
-    SheetContent,
-    SheetDescription,
-    SheetTitle,
-} from '@/components/ui/sheet';
+import { OverlayRoot, useOverlayDetent } from '@/components/ui/silk-overlays';
 import { Spinner } from '@/components/ui/spinner';
+import {
+    Tooltip,
+    TooltipContent,
+    TooltipTrigger,
+} from '@/components/ui/tooltip';
+import { useIsMobile } from '@/hooks/use-mobile';
 import { formatDate, formatDayMonth } from '@/lib/dates';
 import { formatMoney } from '@/lib/money';
 import { useRegion } from '@/lib/region';
 import { cn } from '@/lib/utils';
-import { similar as postingsSimilar, update as updatePosting } from '@/routes/postings';
+import {
+    similar as postingsSimilar,
+    update as updatePosting,
+} from '@/routes/postings';
 
 export type SheetPosting = {
     id: number;
@@ -61,6 +67,7 @@ type SheetDetail = {
     posting: SheetPosting;
     similar: SimilarMatch[];
     similarity_enabled: boolean;
+    has_more_similar: boolean;
 };
 
 type PostingFormValues = {
@@ -69,13 +76,45 @@ type PostingFormValues = {
     is_extraordinary: boolean;
 };
 
-const STACK_OFFSET_PX = 16;
+type StackEntry = { postingId: number; presented: boolean };
 
-async function fetchDetail(postingId: number): Promise<SheetDetail> {
-    const response = await fetch(postingsSimilar.url(postingId), {
-        headers: { Accept: 'application/json' },
-        credentials: 'same-origin',
-    });
+/**
+ * The receding effect a covered sheet plays as deeper levels stack on top,
+ * matching Silk's "Sheet with Stacking" recipe: scale down and shift away
+ * from the incoming edge so the sheet below keeps peeking out.
+ */
+function stackingAnimation(
+    presentation: 'bottom' | 'right',
+): SheetContentProps['stackingAnimation'] {
+    const translate = ({ progress }: { progress: number }) =>
+        progress <= 1
+            ? `${progress * -10}px`
+            : `calc(-12.5px + 2.5px * ${progress})`;
+
+    return presentation === 'right'
+        ? {
+              translateX: translate,
+              scale: [1, 0.933],
+              transformOrigin: '0 50%',
+          }
+        : {
+              translateY: translate,
+              scale: [1, 0.933],
+              transformOrigin: '50% 0',
+          };
+}
+
+async function fetchDetail(
+    postingId: number,
+    offset = 0,
+): Promise<SheetDetail> {
+    const response = await fetch(
+        postingsSimilar.url(postingId, { query: { offset } }),
+        {
+            headers: { Accept: 'application/json' },
+            credentials: 'same-origin',
+        },
+    );
 
     if (!response.ok) {
         throw new Error('Failed to load posting');
@@ -111,8 +150,12 @@ function SheetLevel({
     onOpenPosting: (postingId: number) => void;
 }) {
     const { locale } = useRegion();
+    const isMobile = useIsMobile();
+    const atLastDetent = useOverlayDetent() >= 2;
     const [detail, setDetail] = useState<SheetDetail | null>(null);
     const [loadFailed, setLoadFailed] = useState(false);
+    const [loadingMore, setLoadingMore] = useState(false);
+    const [loadMoreFailed, setLoadMoreFailed] = useState(false);
     const [isPickingCategory, setIsPickingCategory] = useState(false);
     const form = useForm<PostingFormValues>({
         categorized_subcategory_id: null,
@@ -145,6 +188,32 @@ function SheetLevel({
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [postingId]);
 
+    const loadMore = async () => {
+        if (detail === null || loadingMore) {
+            return;
+        }
+
+        setLoadingMore(true);
+        setLoadMoreFailed(false);
+
+        try {
+            const result = await fetchDetail(postingId, detail.similar.length);
+            setDetail((previous) =>
+                previous === null
+                    ? previous
+                    : {
+                          ...previous,
+                          similar: [...previous.similar, ...result.similar],
+                          has_more_similar: result.has_more_similar,
+                      },
+            );
+        } catch {
+            setLoadMoreFailed(true);
+        } finally {
+            setLoadingMore(false);
+        }
+    };
+
     const submit = () => {
         form.transform((data) => ({
             ...data,
@@ -173,13 +242,17 @@ function SheetLevel({
         )?.label ?? null;
 
     const posting = detail?.posting ?? null;
+    const currentYear = String(new Date().getFullYear());
     const suggestion = posting?.suggested_subcategory ?? null;
     const showSuggestion =
         suggestion !== null && form.data.categorized_subcategory_id === null;
     const categorizedBy = formatCategorizedBy(posting?.categorized_by ?? null);
 
     return (
-        <div className="flex h-full min-h-0 flex-col">
+        // Percentage heights don't resolve against Silk's measured content
+        // box, so mobile pins a tall detent while desktop fills the edge
+        // slide-over's explicit height.
+        <div className="flex h-[85dvh] min-h-0 flex-col md:h-full">
             <div className="flex min-w-0 flex-col gap-1 border-b p-4 pr-12">
                 {posting === null ? (
                     <div className="flex h-16 items-center justify-center">
@@ -234,180 +307,441 @@ function SheetLevel({
             </div>
 
             {posting !== null && (
-                <div className="min-h-0 flex-1 overflow-y-auto p-4">
-                    <div className="grid gap-5">
-                        {showSuggestion && (
-                            <div className="grid gap-2 rounded-md border border-brand/30 bg-brand/5 p-3">
-                                <p className="flex items-center gap-1.5 text-sm font-medium">
-                                    <Sparkles className="size-4 text-brand" />
-                                    Suggested category
-                                </p>
-                                <p className="text-sm text-muted-foreground">
-                                    {suggestion.category_name} /{' '}
-                                    {suggestion.name}
-                                </p>
-                                <div>
+                <Scroll.Root asChild>
+                    <Scroll.View
+                        className="min-h-0 flex-1"
+                        // While the sheet rests at its intermediate detent,
+                        // upward drags expand it instead of scrolling — the
+                        // scroll only takes over once fully expanded (iOS
+                        // share-sheet arbitration).
+                        scrollGesture={
+                            isMobile && !atLastDetent ? false : 'auto'
+                        }
+                        scrollGestureTrap={
+                            isMobile ? { yEnd: true } : undefined
+                        }
+                        onScrollStart={{ dismissKeyboard: true }}
+                    >
+                        <Scroll.Content className="grid gap-5 p-4">
+                            {showSuggestion && (
+                                <div className="grid gap-2 rounded-md border border-brand/30 bg-brand/5 p-3">
+                                    <p className="flex items-center gap-1.5 text-sm font-medium">
+                                        <Sparkles className="size-4 text-brand" />
+                                        Suggested category
+                                    </p>
+                                    <p className="text-sm text-muted-foreground">
+                                        {suggestion.category_name} /{' '}
+                                        {suggestion.name}
+                                    </p>
+                                    <div>
+                                        <Button
+                                            type="button"
+                                            size="sm"
+                                            variant="outline"
+                                            disabled={form.processing}
+                                            onClick={() =>
+                                                applySuggestion(suggestion.id)
+                                            }
+                                            data-test="apply-suggestion"
+                                        >
+                                            Apply suggestion
+                                        </Button>
+                                    </div>
+                                </div>
+                            )}
+
+                            <div className="grid gap-2">
+                                <Label>Category</Label>
+                                <div className="relative">
                                     <Button
                                         type="button"
-                                        size="sm"
                                         variant="outline"
-                                        disabled={form.processing}
+                                        aria-haspopup="listbox"
+                                        className={cn(
+                                            'w-full justify-between font-normal',
+                                            selectedCategoryLabel === null &&
+                                                'text-muted-foreground',
+                                        )}
                                         onClick={() =>
-                                            applySuggestion(suggestion.id)
+                                            setIsPickingCategory(true)
                                         }
-                                        data-test="apply-suggestion"
                                     >
-                                        Apply suggestion
+                                        {selectedCategoryLabel ??
+                                            'Uncategorized'}
+                                        <ChevronsUpDown className="size-4 opacity-50" />
                                     </Button>
-                                </div>
-                            </div>
-                        )}
-
-                        <div className="grid gap-2">
-                            <Label>Category</Label>
-                            <div className="relative">
-                                <Button
-                                    type="button"
-                                    variant="outline"
-                                    aria-haspopup="listbox"
-                                    className={cn(
-                                        'w-full justify-between font-normal',
-                                        selectedCategoryLabel === null &&
-                                            'text-muted-foreground',
+                                    {isPickingCategory && (
+                                        <CategoryCombobox
+                                            options={categoryOptions}
+                                            onSelect={(subcategoryId) => {
+                                                form.setData(
+                                                    'categorized_subcategory_id',
+                                                    subcategoryId,
+                                                );
+                                                setIsPickingCategory(false);
+                                            }}
+                                            onClose={() =>
+                                                setIsPickingCategory(false)
+                                            }
+                                        />
                                     )}
-                                    onClick={() => setIsPickingCategory(true)}
-                                >
-                                    {selectedCategoryLabel ?? 'Uncategorized'}
-                                    <ChevronsUpDown className="size-4 opacity-50" />
-                                </Button>
-                                {isPickingCategory && (
-                                    <CategoryCombobox
-                                        options={categoryOptions}
-                                        onSelect={(subcategoryId) => {
-                                            form.setData(
-                                                'categorized_subcategory_id',
-                                                subcategoryId,
-                                            );
-                                            setIsPickingCategory(false);
-                                        }}
-                                        onClose={() =>
-                                            setIsPickingCategory(false)
-                                        }
-                                    />
-                                )}
-                            </div>
-                            {categorizedBy !== null && (
-                                <p className="text-xs text-muted-foreground">
-                                    {categorizedBy}
-                                </p>
-                            )}
-                            <InputError
-                                message={form.errors.categorized_subcategory_id}
-                            />
-                        </div>
-
-                        <div className="grid gap-2">
-                            <Label htmlFor={`posting-comment-${postingId}`}>
-                                Comment
-                            </Label>
-                            <Input
-                                id={`posting-comment-${postingId}`}
-                                placeholder="Optional note"
-                                value={form.data.comment}
-                                onChange={(event) =>
-                                    form.setData('comment', event.target.value)
-                                }
-                            />
-                            <InputError message={form.errors.comment} />
-                        </div>
-
-                        <div className="flex items-start gap-3 rounded-md border p-3">
-                            <Checkbox
-                                id={`posting-extraordinary-${postingId}`}
-                                checked={form.data.is_extraordinary}
-                                onCheckedChange={(value) =>
-                                    form.setData(
-                                        'is_extraordinary',
-                                        value === true,
-                                    )
-                                }
-                            />
-                            <div className="grid gap-1">
-                                <Label
-                                    htmlFor={`posting-extraordinary-${postingId}`}
-                                >
-                                    Extraordinary
-                                </Label>
-                                <p className="text-sm text-muted-foreground">
-                                    Kept out of the overview so one-off amounts
-                                    don't skew your numbers.
-                                </p>
-                            </div>
-                        </div>
-
-                        <Button
-                            type="button"
-                            onClick={submit}
-                            disabled={form.processing}
-                            data-test="save-posting"
-                        >
-                            {form.processing ? 'Saving…' : 'Save changes'}
-                        </Button>
-
-                        {detail !== null &&
-                            detail.similarity_enabled &&
-                            detail.similar.length > 0 && (
-                                <div className="grid gap-2 border-t pt-4">
-                                    <p className="text-sm font-medium">
-                                        Similar postings
-                                    </p>
-                                    <div className="grid gap-1">
-                                        {detail.similar.map((match) => (
-                                            <button
-                                                key={match.id}
-                                                type="button"
-                                                disabled={!isTop}
-                                                onClick={() =>
-                                                    onOpenPosting(match.id)
-                                                }
-                                                className="flex min-w-0 items-center gap-2 rounded-md border px-3 py-2 text-left text-sm transition-colors hover:bg-accent"
-                                                data-test="similar-posting"
-                                            >
-                                                <span className="min-w-0 flex-1 truncate">
-                                                    {match.description}
-                                                </span>
-                                                <span className="shrink-0 text-xs text-muted-foreground">
-                                                    {formatDayMonth(
-                                                        match.date,
-                                                        locale,
-                                                    )}
-                                                </span>
-                                                <span className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-xs font-medium tabular-nums">
-                                                    {Math.round(
-                                                        match.similarity * 100,
-                                                    )}
-                                                    %
-                                                </span>
-                                            </button>
-                                        ))}
-                                    </div>
+                                </div>
+                                {categorizedBy !== null && (
                                     <p className="text-xs text-muted-foreground">
-                                        Click one to open it on top of this
-                                        sheet.
+                                        {categorizedBy}
+                                    </p>
+                                )}
+                                <InputError
+                                    message={
+                                        form.errors.categorized_subcategory_id
+                                    }
+                                />
+                            </div>
+
+                            <div className="grid gap-2">
+                                <Label htmlFor={`posting-comment-${postingId}`}>
+                                    Comment
+                                </Label>
+                                <Input
+                                    id={`posting-comment-${postingId}`}
+                                    placeholder="Optional note"
+                                    value={form.data.comment}
+                                    onChange={(event) =>
+                                        form.setData(
+                                            'comment',
+                                            event.target.value,
+                                        )
+                                    }
+                                />
+                                <InputError message={form.errors.comment} />
+                            </div>
+
+                            <div className="flex items-start gap-3 rounded-md border p-3">
+                                <Checkbox
+                                    id={`posting-extraordinary-${postingId}`}
+                                    checked={form.data.is_extraordinary}
+                                    onCheckedChange={(value) =>
+                                        form.setData(
+                                            'is_extraordinary',
+                                            value === true,
+                                        )
+                                    }
+                                />
+                                <div className="grid gap-1">
+                                    <Label
+                                        htmlFor={`posting-extraordinary-${postingId}`}
+                                    >
+                                        Extraordinary
+                                    </Label>
+                                    <p className="text-sm text-muted-foreground">
+                                        Kept out of the overview so one-off
+                                        amounts don't skew your numbers.
                                     </p>
                                 </div>
-                            )}
-                    </div>
-                </div>
+                            </div>
+
+                            <Button
+                                type="button"
+                                onClick={submit}
+                                disabled={form.processing}
+                                data-test="save-posting"
+                            >
+                                {form.processing ? 'Saving…' : 'Save changes'}
+                            </Button>
+
+                            {detail !== null &&
+                                detail.similarity_enabled &&
+                                detail.similar.length > 0 && (
+                                    <div className="grid gap-2 border-t pt-4">
+                                        <p className="text-sm font-medium">
+                                            Similar postings
+                                        </p>
+                                        {/* A compact echo of the postings
+                                            table: on md+ the rows share one
+                                            grid via subgrid so date, match
+                                            and amount form real columns;
+                                            below md each row wraps to two
+                                            lines so descriptions get the
+                                            full width. */}
+                                        <div className="divide-y overflow-hidden rounded-md border md:grid md:grid-cols-[auto_minmax(0,1fr)_auto_auto]">
+                                            {detail.similar.map((match) => (
+                                                <button
+                                                    key={match.id}
+                                                    type="button"
+                                                    disabled={!isTop}
+                                                    onClick={() =>
+                                                        onOpenPosting(match.id)
+                                                    }
+                                                    // w-full: <button> shrinks to
+                                                    // content even as a block flex
+                                                    // box — an explicit width keeps
+                                                    // it inside the card.
+                                                    className="w-full px-3 py-2 text-left text-sm transition-colors outline-none hover:bg-muted/40 focus-visible:bg-accent max-md:flex max-md:flex-wrap max-md:items-center max-md:gap-x-3 max-md:gap-y-1 md:col-span-full md:grid md:grid-cols-subgrid md:items-center md:gap-x-3"
+                                                    data-test="similar-posting"
+                                                >
+                                                    <span className="text-xs whitespace-nowrap text-muted-foreground tabular-nums">
+                                                        {match.date.slice(
+                                                            0,
+                                                            4,
+                                                        ) === currentYear &&
+                                                        posting.date.slice(
+                                                            0,
+                                                            4,
+                                                        ) === currentYear
+                                                            ? formatDayMonth(
+                                                                  match.date,
+                                                                  locale,
+                                                              )
+                                                            : formatDate(
+                                                                  match.date,
+                                                                  locale,
+                                                              )}
+                                                    </span>
+                                                    {/* The trigger is a plain
+                                                        span — the row stays a
+                                                        single button and the
+                                                        tooltip only appears
+                                                        for hover pointers. */}
+                                                    <Tooltip>
+                                                        <TooltipTrigger asChild>
+                                                            <span className="flex min-w-0 items-center gap-1.5 max-md:order-first max-md:w-full">
+                                                                <span className="truncate font-medium">
+                                                                    {
+                                                                        match.description
+                                                                    }
+                                                                </span>
+                                                                {match.is_extraordinary && (
+                                                                    <StarIcon className="size-3.5 shrink-0 fill-current" />
+                                                                )}
+                                                            </span>
+                                                        </TooltipTrigger>
+                                                        <TooltipContent>
+                                                            <p>
+                                                                {
+                                                                    match.description
+                                                                }
+                                                            </p>
+                                                        </TooltipContent>
+                                                    </Tooltip>
+                                                    <span className="justify-self-center rounded-full bg-muted px-1.5 py-0.5 text-xs font-medium tabular-nums">
+                                                        {Math.round(
+                                                            match.similarity *
+                                                                100,
+                                                        )}
+                                                        %
+                                                    </span>
+                                                    <span
+                                                        className={cn(
+                                                            'justify-self-end font-medium whitespace-nowrap tabular-nums max-md:ml-auto',
+                                                            (match.amount ??
+                                                                match.original_amount ??
+                                                                0) >= 0 &&
+                                                                'text-chart-income',
+                                                        )}
+                                                    >
+                                                        {match.amount !== null
+                                                            ? formatMoney(
+                                                                  match.amount,
+                                                                  match.currency,
+                                                                  locale,
+                                                              )
+                                                            : match.original_amount !==
+                                                                null
+                                                              ? formatMoney(
+                                                                    match.original_amount,
+                                                                    match.original_currency,
+                                                                    locale,
+                                                                )
+                                                              : '—'}
+                                                    </span>
+                                                </button>
+                                            ))}
+                                        </div>
+                                        {detail.has_more_similar && (
+                                            <Button
+                                                type="button"
+                                                variant="outline"
+                                                disabled={!isTop || loadingMore}
+                                                onClick={loadMore}
+                                            >
+                                                {loadingMore && <Spinner />}
+                                                {loadingMore
+                                                    ? 'Loading…'
+                                                    : 'Load more'}
+                                            </Button>
+                                        )}
+                                        {loadMoreFailed && (
+                                            <InputError message="Could not load more postings. Please try again." />
+                                        )}
+                                    </div>
+                                )}
+                        </Scroll.Content>
+                    </Scroll.View>
+                </Scroll.Root>
             )}
         </div>
     );
 }
 
 /**
- * Posting detail sheet with stacking: clicking a similar posting pushes a new
- * level on top, and each level below peeks out as a strip on the left. Click a
- * strip to jump back to that level.
+ * One real Silk sheet per stack level. Sheets nest logically inside each
+ * other's content — as a deeper level presents, the level below recedes with
+ * the stacking animation and is dimmed by the deeper sheet's backdrop.
+ */
+function StackedSheetLevel({
+    levels,
+    index,
+    onPush,
+    onDismissLevel,
+    onExited,
+    categoryOptions,
+}: {
+    levels: StackEntry[];
+    index: number;
+    onPush: (postingId: number) => void;
+    onDismissLevel: (index: number) => void;
+    onExited: (index: number, entry: StackEntry) => void;
+    categoryOptions: CategoryComboboxOption[];
+}) {
+    const isMobile = useIsMobile();
+    const atLastDetent = useOverlayDetent() >= 2;
+    const entry = levels[index];
+    const presentation = isMobile ? 'bottom' : 'right';
+    const next = index + 1 < levels.length ? index + 1 : null;
+    const isTop =
+        index === levels.map((level) => level.presented).lastIndexOf(true);
+
+    if (entry === undefined) {
+        return null;
+    }
+
+    return (
+        <OverlayRoot
+            forComponent="closest"
+            open={entry.presented}
+            onOpenChange={(open) => {
+                if (!open) {
+                    onDismissLevel(index);
+                }
+            }}
+        >
+            <Sheet.Portal>
+                <Sheet.View
+                    contentPlacement={presentation}
+                    tracks={presentation}
+                    // Mobile levels rest at ~2/3 height and can be pushed up
+                    // to fill the screen, like the iOS share sheet.
+                    detents={isMobile ? '66vh' : undefined}
+                    swipeOvershoot={isMobile ? false : undefined}
+                    nativeEdgeSwipePrevention={true}
+                    className="z-50"
+                    onTravelStatusChange={(status) => {
+                        if (status === 'idleOutside' && !entry.presented) {
+                            onExited(index, entry);
+                        }
+                    }}
+                >
+                    <Sheet.Backdrop
+                        themeColorDimming="auto"
+                        travelAnimation={{
+                            opacity: [0, index === 0 ? 0.5 : 0.25],
+                        }}
+                    />
+                    <Sheet.Content
+                        className={cn(
+                            'flex flex-col',
+                            isMobile
+                                ? // ~90vh keeps the measured content height (the
+                                  // last detent) above the 66vh intermediate —
+                                  // the level rests at ~2/3 and pushes to near-full.
+                                  'h-[90dvh] w-full rounded-t-2xl border-t bg-background pb-[env(safe-area-inset-bottom,0px)] shadow-xl'
+                                : // Silk zeroes content margins and paints the
+                                  // content white, so the floating slide-over
+                                  // comes from an inner card over a transparent
+                                  // shell and the backdrop covers the page.
+                                  'h-full w-full bg-transparent shadow-none sm:max-w-xl',
+                        )}
+                        stackingAnimation={stackingAnimation(presentation)}
+                    >
+                        {(() => {
+                            const body = (
+                                <>
+                                    {isMobile && (
+                                        <>
+                                            <Sheet.BleedingBackground className="bg-background" />
+                                            <Sheet.Handle
+                                                action={
+                                                    atLastDetent
+                                                        ? 'dismiss'
+                                                        : 'step'
+                                                }
+                                                aria-label={
+                                                    atLastDetent
+                                                        ? 'Close'
+                                                        : 'Expand'
+                                                }
+                                                className="mx-auto mt-2 mb-1 h-[5px] w-9 shrink-0 rounded-full border-0 bg-muted-foreground/30"
+                                            />
+                                        </>
+                                    )}
+                                    <Sheet.Title className="sr-only">
+                                        Posting details
+                                    </Sheet.Title>
+                                    <Sheet.Description className="sr-only">
+                                        Edit the posting's category and comment,
+                                        and browse similar postings.
+                                    </Sheet.Description>
+
+                                    <SheetLevel
+                                        postingId={entry.postingId}
+                                        isTop={isTop}
+                                        categoryOptions={categoryOptions}
+                                        onOpenPosting={onPush}
+                                    />
+
+                                    {/* The next level nests inside this sheet's content so
+                                        Silk tracks it as stacked above in the SheetStack. */}
+                                    {next !== null && (
+                                        <StackedSheetLevel
+                                            key={levels[next].postingId}
+                                            levels={levels}
+                                            index={next}
+                                            onPush={onPush}
+                                            onDismissLevel={onDismissLevel}
+                                            onExited={onExited}
+                                            categoryOptions={categoryOptions}
+                                        />
+                                    )}
+
+                                    <Sheet.Trigger
+                                        action="dismiss"
+                                        className="absolute top-4 right-4 rounded-xs opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:outline-hidden disabled:pointer-events-none [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4"
+                                    >
+                                        <XIcon />
+                                        <span className="sr-only">Close</span>
+                                    </Sheet.Trigger>
+                                </>
+                            );
+
+                            return isMobile ? (
+                                body
+                            ) : (
+                                <div className="relative m-3 flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border bg-background shadow-xl">
+                                    {body}
+                                </div>
+                            );
+                        })()}
+                    </Sheet.Content>
+                </Sheet.View>
+            </Sheet.Portal>
+        </OverlayRoot>
+    );
+}
+
+/**
+ * Posting detail sheet with real sheet stacking: clicking a similar posting
+ * presents a new sheet on top while the covered level recedes and dims.
+ * Dismissing a level (X, swipe, Escape, backdrop) pops just that level.
  */
 export function PostingSheet({
     postingId,
@@ -418,93 +752,67 @@ export function PostingSheet({
     onClose: () => void;
     categoryOptions: CategoryComboboxOption[];
 }) {
-    const [stack, setStack] = useState<number[]>([]);
+    const [levels, setLevels] = useState<StackEntry[]>([]);
     const [openId, setOpenId] = useState<number | null>(null);
 
     // Reset the stack when a different posting is opened (render-phase
     // adjustment — React's sanctioned alternative to syncing via an effect).
     if (postingId !== openId) {
         setOpenId(postingId);
-        setStack(postingId === null ? [] : [postingId]);
+        setLevels((previous) =>
+            postingId === null
+                ? previous.map((entry) => ({ ...entry, presented: false }))
+                : [{ postingId, presented: true }],
+        );
     }
 
+    // Levels stay mounted while they animate out; each reports idleOutside
+    // once gone and is then removed.
     return (
-        <Sheet
-            open={postingId !== null}
-            onOpenChange={(open) => !open && onClose()}
-        >
-            <SheetContent
-                className="w-full gap-0 overflow-hidden bg-transparent p-0 shadow-none sm:max-w-xl"
-                style={{ border: 'none' }}
-            >
-                <SheetTitle className="sr-only">Posting details</SheetTitle>
-                <SheetDescription className="sr-only">
-                    Edit the posting's category and comment, and browse similar
-                    postings.
-                </SheetDescription>
+        <SheetStack.Root>
+            {levels.length > 0 && (
+                <StackedSheetLevel
+                    levels={levels}
+                    index={0}
+                    onPush={(nextId) =>
+                        setLevels((previous) => [
+                            ...previous.slice(
+                                0,
+                                previous
+                                    .map((entry) => entry.presented)
+                                    .lastIndexOf(true) + 1,
+                            ),
+                            {
+                                postingId: nextId,
+                                presented: true,
+                            },
+                        ])
+                    }
+                    onDismissLevel={(index) => {
+                        if (index === 0) {
+                            onClose();
 
-                <div className="relative h-full">
-                    {stack.map((id, index) => {
-                        const isTop = index === stack.length - 1;
+                            return;
+                        }
 
-                        return (
-                            <div
-                                key={id}
-                                className={cn(
-                                    'absolute inset-y-0 right-0 flex flex-col overflow-hidden bg-background transition-all duration-300',
-                                    isTop
-                                        ? 'shadow-xl'
-                                        : 'border-l shadow-lg',
-                                )}
-                                style={{
-                                    // Each pushed sheet is indented further
-                                    // right, so every level below peeks out
-                                    // as a strip on the left.
-                                    left: index * STACK_OFFSET_PX,
-                                    // Under-sheets still render so their left
-                                    // strip peeks out; they are inert and dimmed.
-                                    pointerEvents: isTop ? 'auto' : 'none',
-                                }}
-                            >
-                                {!isTop && (
-                                    <div className="absolute inset-0 z-10 bg-black/20" />
-                                )}
-                                <SheetLevel
-                                    postingId={id}
-                                    isTop={isTop}
-                                    categoryOptions={categoryOptions}
-                                    onOpenPosting={(nextId) =>
-                                        setStack((previous) => [
-                                            ...previous,
-                                            nextId,
-                                        ])
-                                    }
-                                />
-                            </div>
+                        setLevels((previous) =>
+                            previous.map((entry, i) =>
+                                i >= index
+                                    ? { ...entry, presented: false }
+                                    : entry,
+                            ),
                         );
-                    })}
-
-                    {/* Clickable strips of the sheets underneath: jump back to
-                        that level by popping the stack. */}
-                    {stack.slice(0, -1).map((id, index) => (
-                        <button
-                            key={`strip-${id}`}
-                            type="button"
-                            aria-label="Back to previous posting"
-                            className="absolute inset-y-0 z-20"
-                            style={{
-                                left: index * STACK_OFFSET_PX,
-                                width: STACK_OFFSET_PX,
-                            }}
-                            onClick={() =>
-                                setStack((previous) =>
-                                    previous.slice(0, index + 1),
-                                )
-                            }
-                        />
-                    ))}
-                </div>
-            </SheetContent>
-        </Sheet>
+                    }}
+                    onExited={(index, exitedEntry) =>
+                        setLevels((previous) =>
+                            previous[index] === exitedEntry
+                                ? previous.slice(0, index)
+                                : previous,
+                        )
+                    }
+                    categoryOptions={categoryOptions}
+                />
+            )}
+        </SheetStack.Root>
     );
 }
