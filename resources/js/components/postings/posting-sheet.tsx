@@ -1,5 +1,5 @@
 import { useForm } from '@inertiajs/react';
-import { Sheet, SheetStack } from '@silk-hq/components';
+import { Scroll, Sheet, SheetStack } from '@silk-hq/components';
 import type { SheetContentProps } from '@silk-hq/components';
 import { ChevronsUpDown, Sparkles, StarIcon, XIcon } from 'lucide-react';
 import { useEffect, useState } from 'react';
@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { OverlayRoot } from '@/components/ui/silk-overlays';
+import { OverlayRoot, useOverlayDetent } from '@/components/ui/silk-overlays';
 import { Spinner } from '@/components/ui/spinner';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { formatDate, formatDayMonth } from '@/lib/dates';
@@ -138,6 +138,8 @@ function SheetLevel({
     onOpenPosting: (postingId: number) => void;
 }) {
     const { locale } = useRegion();
+    const isMobile = useIsMobile();
+    const atLastDetent = useOverlayDetent() >= 2;
     const [detail, setDetail] = useState<SheetDetail | null>(null);
     const [loadFailed, setLoadFailed] = useState(false);
     const [isPickingCategory, setIsPickingCategory] = useState(false);
@@ -264,171 +266,195 @@ function SheetLevel({
             </div>
 
             {posting !== null && (
-                <div className="min-h-0 flex-1 overflow-y-auto p-4">
-                    <div className="grid gap-5">
-                        {showSuggestion && (
-                            <div className="grid gap-2 rounded-md border border-brand/30 bg-brand/5 p-3">
-                                <p className="flex items-center gap-1.5 text-sm font-medium">
-                                    <Sparkles className="size-4 text-brand" />
-                                    Suggested category
-                                </p>
-                                <p className="text-sm text-muted-foreground">
-                                    {suggestion.category_name} /{' '}
-                                    {suggestion.name}
-                                </p>
-                                <div>
+                <Scroll.Root asChild>
+                    <Scroll.View
+                        className="min-h-0 flex-1"
+                        // While the sheet rests at its intermediate detent,
+                        // upward drags expand it instead of scrolling — the
+                        // scroll only takes over once fully expanded (iOS
+                        // share-sheet arbitration).
+                        scrollGesture={
+                            isMobile && !atLastDetent ? false : 'auto'
+                        }
+                        scrollGestureTrap={
+                            isMobile ? { yEnd: true } : undefined
+                        }
+                        onScrollStart={{ dismissKeyboard: true }}
+                    >
+                        <Scroll.Content className="grid gap-5 p-4">
+                            {showSuggestion && (
+                                <div className="grid gap-2 rounded-md border border-brand/30 bg-brand/5 p-3">
+                                    <p className="flex items-center gap-1.5 text-sm font-medium">
+                                        <Sparkles className="size-4 text-brand" />
+                                        Suggested category
+                                    </p>
+                                    <p className="text-sm text-muted-foreground">
+                                        {suggestion.category_name} /{' '}
+                                        {suggestion.name}
+                                    </p>
+                                    <div>
+                                        <Button
+                                            type="button"
+                                            size="sm"
+                                            variant="outline"
+                                            disabled={form.processing}
+                                            onClick={() =>
+                                                applySuggestion(suggestion.id)
+                                            }
+                                            data-test="apply-suggestion"
+                                        >
+                                            Apply suggestion
+                                        </Button>
+                                    </div>
+                                </div>
+                            )}
+
+                            <div className="grid gap-2">
+                                <Label>Category</Label>
+                                <div className="relative">
                                     <Button
                                         type="button"
-                                        size="sm"
                                         variant="outline"
-                                        disabled={form.processing}
+                                        aria-haspopup="listbox"
+                                        className={cn(
+                                            'w-full justify-between font-normal',
+                                            selectedCategoryLabel === null &&
+                                                'text-muted-foreground',
+                                        )}
                                         onClick={() =>
-                                            applySuggestion(suggestion.id)
+                                            setIsPickingCategory(true)
                                         }
-                                        data-test="apply-suggestion"
                                     >
-                                        Apply suggestion
+                                        {selectedCategoryLabel ??
+                                            'Uncategorized'}
+                                        <ChevronsUpDown className="size-4 opacity-50" />
                                     </Button>
-                                </div>
-                            </div>
-                        )}
-
-                        <div className="grid gap-2">
-                            <Label>Category</Label>
-                            <div className="relative">
-                                <Button
-                                    type="button"
-                                    variant="outline"
-                                    aria-haspopup="listbox"
-                                    className={cn(
-                                        'w-full justify-between font-normal',
-                                        selectedCategoryLabel === null &&
-                                            'text-muted-foreground',
+                                    {isPickingCategory && (
+                                        <CategoryCombobox
+                                            options={categoryOptions}
+                                            onSelect={(subcategoryId) => {
+                                                form.setData(
+                                                    'categorized_subcategory_id',
+                                                    subcategoryId,
+                                                );
+                                                setIsPickingCategory(false);
+                                            }}
+                                            onClose={() =>
+                                                setIsPickingCategory(false)
+                                            }
+                                        />
                                     )}
-                                    onClick={() => setIsPickingCategory(true)}
-                                >
-                                    {selectedCategoryLabel ?? 'Uncategorized'}
-                                    <ChevronsUpDown className="size-4 opacity-50" />
-                                </Button>
-                                {isPickingCategory && (
-                                    <CategoryCombobox
-                                        options={categoryOptions}
-                                        onSelect={(subcategoryId) => {
-                                            form.setData(
-                                                'categorized_subcategory_id',
-                                                subcategoryId,
-                                            );
-                                            setIsPickingCategory(false);
-                                        }}
-                                        onClose={() =>
-                                            setIsPickingCategory(false)
-                                        }
-                                    />
-                                )}
-                            </div>
-                            {categorizedBy !== null && (
-                                <p className="text-xs text-muted-foreground">
-                                    {categorizedBy}
-                                </p>
-                            )}
-                            <InputError
-                                message={form.errors.categorized_subcategory_id}
-                            />
-                        </div>
-
-                        <div className="grid gap-2">
-                            <Label htmlFor={`posting-comment-${postingId}`}>
-                                Comment
-                            </Label>
-                            <Input
-                                id={`posting-comment-${postingId}`}
-                                placeholder="Optional note"
-                                value={form.data.comment}
-                                onChange={(event) =>
-                                    form.setData('comment', event.target.value)
-                                }
-                            />
-                            <InputError message={form.errors.comment} />
-                        </div>
-
-                        <div className="flex items-start gap-3 rounded-md border p-3">
-                            <Checkbox
-                                id={`posting-extraordinary-${postingId}`}
-                                checked={form.data.is_extraordinary}
-                                onCheckedChange={(value) =>
-                                    form.setData(
-                                        'is_extraordinary',
-                                        value === true,
-                                    )
-                                }
-                            />
-                            <div className="grid gap-1">
-                                <Label
-                                    htmlFor={`posting-extraordinary-${postingId}`}
-                                >
-                                    Extraordinary
-                                </Label>
-                                <p className="text-sm text-muted-foreground">
-                                    Kept out of the overview so one-off amounts
-                                    don't skew your numbers.
-                                </p>
-                            </div>
-                        </div>
-
-                        <Button
-                            type="button"
-                            onClick={submit}
-                            disabled={form.processing}
-                            data-test="save-posting"
-                        >
-                            {form.processing ? 'Saving…' : 'Save changes'}
-                        </Button>
-
-                        {detail !== null &&
-                            detail.similarity_enabled &&
-                            detail.similar.length > 0 && (
-                                <div className="grid gap-2 border-t pt-4">
-                                    <p className="text-sm font-medium">
-                                        Similar postings
-                                    </p>
-                                    <div className="grid gap-1">
-                                        {detail.similar.map((match) => (
-                                            <button
-                                                key={match.id}
-                                                type="button"
-                                                disabled={!isTop}
-                                                onClick={() =>
-                                                    onOpenPosting(match.id)
-                                                }
-                                                className="flex min-w-0 items-center gap-2 rounded-md border px-3 py-2 text-left text-sm transition-colors hover:bg-accent"
-                                                data-test="similar-posting"
-                                            >
-                                                <span className="min-w-0 flex-1 truncate">
-                                                    {match.description}
-                                                </span>
-                                                <span className="shrink-0 text-xs text-muted-foreground">
-                                                    {formatDayMonth(
-                                                        match.date,
-                                                        locale,
-                                                    )}
-                                                </span>
-                                                <span className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-xs font-medium tabular-nums">
-                                                    {Math.round(
-                                                        match.similarity * 100,
-                                                    )}
-                                                    %
-                                                </span>
-                                            </button>
-                                        ))}
-                                    </div>
+                                </div>
+                                {categorizedBy !== null && (
                                     <p className="text-xs text-muted-foreground">
-                                        Click one to open it on top of this
-                                        sheet.
+                                        {categorizedBy}
+                                    </p>
+                                )}
+                                <InputError
+                                    message={
+                                        form.errors.categorized_subcategory_id
+                                    }
+                                />
+                            </div>
+
+                            <div className="grid gap-2">
+                                <Label htmlFor={`posting-comment-${postingId}`}>
+                                    Comment
+                                </Label>
+                                <Input
+                                    id={`posting-comment-${postingId}`}
+                                    placeholder="Optional note"
+                                    value={form.data.comment}
+                                    onChange={(event) =>
+                                        form.setData(
+                                            'comment',
+                                            event.target.value,
+                                        )
+                                    }
+                                />
+                                <InputError message={form.errors.comment} />
+                            </div>
+
+                            <div className="flex items-start gap-3 rounded-md border p-3">
+                                <Checkbox
+                                    id={`posting-extraordinary-${postingId}`}
+                                    checked={form.data.is_extraordinary}
+                                    onCheckedChange={(value) =>
+                                        form.setData(
+                                            'is_extraordinary',
+                                            value === true,
+                                        )
+                                    }
+                                />
+                                <div className="grid gap-1">
+                                    <Label
+                                        htmlFor={`posting-extraordinary-${postingId}`}
+                                    >
+                                        Extraordinary
+                                    </Label>
+                                    <p className="text-sm text-muted-foreground">
+                                        Kept out of the overview so one-off
+                                        amounts don't skew your numbers.
                                     </p>
                                 </div>
-                            )}
-                    </div>
-                </div>
+                            </div>
+
+                            <Button
+                                type="button"
+                                onClick={submit}
+                                disabled={form.processing}
+                                data-test="save-posting"
+                            >
+                                {form.processing ? 'Saving…' : 'Save changes'}
+                            </Button>
+
+                            {detail !== null &&
+                                detail.similarity_enabled &&
+                                detail.similar.length > 0 && (
+                                    <div className="grid gap-2 border-t pt-4">
+                                        <p className="text-sm font-medium">
+                                            Similar postings
+                                        </p>
+                                        <div className="grid gap-1">
+                                            {detail.similar.map((match) => (
+                                                <button
+                                                    key={match.id}
+                                                    type="button"
+                                                    disabled={!isTop}
+                                                    onClick={() =>
+                                                        onOpenPosting(match.id)
+                                                    }
+                                                    className="flex min-w-0 items-center gap-2 rounded-md border px-3 py-2 text-left text-sm transition-colors hover:bg-accent"
+                                                    data-test="similar-posting"
+                                                >
+                                                    <span className="min-w-0 flex-1 truncate">
+                                                        {match.description}
+                                                    </span>
+                                                    <span className="shrink-0 text-xs text-muted-foreground">
+                                                        {formatDayMonth(
+                                                            match.date,
+                                                            locale,
+                                                        )}
+                                                    </span>
+                                                    <span className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-xs font-medium tabular-nums">
+                                                        {Math.round(
+                                                            match.similarity *
+                                                                100,
+                                                        )}
+                                                        %
+                                                    </span>
+                                                </button>
+                                            ))}
+                                        </div>
+                                        <p className="text-xs text-muted-foreground">
+                                            Click one to open it on top of this
+                                            sheet.
+                                        </p>
+                                    </div>
+                                )}
+                        </Scroll.Content>
+                    </Scroll.View>
+                </Scroll.Root>
             )}
         </div>
     );
@@ -455,6 +481,7 @@ function StackedSheetLevel({
     categoryOptions: CategoryComboboxOption[];
 }) {
     const isMobile = useIsMobile();
+    const atLastDetent = useOverlayDetent() >= 2;
     const entry = levels[index];
     const presentation = isMobile ? 'bottom' : 'right';
     const next = index + 1 < levels.length ? index + 1 : null;
@@ -479,16 +506,12 @@ function StackedSheetLevel({
                 <Sheet.View
                     contentPlacement={presentation}
                     tracks={presentation}
-                    swipeOvershoot={isMobile}
+                    // Mobile levels rest at ~2/3 height and can be pushed up
+                    // to fill the screen, like the iOS share sheet.
+                    detents={isMobile ? '66vh' : undefined}
+                    swipeOvershoot={isMobile ? false : undefined}
                     nativeEdgeSwipePrevention={true}
                     className="z-50"
-                    style={
-                        isMobile
-                            ? undefined
-                            : {
-                                  height: 'calc(var(--silk-100-lvh-dvh-pct) + 60px)',
-                              }
-                    }
                     onTravelStatusChange={(status) => {
                         if (status === 'idleOutside' && !entry.presented) {
                             onExited(index);
@@ -503,58 +526,87 @@ function StackedSheetLevel({
                     />
                     <Sheet.Content
                         className={cn(
-                            'flex flex-col bg-background shadow-xl',
+                            'flex flex-col',
                             isMobile
-                                ? 'max-h-[92dvh] w-full rounded-t-2xl border-t pb-[env(safe-area-inset-bottom,0px)]'
-                                : 'h-full w-full border-l sm:max-w-xl',
+                                ? // ~90vh keeps the measured content height (the
+                                  // last detent) above the 66vh intermediate —
+                                  // the level rests at ~2/3 and pushes to near-full.
+                                  'h-[90dvh] w-full rounded-t-2xl border-t bg-background pb-[env(safe-area-inset-bottom,0px)] shadow-xl'
+                                : // Silk zeroes content margins and paints the
+                                  // content white, so the floating slide-over
+                                  // comes from an inner card over a transparent
+                                  // shell and the backdrop covers the page.
+                                  'h-full w-full bg-transparent shadow-none sm:max-w-xl',
                         )}
                         stackingAnimation={stackingAnimation(presentation)}
                     >
-                        {isMobile && (
-                            <>
-                                <Sheet.BleedingBackground className="bg-background" />
-                                <Sheet.Handle
-                                    action="dismiss"
-                                    aria-label="Close"
-                                    className="mx-auto mt-2 mb-1 h-[5px] w-9 shrink-0 rounded-full border-0 bg-muted-foreground/30"
-                                />
-                            </>
-                        )}
-                        <Sheet.Title className="sr-only">
-                            Posting details
-                        </Sheet.Title>
-                        <Sheet.Description className="sr-only">
-                            Edit the posting's category and comment, and browse
-                            similar postings.
-                        </Sheet.Description>
+                        {(() => {
+                            const body = (
+                                <>
+                                    {isMobile && (
+                                        <>
+                                            <Sheet.BleedingBackground className="bg-background" />
+                                            <Sheet.Handle
+                                                action={
+                                                    atLastDetent
+                                                        ? 'dismiss'
+                                                        : 'step'
+                                                }
+                                                aria-label={
+                                                    atLastDetent
+                                                        ? 'Close'
+                                                        : 'Expand'
+                                                }
+                                                className="mx-auto mt-2 mb-1 h-[5px] w-9 shrink-0 rounded-full border-0 bg-muted-foreground/30"
+                                            />
+                                        </>
+                                    )}
+                                    <Sheet.Title className="sr-only">
+                                        Posting details
+                                    </Sheet.Title>
+                                    <Sheet.Description className="sr-only">
+                                        Edit the posting's category and comment,
+                                        and browse similar postings.
+                                    </Sheet.Description>
 
-                        <SheetLevel
-                            postingId={entry.postingId}
-                            isTop={isTop}
-                            categoryOptions={categoryOptions}
-                            onOpenPosting={onPush}
-                        />
+                                    <SheetLevel
+                                        postingId={entry.postingId}
+                                        isTop={isTop}
+                                        categoryOptions={categoryOptions}
+                                        onOpenPosting={onPush}
+                                    />
 
-                        {/* The next level nests inside this sheet's content so
-                            Silk tracks it as stacked above in the SheetStack. */}
-                        {next !== null && (
-                            <StackedSheetLevel
-                                levels={levels}
-                                index={next}
-                                onPush={onPush}
-                                onDismissLevel={onDismissLevel}
-                                onExited={onExited}
-                                categoryOptions={categoryOptions}
-                            />
-                        )}
+                                    {/* The next level nests inside this sheet's content so
+                                        Silk tracks it as stacked above in the SheetStack. */}
+                                    {next !== null && (
+                                        <StackedSheetLevel
+                                            levels={levels}
+                                            index={next}
+                                            onPush={onPush}
+                                            onDismissLevel={onDismissLevel}
+                                            onExited={onExited}
+                                            categoryOptions={categoryOptions}
+                                        />
+                                    )}
 
-                        <Sheet.Trigger
-                            action="dismiss"
-                            className="absolute top-4 right-4 rounded-xs opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:outline-hidden disabled:pointer-events-none [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4"
-                        >
-                            <XIcon />
-                            <span className="sr-only">Close</span>
-                        </Sheet.Trigger>
+                                    <Sheet.Trigger
+                                        action="dismiss"
+                                        className="absolute top-4 right-4 rounded-xs opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:outline-hidden disabled:pointer-events-none [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4"
+                                    >
+                                        <XIcon />
+                                        <span className="sr-only">Close</span>
+                                    </Sheet.Trigger>
+                                </>
+                            );
+
+                            return isMobile ? (
+                                body
+                            ) : (
+                                <div className="relative m-3 flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border bg-background shadow-xl">
+                                    {body}
+                                </div>
+                            );
+                        })()}
                     </Sheet.Content>
                 </Sheet.View>
             </Sheet.Portal>
