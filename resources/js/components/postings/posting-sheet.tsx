@@ -70,7 +70,7 @@ type PostingFormValues = {
     is_extraordinary: boolean;
 };
 
-type StackEntry = { postingId: number; presented: boolean; exited: boolean };
+type StackEntry = { postingId: number; presented: boolean };
 
 /**
  * The receding effect a covered sheet plays as deeper levels stack on top,
@@ -477,7 +477,7 @@ function StackedSheetLevel({
     index: number;
     onPush: (postingId: number) => void;
     onDismissLevel: (index: number) => void;
-    onExited: (index: number) => void;
+    onExited: (index: number, entry: StackEntry) => void;
     categoryOptions: CategoryComboboxOption[];
 }) {
     const isMobile = useIsMobile();
@@ -488,7 +488,7 @@ function StackedSheetLevel({
     const isTop =
         index === levels.map((level) => level.presented).lastIndexOf(true);
 
-    if (entry === undefined || (!entry.presented && entry.exited)) {
+    if (entry === undefined) {
         return null;
     }
 
@@ -514,7 +514,7 @@ function StackedSheetLevel({
                     className="z-50"
                     onTravelStatusChange={(status) => {
                         if (status === 'idleOutside' && !entry.presented) {
-                            onExited(index);
+                            onExited(index, entry);
                         }
                     }}
                 >
@@ -580,6 +580,7 @@ function StackedSheetLevel({
                                         Silk tracks it as stacked above in the SheetStack. */}
                                     {next !== null && (
                                         <StackedSheetLevel
+                                            key={levels[next].postingId}
                                             levels={levels}
                                             index={next}
                                             onPush={onPush}
@@ -638,12 +639,12 @@ export function PostingSheet({
         setLevels((previous) =>
             postingId === null
                 ? previous.map((entry) => ({ ...entry, presented: false }))
-                : [{ postingId, presented: true, exited: false }],
+                : [{ postingId, presented: true }],
         );
     }
 
     // Levels stay mounted while they animate out; each reports idleOutside
-    // once gone and is then skipped.
+    // once gone and is then removed.
     return (
         <SheetStack.Root>
             {levels.length > 0 && (
@@ -652,11 +653,15 @@ export function PostingSheet({
                     index={0}
                     onPush={(nextId) =>
                         setLevels((previous) => [
-                            ...previous,
+                            ...previous.slice(
+                                0,
+                                previous
+                                    .map((entry) => entry.presented)
+                                    .lastIndexOf(true) + 1,
+                            ),
                             {
                                 postingId: nextId,
                                 presented: true,
-                                exited: false,
                             },
                         ])
                     }
@@ -675,13 +680,11 @@ export function PostingSheet({
                             ),
                         );
                     }}
-                    onExited={(index) =>
+                    onExited={(index, exitedEntry) =>
                         setLevels((previous) =>
-                            previous.map((entry, i) =>
-                                i === index
-                                    ? { ...entry, exited: true }
-                                    : entry,
-                            ),
+                            previous[index] === exitedEntry
+                                ? previous.slice(0, index)
+                                : previous,
                         )
                     }
                     categoryOptions={categoryOptions}
