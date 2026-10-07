@@ -120,7 +120,7 @@ test('a refund categorized under an expense category nets against the bucket ins
             ->where('summary.result', -200));
 });
 
-test('period options include 12m and the years from earliest posting to now', function () {
+test('period options include 12m, the all-years comparison and the years from earliest posting to now', function () {
     CarbonImmutable::setTestNow('2026-07-01 12:00:00');
 
     try {
@@ -134,7 +134,104 @@ test('period options include 12m and the years from earliest posting to now', fu
             ->assertOk()
             ->assertInertia(fn (Assert $page) => $page
                 ->where('period.selected', '12m')
-                ->where('period.options', ['12m', '2026', '2025', '2024']));
+                ->where('period.options', ['12m', 'years', '2026', '2025', '2024']));
+    } finally {
+        CarbonImmutable::setTestNow();
+    }
+});
+
+test('the years period compares yearly buckets over every year with data', function () {
+    CarbonImmutable::setTestNow('2026-07-15 12:00:00');
+
+    try {
+        ['user' => $user, 'account' => $account, 'salary' => $salary, 'groceries' => $groceries] = seedBudget();
+
+        Posting::factory()->forAccount($account)->categorizedAs($salary)->income()
+            ->create(['date' => '2024-05-05', 'amount' => 8000, 'original_amount' => 8000]);
+        Posting::factory()->forAccount($account)->categorizedAs($salary)->income()
+            ->create(['date' => '2025-05-05', 'amount' => 12000, 'original_amount' => 12000]);
+        Posting::factory()->forAccount($account)->categorizedAs($groceries)
+            ->create(['date' => '2025-05-12', 'amount' => -3000, 'original_amount' => -3000]);
+        // The in-progress year aggregates as a dimmed, incomplete preview.
+        Posting::factory()->forAccount($account)->categorizedAs($salary)->income()
+            ->create(['date' => '2026-03-05', 'amount' => 6000, 'original_amount' => 6000]);
+        // An August 2026 posting is beyond the last completed month: it lands
+        // in the series' current-year point but stays out of the summary.
+        Posting::factory()->forAccount($account)->categorizedAs($salary)->income()
+            ->create(['date' => '2026-08-05', 'amount' => 999, 'original_amount' => 999]);
+
+        $this->actingAs($user)
+            ->get(route('dashboard', ['period' => 'years']))
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->where('period.selected', 'years')
+                ->where('period.interval', 'year')
+                ->where('period.start', '2024-01-01')
+                ->where('period.end', '2026-06-30')
+                // Jan 2024 – Jun 2026 is 30 months = 2.5 years of averaging.
+                ->where('period.units', 2.5)
+                ->where('summary.income', 26000)
+                ->where('summary.consumption', 3000)
+                ->where('series.0.period', '2024')
+                ->where('series.0.complete', true)
+                ->where('series.0.income', 8000)
+                ->where('series.1.period', '2025')
+                ->where('series.1.income', 12000)
+                ->where('series.1.consumption', 3000)
+                ->where('series.1.result', 9000)
+                ->where('series.2.period', '2026')
+                ->where('series.2.complete', false)
+                ->where('series.2.income', 6999));
+    } finally {
+        CarbonImmutable::setTestNow();
+    }
+});
+
+test('the years breakdown averages per year and can focus a single year', function () {
+    CarbonImmutable::setTestNow('2026-07-15 12:00:00');
+
+    try {
+        ['user' => $user, 'account' => $account, 'salary' => $salary, 'groceries' => $groceries] = seedBudget();
+
+        Posting::factory()->forAccount($account)->categorizedAs($salary)->income()
+            ->create(['date' => '2024-05-05', 'amount' => 24000, 'original_amount' => 24000]);
+        Posting::factory()->forAccount($account)->categorizedAs($groceries)
+            ->create(['date' => '2024-06-12', 'amount' => -6000, 'original_amount' => -6000]);
+        Posting::factory()->forAccount($account)->categorizedAs($groceries)
+            ->create(['date' => '2025-06-12', 'amount' => -12000, 'original_amount' => -12000]);
+
+        // The window ends at the last completed month of data: Jan 2024 –
+        // Jun 2025 (latest posting 2025-06) = 18 months = 1.5 units.
+        $response = $this->actingAs($user)
+            ->get(route('dashboard', ['period' => 'years']), breakdownPartialHeaders())
+            ->assertOk();
+
+        $response->assertJsonPath('props.breakdown.focus', null);
+        $response->assertJsonPath('props.breakdown.categories.0.name', 'Income');
+        $response->assertJsonPath('props.breakdown.categories.0.total', 16000);
+        $response->assertJsonPath('props.breakdown.categories.1.name', 'Housing');
+        $response->assertJsonPath('props.breakdown.categories.1.total', 12000);
+
+        // Focusing a year flips the breakdown to that year's raw totals.
+        $this->actingAs($user)
+            ->get(
+                route('dashboard', ['period' => 'years', 'focus' => '2025']),
+                breakdownPartialHeaders(),
+            )
+            ->assertOk()
+            ->assertJsonPath('props.breakdown.focus', '2025')
+            ->assertJsonCount(1, 'props.breakdown.categories')
+            ->assertJsonPath('props.breakdown.categories.0.name', 'Housing')
+            ->assertJsonPath('props.breakdown.categories.0.total', 12000);
+
+        // A month focus is not selectable on a yearly report.
+        $this->actingAs($user)
+            ->get(
+                route('dashboard', ['period' => 'years', 'focus' => '2025-06']),
+                breakdownPartialHeaders(),
+            )
+            ->assertOk()
+            ->assertJsonPath('props.breakdown.focus', null);
     } finally {
         CarbonImmutable::setTestNow();
     }
@@ -193,8 +290,8 @@ test('dashboard uses completed months when latest import is in current partial m
                 ->where('period.start', '2025-06-01')
                 ->where('period.end', '2026-05-31')
                 ->where('summary.income', 100)
-                ->where('monthly.0.month', '2025-06')
-                ->where('monthly.12.month', '2026-06'));
+                ->where('series.0.period', '2025-06')
+                ->where('series.12.period', '2026-06'));
     } finally {
         CarbonImmutable::setTestNow();
     }
@@ -219,7 +316,7 @@ test('breakdown includes income and expense categories with top subcategories fo
             ->assertOk();
 
         // Two categories, sorted by monthly average descending: income (833.33) then Housing (333.33).
-        $response->assertJsonPath('props.breakdown.month', null);
+        $response->assertJsonPath('props.breakdown.focus', null);
         $response->assertJsonCount(2, 'props.breakdown.categories');
         $response->assertJsonPath('props.breakdown.categories.0.type', 'income');
         $response->assertJsonPath('props.breakdown.categories.0.name', 'Income');
@@ -284,12 +381,12 @@ test('breakdown month selection returns totals for that month only', function ()
 
         $response = $this->actingAs($user)
             ->get(
-                route('dashboard', ['months' => 12, 'breakdownMonth' => '2026-02']),
+                route('dashboard', ['months' => 12, 'focus' => '2026-02']),
                 breakdownPartialHeaders(),
             )
             ->assertOk();
 
-        $response->assertJsonPath('props.breakdown.month', '2026-02');
+        $response->assertJsonPath('props.breakdown.focus', '2026-02');
         $response->assertJsonCount(2, 'props.breakdown.categories');
         $response->assertJsonPath('props.breakdown.categories.0.name', 'Income');
         $response->assertJsonPath('props.breakdown.categories.0.type', 'income');
@@ -309,11 +406,11 @@ test('breakdown month outside the selected period is ignored', function () {
 
     $this->actingAs($user)
         ->get(
-            route('dashboard', ['months' => 3, 'breakdownMonth' => '2000-01']),
+            route('dashboard', ['months' => 3, 'focus' => '2000-01']),
             breakdownPartialHeaders(),
         )
         ->assertOk()
-        ->assertJsonPath('props.breakdown.month', null);
+        ->assertJsonPath('props.breakdown.focus', null);
 });
 
 test('breakdown can target the in-progress preview month', function () {
@@ -331,12 +428,12 @@ test('breakdown can target the in-progress preview month', function () {
 
         $response = $this->actingAs($user)
             ->get(
-                route('dashboard', ['breakdownMonth' => '2026-04']),
+                route('dashboard', ['focus' => '2026-04']),
                 breakdownPartialHeaders(),
             )
             ->assertOk();
 
-        $response->assertJsonPath('props.breakdown.month', '2026-04');
+        $response->assertJsonPath('props.breakdown.focus', '2026-04');
         $response->assertJsonCount(1, 'props.breakdown.categories');
         $response->assertJsonPath('props.breakdown.categories.0.name', 'Housing');
         $response->assertJsonPath('props.breakdown.categories.0.total', 2000);

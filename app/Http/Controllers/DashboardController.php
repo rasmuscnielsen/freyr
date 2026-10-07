@@ -2,9 +2,10 @@
 
 namespace App\Http\Controllers;
 
-use App\Enums\Bucket;
+use App\Enums\Interval;
 use App\Models\BankAccount;
 use App\Models\Posting;
+use App\Queries\OverviewReport;
 use App\Services\Frankfurter\ExchangeRateStore;
 use App\Support\MoneyMath;
 use Carbon\CarbonImmutable;
@@ -46,195 +47,82 @@ class DashboardController extends Controller
             ->map(fn (int $year): string => (string) $year)
             ->values();
 
-        $periodOptions = collect(['12m'])->merge($yearOptions)->values();
+        $periodOptions = collect(['12m', 'years'])->merge($yearOptions)->values();
 
-        [$period, $months, $start, $end] = $this->resolvePeriod(
+        [$period, $interval, $months, $start, $end] = $this->resolvePeriod(
             $request,
             $periodOptions,
+            $earliestYear,
             $lastCompletedMonthEnd,
         );
 
         $chartEnd = $currentMonthEnd->gt($end) ? $currentMonthEnd : $end;
 
-        if ($period !== '12m') {
+        if ($period === 'years') {
+            // Every year with data appears — even a future-dated posting
+            // earns its (dimmed) bar on the all-years comparison.
+            $chartEnd = $chartEnd->gt($latestPostingDate->endOfYear()) ? $chartEnd : $latestPostingDate->endOfYear();
+        } elseif (is_numeric($period)) {
+            // A single calendar year never extends its series into the next.
             $periodYearEnd = $start->endOfYear();
             $chartEnd = $chartEnd->gt($periodYearEnd) ? $periodYearEnd : $chartEnd;
         }
 
-        $chartMonths = (int) $start->diffInMonths($chartEnd->startOfMonth()) + 1;
+        $report = OverviewReport::for($user, $start, $end, $interval, $chartEnd);
 
-        $postings = Posting::query()
-            ->forUser($user)
-            ->with(['categorizedSubcategory.category'])
-            ->whereBetween('date', [$start->toDateString(), $chartEnd->endOfMonth()->toDateString()])
-            ->get();
-
-        // Every posting that lands in an overview bucket, indexed alongside its
-        // resolved bucket so the mapping is computed once.
-        $overviewPostings = $postings
-            ->map(fn (Posting $posting): array => ['posting' => $posting, 'bucket' => $posting->overviewBucket()])
-            ->filter(fn (array $entry): bool => $entry['bucket'] instanceof Bucket)
-            ->values();
-
-        $monthly = collect(range(0, $chartMonths - 1))
-            ->mapWithKeys(function (int $offset) use ($start): array {
-                $month = $start->addMonths($offset);
-
-                return [$month->format('Y-m') => $this->emptyMonthlyPoint($month)];
-            });
-
-        foreach ($overviewPostings as $entry) {
-            $posting = $entry['posting'];
-            $month = CarbonImmutable::parse($posting->date)->format('Y-m');
-
-            if (! isset($monthly[$month])) {
-                continue;
-            }
-
-            $point = $monthly[$month];
-
-            // Only postings with a resolved reporting amount aggregate. An
-            // eligible-but-unresolved posting is counted as missing so the
-            // month can be labeled partial instead of looking empty.
-            if ($posting->amount === null) {
-                $point['missing']++;
-                $monthly[$month] = $point;
-
-                continue;
-            }
-
-            $key = $entry['bucket']->value;
-            $point[$key] += $entry['bucket'] === Bucket::Income
-                ? (float) $posting->amount
-                : -(float) $posting->amount;
-            $point['result'] = $this->monthlyResult($point);
-            $monthly[$month] = $point;
-        }
-
-        $summaryMonthly = $monthly->filter(
-            fn (array $point): bool => $point['month'] >= $start->format('Y-m')
-                && $point['month'] <= $end->format('Y-m'),
-        );
-
-        $summary = $this->buildSummary($summaryMonthly);
-        $summaryPostings = $overviewPostings
-            ->filter(fn (array $entry): bool => CarbonImmutable::parse($entry['posting']->date)->betweenIncluded($start, $end))
-            ->pluck('posting');
-        $summary['coverage'] = $this->coverage($summaryPostings);
-
-        // Selectable months follow the chart's range, which includes the
-        // in-progress preview month; the period average stays bounded by
-        // the completed months only.
-        $breakdownMonth = $this->resolveBreakdownMonth($request, $start, $chartEnd);
+        // The breakdown can zoom into one series period — a month on monthly
+        // periods, a year on the all-years comparison — via `focus`.
+        $focus = (string) $request->query('focus', '');
+        $focus = $report->acceptsFocus($focus) ? $focus : null;
 
         return Inertia::render('dashboard', [
             'period' => [
                 'selected' => $period,
+                'interval' => $interval->value,
                 'months' => $months,
+                'units' => $report->units(),
                 'start' => $start->toDateString(),
                 'end' => $end->toDateString(),
                 'options' => $periodOptions,
             ],
-            'summary' => $summary,
-            'monthly' => $monthly->values(),
+            'summary' => $report->summary(),
+            'series' => $report->series(),
             'balance' => $this->consolidatedBalance($request),
-            'primaryCurrency' => $request->user()->reporting_currency,
-            'breakdown' => Inertia::defer(fn (): array => $this->buildBreakdown(
-                $overviewPostings,
-                $start,
-                $end,
-                $months,
-                $breakdownMonth,
-            )),
+            'primaryCurrency' => $user->reporting_currency,
+            'breakdown' => Inertia::defer(fn (): array => [
+                'focus' => $focus,
+                'categories' => $this->breakdownCategories($report, $focus),
+            ]),
         ]);
     }
 
     /**
-     * A zeroed monthly point carrying one total per overview bucket.
+     * Category rows for the deferred breakdown prop. The report returns raw
+     * window totals; without a focus they are averaged per period unit
+     * (per month, or per year on the all-years period) for the "average"
+     * view, while a focused period shows its raw totals.
      *
-     * @return array<string, mixed>
+     * @return array<int, array<string, mixed>>
      */
-    private function emptyMonthlyPoint(CarbonImmutable $month): array
+    private function breakdownCategories(OverviewReport $report, ?string $focus): array
     {
-        return [
-            'month' => $month->format('Y-m'),
-            'label' => $month->format('M y'),
-            'income' => 0.0,
-            'bills' => 0.0,
-            'consumption' => 0.0,
-            'investments' => 0.0,
-            'savings' => 0.0,
-            'uncategorized' => 0.0,
-            'result' => 0.0,
-            'missing' => 0,
-        ];
-    }
+        $divisor = $focus === null ? $report->units() : 1.0;
 
-    /**
-     * Reporting-currency coverage over a posting collection: how many
-     * postings are eligible for a reporting amount and how many have one.
-     *
-     * @param  Collection<int, Posting>  $postings
-     * @return array{eligible: int, converted: int, missing: int}
-     */
-    private function coverage(Collection $postings): array
-    {
-        return [
-            'eligible' => $postings->count(),
-            'converted' => $postings->whereNotNull('amount')->count(),
-            'missing' => $postings->whereNull('amount')->count(),
-        ];
-    }
+        return array_map(function (array $category) use ($divisor): array {
+            $category['total'] = round($category['total'] / $divisor, 2);
+            $category['topSubcategories'] = array_map(
+                fn (array $subcategory): array => [
+                    'name' => $subcategory['name'],
+                    // Averaged over the same divisor as the category total so
+                    // the tooltip's subcategory amounts sum toward it.
+                    'amount' => round($subcategory['amount'] / $divisor, 2),
+                ],
+                array_slice($category['subcategories'], 0, 5),
+            );
+            unset($category['subcategories']);
 
-    /**
-     * Net result for a month: income minus every outgoing bucket.
-     *
-     * @param  array<string, mixed>  $point
-     */
-    private function monthlyResult(array $point): float
-    {
-        return round(
-            $point['income']
-            - $point['bills']
-            - $point['consumption']
-            - $point['investments']
-            - $point['savings']
-            - $point['uncategorized'],
-            2,
-        );
-    }
-
-    /**
-     * Rolls the monthly points up into the period summary. `in` is income,
-     * `out` is the net total of every outgoing bucket (outflows positive,
-     * refunds subtract), and `result` is their difference. Per-bucket totals
-     * are kept for the frontend.
-     *
-     * @param  Collection<string, array<string, mixed>>  $summaryMonthly
-     * @return array<string, float>
-     */
-    private function buildSummary(Collection $summaryMonthly): array
-    {
-        $income = round($summaryMonthly->sum('income'), 2);
-        $bills = round($summaryMonthly->sum('bills'), 2);
-        $consumption = round($summaryMonthly->sum('consumption'), 2);
-        $investments = round($summaryMonthly->sum('investments'), 2);
-        $savings = round($summaryMonthly->sum('savings'), 2);
-        $uncategorized = round($summaryMonthly->sum('uncategorized'), 2);
-
-        $out = round($bills + $consumption + $investments + $savings + $uncategorized, 2);
-
-        return [
-            'in' => $income,
-            'out' => $out,
-            'result' => round($income - $out, 2),
-            'income' => $income,
-            'bills' => $bills,
-            'consumption' => $consumption,
-            'investments' => $investments,
-            'savings' => $savings,
-            'uncategorized' => $uncategorized,
-        ];
+            return $category;
+        }, $report->categories($focus));
     }
 
     /**
@@ -301,12 +189,17 @@ class DashboardController extends Controller
     }
 
     /**
+     * Resolves the selected period into its interval, window and label:
+     * '12m' (trailing twelve completed months), 'years' (every year with
+     * data, aggregated yearly) or a single calendar year.
+     *
      * @param  Collection<int, string>  $periodOptions
-     * @return array{0: string, 1: int, 2: CarbonImmutable, 3: CarbonImmutable}
+     * @return array{0: string, 1: Interval, 2: int, 3: CarbonImmutable, 4: CarbonImmutable}
      */
     private function resolvePeriod(
         Request $request,
         Collection $periodOptions,
+        int $earliestYear,
         CarbonImmutable $lastCompletedMonthEnd,
     ): array {
         $requested = (string) $request->query('period', '');
@@ -317,10 +210,23 @@ class DashboardController extends Controller
             $end = $lastCompletedMonthEnd;
             $start = $end->startOfMonth()->subMonthsNoOverflow($months - 1);
 
-            return ['12m', $months, $start, $end];
+            return ['12m', Interval::Month, $months, $start, $end];
         }
 
-        if ($requested !== '' && $periodOptions->contains($requested) && $requested !== '12m') {
+        if ($requested === 'years') {
+            $start = CarbonImmutable::create($earliestYear, 1, 1)->startOfDay();
+            $end = $lastCompletedMonthEnd;
+
+            if ($end->lt($start)) {
+                $end = $start->endOfMonth();
+            }
+
+            $months = (int) $start->diffInMonths($end->startOfMonth()) + 1;
+
+            return ['years', Interval::Year, $months, $start, $end];
+        }
+
+        if ($requested !== '' && is_numeric($requested) && $periodOptions->contains($requested)) {
             $year = (int) $requested;
             $start = CarbonImmutable::create($year, 1, 1)->startOfDay();
             $yearEnd = CarbonImmutable::create($year, 12, 31)->endOfDay();
@@ -332,7 +238,7 @@ class DashboardController extends Controller
 
             $months = (int) $start->diffInMonths($end->startOfMonth()) + 1;
 
-            return [$requested, $months, $start, $end];
+            return [$requested, Interval::Month, $months, $start, $end];
         }
 
         // Default: last 12 completed months.
@@ -340,120 +246,6 @@ class DashboardController extends Controller
         $end = $lastCompletedMonthEnd;
         $start = $end->startOfMonth()->subMonthsNoOverflow($months - 1);
 
-        return ['12m', $months, $start, $end];
-    }
-
-    private function resolveBreakdownMonth(
-        Request $request,
-        CarbonImmutable $start,
-        CarbonImmutable $chartEnd,
-    ): ?string {
-        $requested = (string) $request->query('breakdownMonth', '');
-
-        if ($requested === '' || preg_match('/^\d{4}-\d{2}$/', $requested) !== 1) {
-            return null;
-        }
-
-        if ($requested < $start->format('Y-m') || $requested > $chartEnd->format('Y-m')) {
-            return null;
-        }
-
-        return $requested;
-    }
-
-    /**
-     * @param  Collection<int, array{posting: Posting, bucket: Bucket}>  $overviewPostings
-     * @return array{month: ?string, months: int, categories: array<int, array<string, mixed>>}
-     */
-    private function buildBreakdown(
-        Collection $overviewPostings,
-        CarbonImmutable $start,
-        CarbonImmutable $end,
-        int $months,
-        ?string $breakdownMonth,
-    ): array {
-        $divisor = $breakdownMonth !== null ? 1 : max(1, $months);
-
-        // Every overview bucket contributes: income sits on the income side,
-        // the outgoing buckets (bills/consumption/investments/savings and the
-        // uncategorized group) on the expense side.
-        $relevant = $overviewPostings->filter(function (array $entry) use ($start, $end, $breakdownMonth): bool {
-            $month = CarbonImmutable::parse($entry['posting']->date)->format('Y-m');
-
-            if ($breakdownMonth !== null) {
-                return $month === $breakdownMonth;
-            }
-
-            return $month >= $start->format('Y-m') && $month <= $end->format('Y-m');
-        });
-
-        $categories = $relevant
-            ->groupBy(fn (array $entry): string => $entry['bucket'] === Bucket::Income ? 'income' : 'expense')
-            ->flatMap(function (Collection $group, string $type) use ($divisor): Collection {
-                return $group
-                    ->groupBy(fn (array $entry): string => (string) ($entry['posting']->categorizedSubcategory?->category?->id ?? 'uncategorized'))
-                    ->map(function (Collection $entries) use ($type, $divisor): array {
-                        $postings = $entries->map(fn (array $entry): Posting => $entry['posting']);
-                        // Unresolved postings are visible via the missing
-                        // count but excluded from every monetary figure.
-                        $converted = $postings->whereNotNull('amount')->values();
-                        $category = $postings->first()?->categorizedSubcategory?->category;
-                        $total = (float) $converted->sum(fn (Posting $posting): float => (float) $posting->amount);
-
-                        // A category can span buckets (fixed and variable
-                        // subcategories); the row is colored by wherever most
-                        // of its money lands.
-                        $dominantBucket = $entries
-                            ->groupBy(fn (array $entry): string => $entry['bucket']->value)
-                            ->map(fn (Collection $items): float => abs((float) $items->sum(
-                                fn (array $item): float => (float) $item['posting']->amount,
-                            )))
-                            ->sortDesc()
-                            ->keys()
-                            ->first();
-
-                        $topSubcategories = $converted
-                            ->groupBy(fn (Posting $posting): string => $posting->categorizedSubcategory?->name ?? 'Uncategorized')
-                            ->map(fn (Collection $items, string $name): array => [
-                                'name' => $name,
-                                // Averaged over the same divisor as the category total so
-                                // the tooltip's subcategory amounts sum toward it.
-                                'amount' => round(abs((float) $items->sum(fn (Posting $posting): float => (float) $posting->amount)) / $divisor, 2),
-                            ])
-                            ->sortByDesc('amount')
-                            ->values()
-                            ->take(5);
-
-                        $topPostings = $converted
-                            ->sortByDesc(fn (Posting $posting): float => abs((float) $posting->amount))
-                            ->take(5)
-                            ->map(fn (Posting $posting): array => [
-                                'description' => $posting->description,
-                                'date' => CarbonImmutable::parse($posting->date)->toDateString(),
-                                'amount' => round(abs((float) $posting->amount), 2),
-                            ])
-                            ->values();
-
-                        return [
-                            'id' => $category?->id,
-                            'name' => $category?->name ?? 'Uncategorized',
-                            'type' => $type,
-                            'bucket' => $dominantBucket,
-                            'total' => round(abs($total) / $divisor, 2),
-                            'missing' => $postings->whereNull('amount')->count(),
-                            'topSubcategories' => $topSubcategories->all(),
-                            'topPostings' => $topPostings->all(),
-                        ];
-                    })
-                    ->values();
-            })
-            ->sortByDesc('total')
-            ->values();
-
-        return [
-            'month' => $breakdownMonth,
-            'months' => $months,
-            'categories' => $categories->all(),
-        ];
+        return ['12m', Interval::Month, $months, $start, $end];
     }
 }

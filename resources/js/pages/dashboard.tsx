@@ -35,7 +35,9 @@ import { index as postingsIndex, retryConversions } from '@/routes/postings';
 
 type Period = {
     selected: string;
+    interval: 'month' | 'year';
     months: number;
+    units: number;
     start: string;
     end: string;
     options: string[];
@@ -60,9 +62,11 @@ type Summary = {
     coverage: Coverage;
 };
 
-type MonthlyPoint = {
-    month: string;
+type FlowPoint = {
+    // Series key: 'YYYY-MM' on monthly periods, 'YYYY' on all-years.
+    period: string;
     label: string;
+    complete: boolean;
     income: number;
     bills: number;
     consumption: number;
@@ -96,8 +100,7 @@ type BreakdownCategory = {
 };
 
 type Breakdown = {
-    month: string | null;
-    months: number;
+    focus: string | null;
     categories: BreakdownCategory[];
 };
 
@@ -111,7 +114,7 @@ type Balance = {
 type DashboardProps = {
     period: Period;
     summary: Summary;
-    monthly: MonthlyPoint[];
+    series: FlowPoint[];
     breakdown?: Breakdown;
     balance: Balance;
     primaryCurrency: string | null;
@@ -248,7 +251,15 @@ const coarsePointerMql =
         : window.matchMedia('(hover: none)');
 
 function periodLabel(option: string): string {
-    return option === '12m' ? '12 months' : option;
+    if (option === '12m') {
+        return '12 months';
+    }
+
+    if (option === 'years') {
+        return 'All years';
+    }
+
+    return option;
 }
 
 /**
@@ -258,7 +269,8 @@ function periodLabel(option: string): string {
 function flowTooltip(
     props: unknown,
     currency: string | null,
-    points: MonthlyPoint[],
+    points: FlowPoint[],
+    interval: Period['interval'],
     locale?: string,
 ) {
     const { active, payload, label } = props as {
@@ -284,6 +296,7 @@ function flowTooltip(
         .reduce((sum, item) => sum + Math.abs(Number(item.value)), 0);
     const point = points.find((item) => item.label === label);
     const missing = point?.missing ?? 0;
+    const unit = interval === 'year' ? 'year' : 'month';
 
     return (
         <div className="rounded-lg border bg-popover p-3 text-sm text-popover-foreground shadow-lg">
@@ -342,7 +355,7 @@ function flowTooltip(
             {missing > 0 && (
                 <div className="mt-2 border-t pt-2 text-muted-foreground">
                     {missing} {missing === 1 ? 'posting has' : 'postings have'}{' '}
-                    no reporting amount — month is partial.
+                    no reporting amount — {unit} is partial.
                 </div>
             )}
         </div>
@@ -439,21 +452,22 @@ function BreakdownDetail({
 export default function Dashboard({
     period,
     summary,
-    monthly,
+    series,
     breakdown,
     balance,
     primaryCurrency,
 }: DashboardProps) {
     const { locale } = useRegion();
-    const [selectedMonth, setSelectedMonth] = useState<string | null>(
-        breakdown?.month ?? null,
+    const [selectedPeriod, setSelectedPeriod] = useState<string | null>(
+        breakdown?.focus ?? null,
     );
 
-    const lastCompletedMonth = period.end.slice(0, 7);
+    const isYearly = period.interval === 'year';
+    const unit = isYearly ? 'year' : 'month';
 
     // Bucket totals arrive as positive magnitudes; outgoing buckets are drawn
     // below the axis.
-    const flowData = monthly.map((point) => ({
+    const flowData = series.map((point) => ({
         ...point,
         billsStacked: -Math.abs(point.bills),
         consumptionStacked: -Math.abs(point.consumption),
@@ -462,13 +476,11 @@ export default function Dashboard({
         uncategorizedStacked: -Math.abs(point.uncategorized),
     }));
 
-    // The Y scale fits the completed months only. The incomplete current
-    // month is a dimmed preview and a single early-month outlier would
-    // otherwise flatten a whole year of real data; its bars clip at the
-    // top of the chart instead.
-    const completedFlow = flowData.filter(
-        (point) => point.month <= lastCompletedMonth,
-    );
+    // The Y scale fits the completed periods only. The incomplete current
+    // period is a dimmed preview and a single early-period outlier would
+    // otherwise flatten the real data; its bars clip at the top of the
+    // chart instead.
+    const completedFlow = flowData.filter((point) => point.complete);
     const domainSource = completedFlow.length > 0 ? completedFlow : flowData;
     const flowMax = Math.max(
         ...domainSource.map((point) => Math.max(point.income, point.result)),
@@ -493,7 +505,7 @@ export default function Dashboard({
     ];
 
     const changePeriod = (value: string) => {
-        setSelectedMonth(null);
+        setSelectedPeriod(null);
         router.get(
             dashboard.url({ query: { period: value } }),
             {},
@@ -501,21 +513,21 @@ export default function Dashboard({
         );
     };
 
-    const reloadBreakdown = (month: string | null) => {
-        setSelectedMonth(month);
+    const reloadBreakdown = (focus: string | null) => {
+        setSelectedPeriod(focus);
         router.reload({
             only: ['breakdown'],
-            data: { breakdownMonth: month ?? undefined },
+            data: { focus: focus ?? undefined },
         });
     };
 
-    const toggleMonth = (month: string) => {
-        reloadBreakdown(selectedMonth === month ? null : month);
+    const togglePeriod = (key: string) => {
+        reloadBreakdown(selectedPeriod === key ? null : key);
     };
 
-    const onFlowBarClick = (entry: { payload?: MonthlyPoint }) => {
-        if (entry.payload?.month) {
-            toggleMonth(entry.payload.month);
+    const onFlowBarClick = (entry: { payload?: FlowPoint }) => {
+        if (entry.payload?.period) {
+            togglePeriod(entry.payload.period);
         }
     };
 
@@ -525,15 +537,25 @@ export default function Dashboard({
                 ? { uncategorized: true }
                 : { category: category.id };
 
-        if (selectedMonth !== null) {
-            // A single month is selected: window to that month's range.
-            const [year, monthPart] = selectedMonth.split('-').map(Number);
-            const from = new Date(Date.UTC(year, monthPart - 1, 1));
-            const to = new Date(Date.UTC(year, monthPart, 0));
-            filter.posted_between = [
-                from.toISOString().slice(0, 10),
-                to.toISOString().slice(0, 10),
-            ].join(',');
+        if (selectedPeriod !== null) {
+            // A single series period is selected: window to that month's or
+            // year's range.
+            if (isYearly) {
+                filter.posted_between = [
+                    `${selectedPeriod}-01-01`,
+                    `${selectedPeriod}-12-31`,
+                ].join(',');
+            } else {
+                const [year, monthPart] = selectedPeriod
+                    .split('-')
+                    .map(Number);
+                const from = new Date(Date.UTC(year, monthPart - 1, 1));
+                const to = new Date(Date.UTC(year, monthPart, 0));
+                filter.posted_between = [
+                    from.toISOString().slice(0, 10),
+                    to.toISOString().slice(0, 10),
+                ].join(',');
+            }
         } else {
             // Averaging across the period: carry the full period range so the
             // postings list matches the categories that fed the average.
@@ -551,17 +573,20 @@ export default function Dashboard({
     );
 
     const breakdownHeading =
-        selectedMonth !== null
-            ? formatMonthLabel(selectedMonth, locale)
-            : 'Average per month';
+        selectedPeriod !== null
+            ? isYearly
+                ? selectedPeriod
+                : formatMonthLabel(selectedPeriod, locale)
+            : `Average per ${unit}`;
 
     const resultPositive = summary.result >= 0;
     const hasBalance = balance.total !== null;
     const heroValue = hasBalance ? (balance.total ?? 0) : summary.result;
     const missingCount = summary.coverage.missing;
-    // The headline metrics read as per-month averages; the hero delta stays
-    // the period total.
-    const monthsInPeriod = Math.max(period.months, 1);
+    // The headline metrics read as per-period averages — per month on
+    // monthly periods, per year on all years; the hero delta stays the
+    // window total.
+    const unitsInPeriod = Math.max(period.units, 1 / 12);
 
     return (
         <>
@@ -599,7 +624,8 @@ export default function Dashboard({
                         </div>
                         <p className="text-sm text-muted-foreground">
                             {formatMonth(period.start, locale)} –{' '}
-                            {formatMonth(period.end, locale)} averages
+                            {formatMonth(period.end, locale)}{' '}
+                            {isYearly ? 'averaged per year' : 'averages'}
                         </p>
                         {balance.missing_accounts > 0 && (
                             <p className="text-sm text-muted-foreground">
@@ -661,14 +687,14 @@ export default function Dashboard({
                     <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-sm">
                         <FlowStat
                             label="In"
-                            value={summary.in / monthsInPeriod}
+                            value={summary.in / unitsInPeriod}
                             currency={primaryCurrency}
                             locale={locale}
                             direction="in"
                         />
                         <FlowStat
                             label="Out"
-                            value={summary.out / monthsInPeriod}
+                            value={summary.out / unitsInPeriod}
                             currency={primaryCurrency}
                             locale={locale}
                             direction="out"
@@ -677,7 +703,7 @@ export default function Dashboard({
 
                     <AllocationBar
                         summary={summary}
-                        months={monthsInPeriod}
+                        units={unitsInPeriod}
                         currency={primaryCurrency}
                         locale={locale}
                         period={period}
@@ -686,7 +712,9 @@ export default function Dashboard({
 
                 <Card>
                     <CardHeader>
-                        <CardTitle>Monthly flow</CardTitle>
+                        <CardTitle>
+                            {isYearly ? 'Yearly flow' : 'Monthly flow'}
+                        </CardTitle>
                     </CardHeader>
                     <CardContent>
                         <div className="h-80">
@@ -701,16 +729,16 @@ export default function Dashboard({
                                     stackOffset="sign"
                                     barCategoryGap="28%"
                                     onClick={(state: unknown) => {
-                                        const label = (
+                                        const key = (
                                             state as {
                                                 activePayload?: Array<{
-                                                    payload?: MonthlyPoint;
+                                                    payload?: FlowPoint;
                                                 }>;
                                             }
-                                        )?.activePayload?.[0]?.payload?.month;
+                                        )?.activePayload?.[0]?.payload?.period;
 
-                                        if (label) {
-                                            toggleMonth(label);
+                                        if (key) {
+                                            togglePeriod(key);
                                         }
                                     }}
                                     style={{
@@ -754,6 +782,7 @@ export default function Dashboard({
                                                 props,
                                                 primaryCurrency,
                                                 flowData,
+                                                period.interval,
                                                 locale,
                                             )
                                         }
@@ -769,11 +798,11 @@ export default function Dashboard({
                                     >
                                         {flowData.map((entry) => (
                                             <Cell
-                                                key={`income-${entry.month}`}
+                                                key={`income-${entry.period}`}
                                                 opacity={cellOpacity(
-                                                    entry.month,
-                                                    lastCompletedMonth,
-                                                    selectedMonth,
+                                                    entry.period,
+                                                    entry.complete,
+                                                    selectedPeriod,
                                                 )}
                                             />
                                         ))}
@@ -797,11 +826,11 @@ export default function Dashboard({
                                         >
                                             {flowData.map((entry) => (
                                                 <Cell
-                                                    key={`${bucket.key}-${entry.month}`}
+                                                    key={`${bucket.key}-${entry.period}`}
                                                     opacity={cellOpacity(
-                                                        entry.month,
-                                                        lastCompletedMonth,
-                                                        selectedMonth,
+                                                        entry.period,
+                                                        entry.complete,
+                                                        selectedPeriod,
                                                     )}
                                                 />
                                             ))}
@@ -820,8 +849,8 @@ export default function Dashboard({
                             </ResponsiveContainer>
                         </div>
                         <p className="mt-2 text-xs text-muted-foreground">
-                            Click a month to break it down below.{' '}
-                            {selectedMonth !== null && (
+                            Click a {unit} to break it down below.{' '}
+                            {selectedPeriod !== null && (
                                 <button
                                     type="button"
                                     className="underline underline-offset-2"
@@ -839,7 +868,7 @@ export default function Dashboard({
                         <CardTitle>
                             Breakdown &mdash; {breakdownHeading}
                         </CardTitle>
-                        {selectedMonth !== null && (
+                        {selectedPeriod !== null && (
                             <Button
                                 variant="outline"
                                 size="sm"
@@ -881,16 +910,16 @@ export default function Dashboard({
 }
 
 function cellOpacity(
-    month: string,
-    lastCompletedMonth: string,
-    selectedMonth: string | null,
+    period: string,
+    complete: boolean,
+    selectedPeriod: string | null,
 ): number {
-    if (selectedMonth !== null) {
-        return selectedMonth === month ? 1 : 0.35;
+    if (selectedPeriod !== null) {
+        return selectedPeriod === period ? 1 : 0.35;
     }
 
-    // The in-progress month is a dimmed preview until it is selected.
-    if (month > lastCompletedMonth) {
+    // The in-progress period is a dimmed preview until it is selected.
+    if (!complete) {
         return 0.45;
     }
 
@@ -1191,13 +1220,13 @@ function BreakdownSkeleton() {
  */
 function AllocationBar({
     summary,
-    months,
+    units,
     currency,
     locale,
     period,
 }: {
     summary: Summary;
-    months: number;
+    units: number;
     currency: string | null;
     locale?: string;
     period: Period;
@@ -1230,7 +1259,7 @@ function AllocationBar({
                         style={{
                             width: `${(segment.value / out) * 100}%`,
                         }}
-                        title={`${segment.label} · ${formatMoney(segment.value / months, currency, locale)}`}
+                        title={`${segment.label} · ${formatMoney(segment.value / units, currency, locale)}`}
                     />
                 ))}
             </div>
@@ -1260,7 +1289,7 @@ function AllocationBar({
                             </span>
                             <span className="text-muted-foreground tabular-nums">
                                 {formatMoney(
-                                    segment.value / months,
+                                    segment.value / units,
                                     currency,
                                     locale,
                                 )}
