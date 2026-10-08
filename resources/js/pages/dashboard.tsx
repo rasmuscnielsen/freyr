@@ -465,13 +465,14 @@ export default function Dashboard({
     const flowChartRef = useRef<HTMLDivElement>(null);
 
     // `breakdown` is a deferred prop: a deep-linked ?focus= only arrives
-    // after mount, so the selection re-syncs whenever the prop lands
-    // rather than only seeding state on first render.
-    useEffect(() => {
-        if (breakdown !== undefined) {
-            setSelectedPeriod(breakdown.focus);
-        }
-    }, [breakdown]);
+    // after mount, so the selection re-syncs during render whenever a
+    // landed prop carries a different focus.
+    const [syncedFocus, setSyncedFocus] = useState(breakdown?.focus ?? null);
+
+    if (breakdown !== undefined && breakdown.focus !== syncedFocus) {
+        setSyncedFocus(breakdown.focus);
+        setSelectedPeriod(breakdown.focus);
+    }
 
     const isYearly = period.interval === 'year';
     const unit = isYearly ? 'year' : 'month';
