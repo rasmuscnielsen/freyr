@@ -1,5 +1,5 @@
-import { Form } from '@inertiajs/react';
-import { Copy, KeyRound, Trash2 } from 'lucide-react';
+import { Form, usePage } from '@inertiajs/react';
+import { Copy, KeyRound, SquareArrowOutUpRight, Trash2 } from 'lucide-react';
 import PersonalAccessTokenController from '@/actions/App/Http/Controllers/Settings/PersonalAccessTokenController';
 import Heading from '@/components/heading';
 import InputError from '@/components/input-error';
@@ -46,6 +46,7 @@ export default function ManagePersonalAccessTokens(props: Props) {
     const tokens = props.personalAccessTokens ?? [];
     const scopes = props.availableTokenScopes ?? [];
     const [, copy] = useClipboard();
+    const { auth } = usePage().props;
 
     return (
         <div className="space-y-6">
@@ -54,6 +55,16 @@ export default function ManagePersonalAccessTokens(props: Props) {
                 title="Personal access tokens"
                 description="Manage API tokens for your account"
             />
+
+            {auth.isPlatformAdmin && (
+                <a
+                    href="/docs/api"
+                    className="inline-flex items-center gap-1.5 text-sm text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+                >
+                    <SquareArrowOutUpRight className="h-3.5 w-3.5" />
+                    API documentation
+                </a>
+            )}
 
             {props.plainTextPersonalAccessToken ? (
                 <Alert>

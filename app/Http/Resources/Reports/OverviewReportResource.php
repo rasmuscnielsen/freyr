@@ -14,7 +14,7 @@ class OverviewReportResource extends JsonResource
     /**
      * Transform the resource into an array.
      *
-     * @return array<string, mixed>
+     * @return array{interval: string, from: string, to: string, currency: string|null, summary: array{in: float, out: float, result: float, income: float, bills: float, consumption: float, investments: float, savings: float, uncategorized: float, coverage: array{eligible: int, converted: int, missing: int}}, series: array<int, array{period: string, label: string, complete: bool, income: float, bills: float, consumption: float, investments: float, savings: float, uncategorized: float, result: float, missing: int}>}
      */
     public function toArray(Request $request): array
     {
@@ -24,7 +24,7 @@ class OverviewReportResource extends JsonResource
             'to' => $this->resource->end()->toDateString(),
             'currency' => $request->user()?->reporting_currency,
             'summary' => $this->resource->summary(),
-            'series' => $this->resource->series()->all(),
+            'series' => $this->resource->series(),
         ];
     }
 }

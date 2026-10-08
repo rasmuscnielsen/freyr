@@ -24,6 +24,9 @@ use Illuminate\Support\Facades\DB;
  * read a few hundred grouped rows instead of iterating every posting.
  * Postings without a resolved reporting amount count as `missing` so
  * partial periods stay honest.
+ *
+ * @phpstan-type OverviewPoint array{period: string, label: string, complete: bool, income: float, bills: float, consumption: float, investments: float, savings: float, uncategorized: float, result: float, missing: int}
+ * @phpstan-type OverviewCategory array{id: int|null, name: string, type: string, bucket: string|null, total: float, missing: int, subcategories: array<int, array{id: int|null, name: string, amount: float}>, topPostings: array<int, array{description: string|null, date: string, amount: float}>, series?: array<int, array{period: string, total: float}>}
  */
 final class OverviewReport
 {
@@ -33,7 +36,7 @@ final class OverviewReport
     /** @var Collection<int, array{row: object, bucket: Bucket, date: CarbonImmutable, key: string}>|null */
     private ?Collection $rows = null;
 
-    /** @var Collection<string, array<string, mixed>>|null */
+    /** @var Collection<string, OverviewPoint>|null */
     private ?Collection $points = null;
 
     private function __construct(
@@ -105,7 +108,7 @@ final class OverviewReport
      * clipped by either bound or still in progress renders as a partial
      * preview.
      *
-     * @return Collection<int, array<string, mixed>>
+     * @return Collection<int, OverviewPoint>
      */
     public function series(): Collection
     {
@@ -117,7 +120,7 @@ final class OverviewReport
      * difference in `result`, the per-bucket totals, and the coverage of
      * postings with a resolved reporting amount.
      *
-     * @return array<string, mixed>
+     * @return array{in: float, out: float, result: float, income: float, bills: float, consumption: float, investments: float, savings: float, uncategorized: float, coverage: array{eligible: int, converted: int, missing: int}}
      */
     public function summary(): array
     {
@@ -171,7 +174,7 @@ final class OverviewReport
      * Totals are raw sums — callers turn them into per-period averages via
      * {@see units()}.
      *
-     * @return array<int, array<string, mixed>>
+     * @return array<int, OverviewCategory>
      */
     public function categories(?string $focus = null): array
     {
