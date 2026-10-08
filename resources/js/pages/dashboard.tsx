@@ -544,6 +544,11 @@ export default function Dashboard({
     // pointer landed on a bar, the result line, or the column's empty
     // space. Recharts' own click state only resolves an index for
     // graphical-item clicks, not the whole tooltip region.
+    //
+    // Recharts drops labels at narrow widths, so each visible tick is
+    // matched back to its data index via its label text — treating the
+    // tick's position in the NodeList as the data index would shift the
+    // columns whenever a tick is skipped.
     const periodAtClientX = (clientX: number): string | null => {
         const ticks = flowChartRef.current?.querySelectorAll<HTMLElement>(
             '.recharts-xAxis-tick-labels .recharts-cartesian-axis-tick-label',
@@ -553,36 +558,52 @@ export default function Dashboard({
             return null;
         }
 
-        const centers = Array.from(ticks).map((tick) => {
-            const rect = tick.getBoundingClientRect();
+        const anchors = Array.from(ticks)
+            .map((tick) => {
+                const rect = tick.getBoundingClientRect();
 
-            return rect.left + rect.width / 2;
-        });
+                return {
+                    center: rect.left + rect.width / 2,
+                    index: flowData.findIndex(
+                        (point) => point.label === tick.textContent,
+                    ),
+                };
+            })
+            .filter((anchor) => anchor.index >= 0)
+            .sort((a, b) => a.center - b.center);
 
-        let nearest = 0;
-        centers.forEach((center, index) => {
-            if (
-                Math.abs(clientX - center) <
-                Math.abs(clientX - centers[nearest])
-            ) {
-                nearest = index;
-            }
-        });
-
-        const bandWidth =
-            centers.length > 1
-                ? centers[1] - centers[0]
-                : ((centers[0] -
-                      (flowChartRef.current?.getBoundingClientRect().left ??
-                          0)) *
-                      2 ||
-                  1);
-
-        if (Math.abs(clientX - centers[nearest]) > bandWidth / 2) {
+        if (!anchors.length) {
             return null;
         }
 
-        return flowData[nearest]?.period ?? null;
+        // Column width from the nearest pair of anchors; with a single
+        // anchor, estimate it from the chart edge and its data index.
+        const split = anchors.findIndex(
+            (anchor, i) => i > 0 && anchor.index !== anchors[i - 1].index,
+        );
+        const bandWidth =
+            split > 0
+                ? (anchors[split].center - anchors[split - 1].center) /
+                  (anchors[split].index - anchors[split - 1].index)
+                : (anchors[0].center -
+                      (flowChartRef.current?.getBoundingClientRect().left ??
+                          0)) /
+                      (anchors[0].index + 0.5) ||
+                  1;
+
+        const nearest = anchors.reduce((best, anchor) =>
+            Math.abs(clientX - anchor.center) <
+            Math.abs(clientX - best.center)
+                ? anchor
+                : best,
+        );
+        const index = Math.round(
+            nearest.index + (clientX - nearest.center) / bandWidth,
+        );
+
+        return index >= 0 && index < flowData.length
+            ? flowData[index].period
+            : null;
     };
 
     const openCategory = (category: BreakdownCategory) => {

@@ -133,6 +133,30 @@ test('the categories report totals the window per category and can split by peri
         ->assertJsonPath('data.1.series.1.total', 400);
 });
 
+test('uncategorized income and expense each report their own period series', function () {
+    $user = User::factory()->create();
+    $account = BankAccount::factory()->for($user)->create();
+
+    // No subcategory: a positive amount buckets as income, a negative one
+    // as expense — both land on category id null.
+    Posting::factory()->forAccount($account)->uncategorized()
+        ->create(['date' => '2025-01-05', 'amount' => 100, 'original_amount' => 100]);
+    Posting::factory()->forAccount($account)->uncategorized()
+        ->create(['date' => '2025-01-10', 'amount' => -40, 'original_amount' => -40]);
+
+    Passport::actingAs($user, ['read']);
+
+    $this->getJson('/api/reports/overview/categories?from=2025&to=2025&interval=month')
+        ->assertOk()
+        ->assertJsonCount(2, 'data')
+        ->assertJsonPath('data.0.type', 'income')
+        ->assertJsonPath('data.0.total', 100)
+        ->assertJsonPath('data.0.series.0.total', 100)
+        ->assertJsonPath('data.1.type', 'expense')
+        ->assertJsonPath('data.1.total', 40)
+        ->assertJsonPath('data.1.series.0.total', 40);
+});
+
 test('report windows and intervals are validated', function () {
     Passport::actingAs(User::factory()->create(), ['read']);
 

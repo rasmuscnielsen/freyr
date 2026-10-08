@@ -29,12 +29,14 @@ class OverviewCategoriesController extends Controller
         $categories = $report->categories();
 
         // With `interval` given, each category additionally reports its
-        // totals per period (month or year).
+        // totals per period (month or year) — keyed by `{type}:{id}` since
+        // the same id can appear once per flow.
         if ($request->has('interval')) {
             $series = $report->categorySeries();
 
             foreach ($categories as &$category) {
-                $category['series'] = $series[(string) ($category['id'] ?? 'uncategorized')] ?? [];
+                $key = $category['type'].':'.($category['id'] ?? 'uncategorized');
+                $category['series'] = $series[$key] ?? [];
             }
         }
 

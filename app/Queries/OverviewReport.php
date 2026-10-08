@@ -246,9 +246,11 @@ final class OverviewReport
     }
 
     /**
-     * Per-category totals split by interval period, keyed by category id
-     * ('uncategorized' for postings without one). Only periods with postings
-     * appear, in chronological order.
+     * Per-category totals split by interval period, keyed by `{type}:{id}`
+     * — the same income/expense split {@see categories()} makes, so an
+     * uncategorized (or cross-bucket) category never nets opposite flows
+     * into one series. Only periods with postings appear, in chronological
+     * order.
      *
      * @return array<string, array<int, array{period: string, total: float}>>
      */
@@ -257,7 +259,8 @@ final class OverviewReport
         return $this->rows()
             ->filter(fn (array $entry): bool => $entry['date']->betweenIncluded($this->start, $this->end)
                 && $entry['row']->amount !== null)
-            ->groupBy(fn (array $entry): string => (string) ($entry['row']->category_id ?? 'uncategorized'))
+            ->groupBy(fn (array $entry): string => ($entry['bucket'] === Bucket::Income ? 'income' : 'expense')
+                .':'.($entry['row']->category_id ?? 'uncategorized'))
             ->map(fn (Collection $entries): array => $entries
                 ->groupBy(fn (array $entry): string => $entry['key'])
                 ->map(fn (Collection $periodEntries, string $period): array => [
@@ -433,6 +436,7 @@ final class OverviewReport
         return match ($driver) {
             'pgsql' => sprintf("to_char(postings.date, '%s')", $this->interval === Interval::Month ? 'YYYY-MM' : 'YYYY'),
             'sqlite' => "strftime('{$format}', postings.date)",
+            'sqlsrv' => "FORMAT(postings.date, '".($this->interval === Interval::Month ? 'yyyy-MM' : 'yyyy')."')",
             default => "DATE_FORMAT(postings.date, '{$format}')",
         };
     }
