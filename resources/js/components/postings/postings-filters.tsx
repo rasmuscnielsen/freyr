@@ -1,5 +1,5 @@
 import { Check, Search, SlidersHorizontal } from 'lucide-react';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -302,7 +302,7 @@ function DateRangeFields({
                 value={from}
                 max={to || undefined}
                 onChange={(event) => onChange(event.target.value, to)}
-                className="h-9 min-w-0 flex-1 bg-card md:w-[8.75rem] md:flex-none"
+                className="h-9 w-[8.75rem] bg-card"
             />
             <span className="text-sm text-muted-foreground">–</span>
             <Input
@@ -311,8 +311,114 @@ function DateRangeFields({
                 value={to}
                 min={from || undefined}
                 onChange={(event) => onChange(from, event.target.value)}
-                className="h-9 min-w-0 flex-1 bg-card md:w-[8.75rem] md:flex-none"
+                className="h-9 w-[8.75rem] bg-card"
             />
+        </div>
+    );
+}
+
+function formatDateInput(date: Date): string {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+
+    return `${year}-${month}-${day}`;
+}
+
+/**
+ * One-tap date ranges — most posting filters target a month or the year,
+ * so the sheet offers them before the custom fields.
+ */
+function useDateRangePresets(): Array<{
+    label: string;
+    from: string;
+    to: string;
+}> {
+    return useMemo(() => {
+        const now = new Date();
+        const today = formatDateInput(now);
+        const firstOfMonth = (monthsBack: number) =>
+            formatDateInput(
+                new Date(now.getFullYear(), now.getMonth() - monthsBack, 1),
+            );
+
+        return [
+            { label: 'This month', from: firstOfMonth(0), to: today },
+            {
+                label: 'Last month',
+                from: firstOfMonth(1),
+                to: formatDateInput(
+                    new Date(now.getFullYear(), now.getMonth(), 0),
+                ),
+            },
+            { label: 'Last 3 months', from: firstOfMonth(2), to: today },
+            {
+                label: 'This year',
+                from: `${now.getFullYear()}-01-01`,
+                to: today,
+            },
+            { label: 'All time', from: '', to: '' },
+        ];
+    }, []);
+}
+
+/**
+ * The sheet's date-range controls: quick-range chips plus stacked full-width
+ * fields (a side-by-side pair of native date inputs overflows a narrow sheet
+ * — each field carries a fixed intrinsic width it won't shrink below).
+ */
+function SheetDateRange({
+    from,
+    to,
+    onChange,
+}: {
+    from: string;
+    to: string;
+    onChange: (from: string, to: string) => void;
+}) {
+    const presets = useDateRangePresets();
+
+    return (
+        <div className="flex flex-col gap-2.5">
+            <div className="flex flex-wrap gap-1.5">
+                {presets.map((preset) => (
+                    <FilterChip
+                        key={preset.label}
+                        active={preset.from === from && preset.to === to}
+                        onClick={() => onChange(preset.from, preset.to)}
+                    >
+                        {preset.label}
+                    </FilterChip>
+                ))}
+            </div>
+            <div className="flex flex-col gap-2">
+                <label className="flex items-center gap-3">
+                    <span className="w-10 shrink-0 text-sm text-muted-foreground">
+                        From
+                    </span>
+                    <Input
+                        type="date"
+                        value={from}
+                        max={to || undefined}
+                        onChange={(event) => onChange(event.target.value, to)}
+                        className="h-9 min-w-0 flex-1 bg-card"
+                        data-test="postings-filter-date-from"
+                    />
+                </label>
+                <label className="flex items-center gap-3">
+                    <span className="w-10 shrink-0 text-sm text-muted-foreground">
+                        To
+                    </span>
+                    <Input
+                        type="date"
+                        value={to}
+                        min={from || undefined}
+                        onChange={(event) => onChange(from, event.target.value)}
+                        className="h-9 min-w-0 flex-1 bg-card"
+                        data-test="postings-filter-date-to"
+                    />
+                </label>
+            </div>
         </div>
     );
 }
@@ -400,7 +506,7 @@ function FiltersSheet({
 
                 <section className="flex flex-col gap-2">
                     <FilterSectionLabel>Date range</FilterSectionLabel>
-                    <DateRangeFields
+                    <SheetDateRange
                         from={value.from}
                         to={value.to}
                         onChange={(from, to) => onChange({ from, to })}
@@ -431,7 +537,7 @@ function FiltersSheet({
                             >
                                 <span className="truncate">{account.name}</span>
                                 {account.bank_name !== null && (
-                                    <span className="ml-auto shrink-0 text-xs text-muted-foreground">
+                                    <span className="ml-auto max-w-1/2 truncate text-xs text-muted-foreground">
                                         {account.bank_name}
                                     </span>
                                 )}
