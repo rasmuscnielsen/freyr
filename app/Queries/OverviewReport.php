@@ -3,11 +3,14 @@
 namespace App\Queries;
 
 use App\Enums\Bucket;
+use App\Enums\CategoryType;
 use App\Enums\Interval;
 use App\Models\Posting;
 use App\Models\User;
 use Carbon\CarbonImmutable;
+use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 
 /**
  * Aggregates a user's postings into the report behind the dashboard: a
@@ -15,14 +18,20 @@ use Illuminate\Support\Collection;
  * reporting-currency coverage, and the per-category breakdown. Shared by
  * the dashboard page and the /api/reports endpoints.
  *
- * Postings resolve to overview buckets via {@see Posting::overviewBucket()};
- * amounts are reporting-currency figures, with unresolved postings counted
- * as `missing` so partial periods stay honest.
+ * Postings resolve to overview buckets in SQL — the CASE mirrors
+ * {@see Posting::overviewBucket()} so the two stay interchangeable —
+ * and the heavy lifting is grouped server-side: the series and summary
+ * read a few hundred grouped rows instead of iterating every posting.
+ * Postings without a resolved reporting amount count as `missing` so
+ * partial periods stay honest.
  */
 final class OverviewReport
 {
-    /** @var Collection<int, array{posting: Posting, bucket: Bucket}>|null */
-    private ?Collection $overviewPostings = null;
+    /** @var Collection<int, object>|null */
+    private ?Collection $stats = null;
+
+    /** @var Collection<int, array{row: object, bucket: Bucket, date: CarbonImmutable, key: string}>|null */
+    private ?Collection $rows = null;
 
     /** @var Collection<string, array<string, mixed>>|null */
     private ?Collection $points = null;
@@ -112,25 +121,27 @@ final class OverviewReport
      */
     public function summary(): array
     {
-        $windowed = $this->windowedPostings();
-
         $totals = [];
+        $coverage = ['eligible' => 0, 'converted' => 0, 'missing' => 0];
+
         foreach (Bucket::cases() as $bucket) {
             $totals[$bucket->value] = 0.0;
         }
 
-        foreach ($windowed as $entry) {
-            $amount = $entry['posting']->amount;
-
-            if ($amount === null) {
+        foreach ($this->stats() as $row) {
+            if ((int) $row->in_window !== 1 || $row->bucket === null) {
                 continue;
             }
 
-            $bucket = $entry['bucket'];
-            $totals[$bucket->value] += $bucket === Bucket::Income
-                ? (float) $amount
-                : -(float) $amount;
+            $coverage['eligible'] += (int) $row->count;
+            $coverage['missing'] += (int) $row->missing;
+
+            $totals[$row->bucket] += $row->bucket === Bucket::Income->value
+                ? (float) $row->total
+                : -(float) $row->total;
         }
+
+        $coverage['converted'] = $coverage['eligible'] - $coverage['missing'];
 
         $income = round($totals[Bucket::Income->value], 2);
         $bills = round($totals[Bucket::Bills->value], 2);
@@ -150,7 +161,7 @@ final class OverviewReport
             'investments' => $investments,
             'savings' => $savings,
             'uncategorized' => $uncategorized,
-            'coverage' => $this->coverage($windowed),
+            'coverage' => $coverage,
         ];
     }
 
@@ -164,23 +175,22 @@ final class OverviewReport
      */
     public function categories(?string $focus = null): array
     {
-        $relevant = $this->overviewPostings()
+        $relevant = $this->rows()
             ->filter(fn (array $entry): bool => $focus !== null
-                ? $this->interval->key(CarbonImmutable::parse($entry['posting']->date)) === $focus
-                : CarbonImmutable::parse($entry['posting']->date)->betweenIncluded($this->start, $this->end));
+                ? $entry['key'] === $focus
+                : $entry['date']->betweenIncluded($this->start, $this->end));
 
         return $relevant
             ->groupBy(fn (array $entry): string => $entry['bucket'] === Bucket::Income ? 'income' : 'expense')
             ->flatMap(function (Collection $group, string $type): Collection {
                 return $group
-                    ->groupBy(fn (array $entry): string => (string) ($entry['posting']->categorizedSubcategory?->category?->id ?? 'uncategorized'))
+                    ->groupBy(fn (array $entry): string => (string) ($entry['row']->category_id ?? 'uncategorized'))
                     ->map(function (Collection $entries) use ($type): array {
-                        $postings = $entries->map(fn (array $entry): Posting => $entry['posting']);
+                        $rows = $entries->map(fn (array $entry): object => $entry['row']);
                         // Unresolved postings are visible via the missing
                         // count but excluded from every monetary figure.
-                        $converted = $postings->whereNotNull('amount')->values();
-                        $category = $postings->first()?->categorizedSubcategory?->category;
-                        $total = (float) $converted->sum(fn (Posting $posting): float => (float) $posting->amount);
+                        $converted = $rows->whereNotNull('amount')->values();
+                        $total = (float) $converted->sum(fn (object $row): float => (float) $row->amount);
 
                         // A category can span buckets (fixed and variable
                         // subcategories); the row is colored by wherever most
@@ -188,39 +198,39 @@ final class OverviewReport
                         $dominantBucket = $entries
                             ->groupBy(fn (array $entry): string => $entry['bucket']->value)
                             ->map(fn (Collection $items): float => abs((float) $items->sum(
-                                fn (array $item): float => (float) $item['posting']->amount,
+                                fn (array $item): float => (float) $item['row']->amount,
                             )))
                             ->sortDesc()
                             ->keys()
                             ->first();
 
                         $subcategories = $converted
-                            ->groupBy(fn (Posting $posting): string => (string) ($posting->categorizedSubcategory?->id ?? 'uncategorized'))
+                            ->groupBy(fn (object $row): string => (string) ($row->subcategory_id ?? 'uncategorized'))
                             ->map(fn (Collection $items): array => [
-                                'id' => $items->first()?->categorizedSubcategory?->id,
-                                'name' => $items->first()?->categorizedSubcategory?->name ?? 'Uncategorized',
-                                'amount' => round(abs((float) $items->sum(fn (Posting $posting): float => (float) $posting->amount)), 2),
+                                'id' => $items->first()?->subcategory_id,
+                                'name' => $items->first()?->subcategory_name ?? 'Uncategorized',
+                                'amount' => round(abs((float) $items->sum(fn (object $row): float => (float) $row->amount)), 2),
                             ])
                             ->sortByDesc('amount')
                             ->values();
 
                         $topPostings = $converted
-                            ->sortByDesc(fn (Posting $posting): float => abs((float) $posting->amount))
+                            ->sortByDesc(fn (object $row): float => abs((float) $row->amount))
                             ->take(5)
-                            ->map(fn (Posting $posting): array => [
-                                'description' => $posting->description,
-                                'date' => CarbonImmutable::parse($posting->date)->toDateString(),
-                                'amount' => round(abs((float) $posting->amount), 2),
+                            ->map(fn (object $row): array => [
+                                'description' => $row->description,
+                                'date' => CarbonImmutable::parse($row->date)->toDateString(),
+                                'amount' => round(abs((float) $row->amount), 2),
                             ])
                             ->values();
 
                         return [
-                            'id' => $category?->id,
-                            'name' => $category?->name ?? 'Uncategorized',
+                            'id' => $rows->first()?->category_id,
+                            'name' => $rows->first()?->category_name ?? 'Uncategorized',
                             'type' => $type,
                             'bucket' => $dominantBucket,
                             'total' => round(abs($total), 2),
-                            'missing' => $postings->whereNull('amount')->count(),
+                            'missing' => $rows->whereNull('amount')->count(),
                             'subcategories' => $subcategories->all(),
                             'topPostings' => $topPostings->all(),
                         ];
@@ -241,14 +251,15 @@ final class OverviewReport
      */
     public function categorySeries(): array
     {
-        return $this->windowedPostings()
-            ->filter(fn (array $entry): bool => $entry['posting']->amount !== null)
-            ->groupBy(fn (array $entry): string => (string) ($entry['posting']->categorizedSubcategory?->category?->id ?? 'uncategorized'))
+        return $this->rows()
+            ->filter(fn (array $entry): bool => $entry['date']->betweenIncluded($this->start, $this->end)
+                && $entry['row']->amount !== null)
+            ->groupBy(fn (array $entry): string => (string) ($entry['row']->category_id ?? 'uncategorized'))
             ->map(fn (Collection $entries): array => $entries
-                ->groupBy(fn (array $entry): string => $this->interval->key(CarbonImmutable::parse($entry['posting']->date)))
+                ->groupBy(fn (array $entry): string => $entry['key'])
                 ->map(fn (Collection $periodEntries, string $period): array => [
                     'period' => $period,
-                    'total' => round(abs((float) $periodEntries->sum(fn (array $entry): float => (float) $entry['posting']->amount)), 2),
+                    'total' => round(abs((float) $periodEntries->sum(fn (array $entry): float => (float) $entry['row']->amount)), 2),
                 ])
                 ->sortKeys()
                 ->values()
@@ -282,30 +293,17 @@ final class OverviewReport
             $cursor = $this->interval === Interval::Month ? $cursor->addMonth() : $cursor->addYear();
         }
 
-        foreach ($this->overviewPostings() as $entry) {
-            $key = $this->interval->key(CarbonImmutable::parse($entry['posting']->date));
-
-            if (! isset($points[$key])) {
+        foreach ($this->stats() as $row) {
+            if ($row->bucket === null || ! isset($points[$row->period])) {
                 continue;
             }
 
-            $point = $points[$key];
-
-            // Only postings with a resolved reporting amount aggregate. An
-            // eligible-but-unresolved posting is counted as missing so the
-            // period can be labeled partial instead of looking empty.
-            if ($entry['posting']->amount === null) {
-                $point['missing']++;
-                $points[$key] = $point;
-
-                continue;
-            }
-
-            $bucket = $entry['bucket'];
-            $point[$bucket->value] += $bucket === Bucket::Income
-                ? (float) $entry['posting']->amount
-                : -(float) $entry['posting']->amount;
-            $points[$key] = $point;
+            $point = $points[$row->period];
+            $point['missing'] += (int) $row->missing;
+            $point[$row->bucket] += $row->bucket === Bucket::Income->value
+                ? (float) $row->total
+                : -(float) $row->total;
+            $points[$row->period] = $point;
         }
 
         return $points->map(fn (array $point): array => [
@@ -324,43 +322,115 @@ final class OverviewReport
     }
 
     /**
-     * Every posting that lands in an overview bucket, indexed alongside its
-     * resolved bucket so the mapping is computed once.
+     * Posting-level aggregates grouped by (period, in-window, bucket): the
+     * database does the bucketing and summing, so this returns at most a
+     * few hundred rows however large the posting history grows. One query
+     * feeds both the series (all rows) and the summary (in-window rows).
      *
-     * @return Collection<int, array{posting: Posting, bucket: Bucket}>
+     * @return Collection<int, object>
      */
-    private function overviewPostings(): Collection
+    private function stats(): Collection
     {
-        return $this->overviewPostings ??= Posting::query()
-            ->forUser($this->user)
-            ->with(['categorizedSubcategory.category'])
-            ->whereBetween('date', [$this->start->toDateString(), $this->through->toDateString()])
+        return $this->stats ??= $this->bucketQuery()
+            ->selectRaw("{$this->periodExpression()} as period")
+            ->selectRaw("{$this->bucketExpression()} as bucket")
+            ->selectRaw('CASE WHEN postings.date BETWEEN ? AND ? THEN 1 ELSE 0 END as in_window', [
+                $this->start->toDateString(),
+                $this->end->toDateString(),
+            ])
+            ->selectRaw('COUNT(*) as count')
+            ->selectRaw('SUM(postings.amount) as total')
+            ->selectRaw('SUM(CASE WHEN postings.amount IS NULL THEN 1 ELSE 0 END) as missing')
+            ->groupByRaw('1, 2, 3')
+            ->get();
+    }
+
+    /**
+     * Posting-level detail rows with their resolved bucket — plain rows off
+     * a join rather than hydrated models, only what the category breakdown
+     * reads (descriptions, amounts, category/subcategory names).
+     *
+     * @return Collection<int, array{row: object, bucket: Bucket, date: CarbonImmutable, key: string}>
+     */
+    private function rows(): Collection
+    {
+        return $this->rows ??= $this->bucketQuery()
+            ->select([
+                'postings.date',
+                'postings.description',
+                'postings.amount',
+                'subcategories.id as subcategory_id',
+                'subcategories.name as subcategory_name',
+                'categories.id as category_id',
+                'categories.name as category_name',
+            ])
+            ->selectRaw("{$this->bucketExpression()} as bucket")
             ->get()
-            ->map(fn (Posting $posting): array => ['posting' => $posting, 'bucket' => $posting->overviewBucket()])
+            ->whereNotNull('bucket')
+            ->map(function (object $row): array {
+                // Date and interval key are computed once here — the passes
+                // above reuse them instead of re-parsing per posting.
+                $date = CarbonImmutable::parse($row->date);
+
+                return [
+                    'row' => $row,
+                    'bucket' => Bucket::from($row->bucket),
+                    'date' => $date,
+                    'key' => $this->interval->key($date),
+                ];
+            })
             ->filter(fn (array $entry): bool => $entry['bucket'] instanceof Bucket)
             ->values();
     }
 
     /**
-     * @return Collection<int, array{posting: Posting, bucket: Bucket}>
+     * The shared query: a user's postings between $start and $through joined
+     * to their categorization so buckets resolve in SQL.
      */
-    private function windowedPostings(): Collection
+    private function bucketQuery(): Builder
     {
-        return $this->overviewPostings()
-            ->filter(fn (array $entry): bool => CarbonImmutable::parse($entry['posting']->date)->betweenIncluded($this->start, $this->end))
-            ->values();
+        return DB::table('postings')
+            ->leftJoin('subcategories', 'subcategories.id', '=', 'postings.categorized_subcategory_id')
+            ->leftJoin('categories', 'categories.id', '=', 'subcategories.category_id')
+            ->where('postings.user_id', $this->user->id)
+            ->whereBetween('postings.date', [$this->start->toDateString(), $this->through->toDateString()]);
     }
 
     /**
-     * @param  Collection<int, array{posting: Posting, bucket: Bucket}>  $postings
-     * @return array{eligible: int, converted: int, missing: int}
+     * The SQL mirror of {@see Posting::overviewBucket()}: extraordinary
+     * postings and {@see CategoryType::Exclude} categories land
+     * NULL and are filtered out; uncategorized postings split on their sign.
      */
-    private function coverage(Collection $postings): array
+    private function bucketExpression(): string
     {
-        return [
-            'eligible' => $postings->count(),
-            'converted' => $postings->filter(fn (array $entry): bool => $entry['posting']->amount !== null)->count(),
-            'missing' => $postings->filter(fn (array $entry): bool => $entry['posting']->amount === null)->count(),
-        ];
+        return <<<'SQL'
+            CASE
+                WHEN postings.is_extraordinary THEN NULL
+                WHEN categories.id IS NULL AND COALESCE(postings.original_amount, postings.amount, 0) >= 0 THEN 'income'
+                WHEN categories.id IS NULL THEN 'uncategorized'
+                WHEN categories.type = 'Income' THEN 'income'
+                WHEN categories.type = 'Expense' AND subcategories.expense_type = 'Fixed' THEN 'bills'
+                WHEN categories.type = 'Expense' THEN 'consumption'
+                WHEN categories.type = 'Investment' THEN 'investments'
+                WHEN categories.type = 'Saving' THEN 'savings'
+                ELSE NULL
+            END
+        SQL;
+    }
+
+    /**
+     * The series key expression per driver — sqlite/mysql need function-based
+     * period keys, pgsql uses to_char. Grouping happens on the SQL side.
+     */
+    private function periodExpression(): string
+    {
+        $driver = DB::connection()->getDriverName();
+        $format = $this->interval === Interval::Month ? '%Y-%m' : '%Y';
+
+        return match ($driver) {
+            'pgsql' => sprintf("to_char(postings.date, '%s')", $this->interval === Interval::Month ? 'YYYY-MM' : 'YYYY'),
+            'sqlite' => "strftime('{$format}', postings.date)",
+            default => "DATE_FORMAT(postings.date, '{$format}')",
+        };
     }
 }

@@ -787,6 +787,10 @@ export default function Dashboard({
                                             )
                                         }
                                         cursor={{ fill: 'var(--muted)' }}
+                                        // The rendered tooltip must not
+                                        // intercept clicks on the bars
+                                        // beneath it.
+                                        wrapperStyle={{ pointerEvents: 'none' }}
                                     />
                                     <Bar
                                         dataKey="income"

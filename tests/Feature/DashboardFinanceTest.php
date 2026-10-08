@@ -134,7 +134,7 @@ test('period options include 12m, the all-years comparison and the years from ea
             ->assertOk()
             ->assertInertia(fn (Assert $page) => $page
                 ->where('period.selected', '12m')
-                ->where('period.options', ['12m', 'years', '2026', '2025', '2024']));
+                ->where('period.options', ['years', '12m', '2026', '2025', '2024']));
     } finally {
         CarbonImmutable::setTestNow();
     }

@@ -47,7 +47,7 @@ class DashboardController extends Controller
             ->map(fn (int $year): string => (string) $year)
             ->values();
 
-        $periodOptions = collect(['12m', 'years'])->merge($yearOptions)->values();
+        $periodOptions = collect(['years', '12m'])->merge($yearOptions)->values();
 
         [$period, $interval, $months, $start, $end] = $this->resolvePeriod(
             $request,
