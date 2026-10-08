@@ -392,15 +392,9 @@ export default function BankAccounts({
             <Head title="Bank accounts" />
             <div className="flex flex-col gap-6 p-4 md:p-6">
                 <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                    <div>
-                        <h1 className="text-2xl font-semibold tracking-tight">
-                            Bank accounts
-                        </h1>
-                        <p className="text-sm text-muted-foreground">
-                            Accounts, bank connections, and posting access in
-                            one place.
-                        </p>
-                    </div>
+                    <h1 className="text-2xl font-semibold tracking-tight">
+                        Bank accounts
+                    </h1>
                     <div className="flex flex-wrap gap-2">
                         <div className="flex">
                             <Button

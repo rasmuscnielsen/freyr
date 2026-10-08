@@ -3,7 +3,6 @@ import {
     ChevronLeft,
     ChevronRight,
     ChevronsUpDown,
-    Search,
     StarIcon,
     X,
 } from 'lucide-react';
@@ -11,16 +10,10 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { CategoryCombobox } from '@/components/postings/category-combobox';
 import type { CategoryComboboxOption } from '@/components/postings/category-combobox';
 import { PostingSheet } from '@/components/postings/posting-sheet';
+import { PostingsFilters } from '@/components/postings/postings-filters';
+import type { PostingsFilterState } from '@/components/postings/postings-filters';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Input } from '@/components/ui/input';
-import {
-    Select,
-    SelectContent,
-    SelectItem,
-    SelectTrigger,
-    SelectValue,
-} from '@/components/ui/select';
 import { formatDate, formatDayMonth } from '@/lib/dates';
 import { formatMoney } from '@/lib/money';
 import { useRegion } from '@/lib/region';
@@ -113,32 +106,6 @@ function normalizeLabel(label: string): string {
     return label.replace('&laquo;', 'Previous').replace('&raquo;', 'Next');
 }
 
-function FilterChip({
-    active,
-    onClick,
-    children,
-}: {
-    active: boolean;
-    onClick: () => void;
-    children: React.ReactNode;
-}) {
-    return (
-        <button
-            type="button"
-            aria-pressed={active}
-            onClick={onClick}
-            className={cn(
-                'inline-flex h-9 items-center rounded-full border px-3.5 text-sm transition-colors',
-                active
-                    ? 'border-brand/30 bg-brand/10 font-medium text-brand'
-                    : 'bg-card text-muted-foreground hover:bg-accent hover:text-foreground',
-            )}
-        >
-            {children}
-        </button>
-    );
-}
-
 function focusRow(index: number): void {
     window.requestAnimationFrame(() => {
         const row = document.querySelector<HTMLElement>(
@@ -175,21 +142,21 @@ export default function Postings({
     accounts,
     categories,
 }: PostingsProps) {
-    const [account, setAccount] = useState(String(filters.account ?? ''));
-    const [category, setCategory] = useState(String(filters.category ?? ''));
-    const [type, setType] = useState(String(filters.type ?? ''));
-    const [text, setText] = useState(String(filters.text ?? ''));
     const [initialFrom = '', initialTo = ''] = String(
         filters.posted_between ?? '',
     ).split(',');
-    const [from, setFrom] = useState(initialFrom);
-    const [to, setTo] = useState(initialTo);
-    const [uncategorized, setUncategorized] = useState(
-        filters.uncategorized === true || filters.uncategorized === '1',
-    );
-    const [extraordinary, setExtraordinary] = useState(
-        filters.extraordinary === true || filters.extraordinary === '1',
-    );
+    const [filterState, setFilterState] = useState<PostingsFilterState>({
+        account: String(filters.account ?? ''),
+        category: String(filters.category ?? ''),
+        type: String(filters.type ?? ''),
+        text: String(filters.text ?? ''),
+        from: initialFrom,
+        to: initialTo,
+        uncategorized:
+            filters.uncategorized === true || filters.uncategorized === '1',
+        extraordinary:
+            filters.extraordinary === true || filters.extraordinary === '1',
+    });
     const [editingPostingId, setEditingPostingId] = useState<number | null>(
         null,
     );
@@ -236,32 +203,11 @@ export default function Postings({
         [subcategoryOptions],
     );
 
-    type FilterState = {
-        account: string;
-        category: string;
-        type: string;
-        text: string;
-        from: string;
-        to: string;
-        uncategorized: boolean;
-        extraordinary: boolean;
-    };
-
     // Filters apply as soon as a control changes; free-text search is
     // debounced below. Pass the changed value in as an override, since the
     // matching state update has not landed yet when the handler runs.
-    const submitFilters = (overrides: Partial<FilterState> = {}) => {
-        const state: FilterState = {
-            account,
-            category,
-            type,
-            text,
-            from,
-            to,
-            uncategorized,
-            extraordinary,
-            ...overrides,
-        };
+    const submitFilters = (overrides: Partial<PostingsFilterState> = {}) => {
+        const state: PostingsFilterState = { ...filterState, ...overrides };
 
         const filter: Record<string, string | boolean> = {};
 
@@ -300,8 +246,13 @@ export default function Postings({
         );
     };
 
+    const updateFilters = (patch: Partial<PostingsFilterState>) => {
+        setFilterState((previous) => ({ ...previous, ...patch }));
+        submitFilters(patch);
+    };
+
     useEffect(() => {
-        if (text.trim() === String(filters.text ?? '').trim()) {
+        if (filterState.text.trim() === String(filters.text ?? '').trim()) {
             return;
         }
 
@@ -309,29 +260,34 @@ export default function Postings({
 
         return () => clearTimeout(timeout);
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [text, filters.text]);
+    }, [filterState.text, filters.text]);
 
     const clearFilters = () => {
-        setAccount('');
-        setCategory('');
-        setType('');
-        setText('');
-        setFrom('');
-        setTo('');
-        setUncategorized(false);
-        setExtraordinary(false);
+        setFilterState({
+            account: '',
+            category: '',
+            type: '',
+            text: '',
+            from: '',
+            to: '',
+            uncategorized: false,
+            extraordinary: false,
+        });
         router.get(postingsIndex.url(), {}, { preserveState: true });
     };
 
-    const hasActiveFilters =
-        account !== '' ||
-        category !== '' ||
-        type !== '' ||
-        text !== '' ||
-        from !== '' ||
-        to !== '' ||
-        uncategorized ||
-        extraordinary;
+    // The sheet's "Clear all" resets every filter it shows but leaves the
+    // search text — it lives outside the sheet on the toolbar.
+    const clearSheetFilters = () =>
+        updateFilters({
+            account: '',
+            category: '',
+            type: '',
+            from: '',
+            to: '',
+            uncategorized: false,
+            extraordinary: false,
+        });
 
     const applyCategory = (
         posting: Posting,
@@ -470,155 +426,28 @@ export default function Postings({
                 )}
             >
                 <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
-                    <div>
-                        <h1 className="text-2xl font-semibold tracking-tight">
-                            Postings
-                        </h1>
-                        <p className="text-sm text-muted-foreground">
-                            Categorize transactions and inspect account
-                            activity.
-                        </p>
-                    </div>
+                    <h1 className="text-2xl font-semibold tracking-tight">
+                        Postings
+                    </h1>
                     <div className="text-sm text-muted-foreground">
                         {postings.from ?? 0}-{postings.to ?? 0} of{' '}
                         {postings.total}
                     </div>
                 </div>
 
-                <div className="flex flex-wrap items-center gap-2">
-                    <div className="relative w-full sm:w-64">
-                        <Search className="pointer-events-none absolute top-2.5 left-3 size-4 text-muted-foreground" />
-                        <Input
-                            value={text}
-                            onChange={(event) => setText(event.target.value)}
-                            onKeyDown={(event) => {
-                                if (event.key === 'Enter') {
-                                    submitFilters();
-                                }
-                            }}
-                            placeholder="Search postings…"
-                            className="bg-card pl-9"
-                        />
-                    </div>
-                    <Select
-                        value={account || 'all'}
-                        onValueChange={(value) => {
-                            const next = value === 'all' ? '' : value;
-                            setAccount(next);
-                            submitFilters({ account: next });
-                        }}
-                    >
-                        <SelectTrigger className="w-44 bg-card">
-                            <SelectValue placeholder="All accounts" />
-                        </SelectTrigger>
-                        <SelectContent>
-                            <SelectItem value="all">All accounts</SelectItem>
-                            {accounts.map((account) => (
-                                <SelectItem
-                                    key={account.id}
-                                    value={String(account.id)}
-                                >
-                                    {account.name}
-                                </SelectItem>
-                            ))}
-                        </SelectContent>
-                    </Select>
-                    <Select
-                        value={category || 'all'}
-                        onValueChange={(value) => {
-                            const next = value === 'all' ? '' : value;
-                            setCategory(next);
-                            submitFilters({ category: next });
-                        }}
-                    >
-                        <SelectTrigger className="w-44 bg-card">
-                            <SelectValue placeholder="All categories" />
-                        </SelectTrigger>
-                        <SelectContent>
-                            <SelectItem value="all">All categories</SelectItem>
-                            {categories.map((category) => (
-                                <SelectItem
-                                    key={category.id}
-                                    value={String(category.id)}
-                                >
-                                    {category.name}
-                                </SelectItem>
-                            ))}
-                        </SelectContent>
-                    </Select>
-                    <Select
-                        value={type || 'all'}
-                        onValueChange={(value) => {
-                            const next = value === 'all' ? '' : value;
-                            setType(next);
-                            submitFilters({ type: next });
-                        }}
-                    >
-                        <SelectTrigger className="w-32 bg-card">
-                            <SelectValue placeholder="All types" />
-                        </SelectTrigger>
-                        <SelectContent>
-                            <SelectItem value="all">All types</SelectItem>
-                            <SelectItem value="Expense">Expense</SelectItem>
-                            <SelectItem value="Income">Income</SelectItem>
-                            <SelectItem value="Saving">Saving</SelectItem>
-                            <SelectItem value="Exclude">Excluded</SelectItem>
-                        </SelectContent>
-                    </Select>
-                    <div className="flex items-center gap-1.5">
-                        <Input
-                            type="date"
-                            aria-label="From date"
-                            value={from}
-                            onChange={(event) => {
-                                setFrom(event.target.value);
-                                submitFilters({ from: event.target.value });
-                            }}
-                            className="h-9 w-[8.75rem] bg-card"
-                        />
-                        <span className="text-sm text-muted-foreground">–</span>
-                        <Input
-                            type="date"
-                            aria-label="To date"
-                            value={to}
-                            onChange={(event) => {
-                                setTo(event.target.value);
-                                submitFilters({ to: event.target.value });
-                            }}
-                            className="h-9 w-[8.75rem] bg-card"
-                        />
-                    </div>
-                    <FilterChip
-                        active={uncategorized}
-                        onClick={() => {
-                            const next = !uncategorized;
-                            setUncategorized(next);
-                            submitFilters({ uncategorized: next });
-                        }}
-                    >
-                        Uncategorized
-                    </FilterChip>
-                    <FilterChip
-                        active={extraordinary}
-                        onClick={() => {
-                            const next = !extraordinary;
-                            setExtraordinary(next);
-                            submitFilters({ extraordinary: next });
-                        }}
-                    >
-                        Extraordinary
-                    </FilterChip>
-                    {hasActiveFilters && (
-                        <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={clearFilters}
-                            className="text-muted-foreground"
-                        >
-                            Reset
-                        </Button>
-                    )}
-                </div>
+                {/* Desktop: every control inline. Mobile: a Filter button +
+                    badge that opens a bottom sheet holding the same filters. */}
+                <PostingsFilters
+                    value={filterState}
+                    accounts={accounts}
+                    categories={categories}
+                    onChange={updateFilters}
+                    onTextChange={(text) =>
+                        setFilterState((previous) => ({ ...previous, text }))
+                    }
+                    onReset={clearFilters}
+                    onResetSheetFilters={clearSheetFilters}
+                />
 
                 <div className="overflow-hidden rounded-xl border bg-card shadow-sm">
                     <div className="overflow-x-auto">
