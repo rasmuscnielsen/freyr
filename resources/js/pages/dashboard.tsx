@@ -462,6 +462,7 @@ export default function Dashboard({
         breakdown?.focus ?? null,
     );
     const [breakdownLoading, setBreakdownLoading] = useState(false);
+    const flowChartRef = useRef<HTMLDivElement>(null);
 
     const isYearly = period.interval === 'year';
     const unit = isYearly ? 'year' : 'month';
@@ -526,6 +527,52 @@ export default function Dashboard({
 
     const togglePeriod = (key: string) => {
         reloadBreakdown(selectedPeriod === key ? null : key);
+    };
+
+    // The x-axis ticks sit at the center of each snapped column, so a
+    // click's clientX maps straight to its band — toggling whether the
+    // pointer landed on a bar, the result line, or the column's empty
+    // space. Recharts' own click state only resolves an index for
+    // graphical-item clicks, not the whole tooltip region.
+    const periodAtClientX = (clientX: number): string | null => {
+        const ticks = flowChartRef.current?.querySelectorAll<HTMLElement>(
+            '.recharts-xAxis-ticks .recharts-cartesian-axis-tick',
+        );
+
+        if (!ticks?.length) {
+            return null;
+        }
+
+        const centers = Array.from(ticks).map((tick) => {
+            const rect = tick.getBoundingClientRect();
+
+            return rect.left + rect.width / 2;
+        });
+
+        let nearest = 0;
+        centers.forEach((center, index) => {
+            if (
+                Math.abs(clientX - center) <
+                Math.abs(clientX - centers[nearest])
+            ) {
+                nearest = index;
+            }
+        });
+
+        const bandWidth =
+            centers.length > 1
+                ? centers[1] - centers[0]
+                : ((centers[0] -
+                      (flowChartRef.current?.getBoundingClientRect().left ??
+                          0)) *
+                      2 ||
+                  1);
+
+        if (Math.abs(clientX - centers[nearest]) > bandWidth / 2) {
+            return null;
+        }
+
+        return flowData[nearest]?.period ?? null;
     };
 
     const openCategory = (category: BreakdownCategory) => {
@@ -714,7 +761,7 @@ export default function Dashboard({
                         </CardTitle>
                     </CardHeader>
                     <CardContent>
-                        <div className="h-80">
+                        <div className="h-80" ref={flowChartRef}>
                             <ResponsiveContainer
                                 width="100%"
                                 height={320}
@@ -725,25 +772,10 @@ export default function Dashboard({
                                     data={flowData}
                                     stackOffset="sign"
                                     barCategoryGap="28%"
-                                    // Recharts 3 click state has no
-                                    // activePayload — activeTooltipIndex is
-                                    // the snapped column index, so a click
-                                    // anywhere the tooltip ruler shows (bar,
-                                    // line, or empty band space) toggles the
-                                    // period exactly once.
-                                    onClick={(state: unknown) => {
-                                        const index = (
-                                            state as {
-                                                activeTooltipIndex?:
-                                                    | number
-                                                    | string;
-                                            }
-                                        )?.activeTooltipIndex;
-                                        const key =
-                                            index !== undefined
-                                                ? flowData[Number(index)]
-                                                      ?.period
-                                                : undefined;
+                                    onClick={(_state, event) => {
+                                        const key = periodAtClientX(
+                                            event.clientX,
+                                        );
 
                                         if (key) {
                                             togglePeriod(key);
