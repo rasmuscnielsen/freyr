@@ -528,12 +528,6 @@ export default function Dashboard({
         reloadBreakdown(selectedPeriod === key ? null : key);
     };
 
-    const onFlowBarClick = (entry: { payload?: FlowPoint }) => {
-        if (entry.payload?.period) {
-            togglePeriod(entry.payload.period);
-        }
-    };
-
     const openCategory = (category: BreakdownCategory) => {
         const filter: Record<string, string | number | boolean> =
             category.id === null
@@ -731,14 +725,25 @@ export default function Dashboard({
                                     data={flowData}
                                     stackOffset="sign"
                                     barCategoryGap="28%"
+                                    // Recharts 3 click state has no
+                                    // activePayload — activeTooltipIndex is
+                                    // the snapped column index, so a click
+                                    // anywhere the tooltip ruler shows (bar,
+                                    // line, or empty band space) toggles the
+                                    // period exactly once.
                                     onClick={(state: unknown) => {
-                                        const key = (
+                                        const index = (
                                             state as {
-                                                activePayload?: Array<{
-                                                    payload?: FlowPoint;
-                                                }>;
+                                                activeTooltipIndex?:
+                                                    | number
+                                                    | string;
                                             }
-                                        )?.activePayload?.[0]?.payload?.period;
+                                        )?.activeTooltipIndex;
+                                        const key =
+                                            index !== undefined
+                                                ? flowData[Number(index)]
+                                                      ?.period
+                                                : undefined;
 
                                         if (key) {
                                             togglePeriod(key);
@@ -801,7 +806,6 @@ export default function Dashboard({
                                         fill="var(--color-chart-income)"
                                         stackId="flow"
                                         radius={[4, 4, 0, 0]}
-                                        onClick={onFlowBarClick}
                                     >
                                         {flowData.map((entry) => (
                                             <Cell
@@ -829,7 +833,6 @@ export default function Dashboard({
                                                     ? [4, 4, 0, 0]
                                                     : undefined
                                             }
-                                            onClick={onFlowBarClick}
                                         >
                                             {flowData.map((entry) => (
                                                 <Cell
