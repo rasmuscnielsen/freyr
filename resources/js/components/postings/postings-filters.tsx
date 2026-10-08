@@ -347,18 +347,32 @@ function FiltersSheet({
                 contentClassName="flex flex-col gap-5 p-4"
                 data-test="postings-filters-sheet"
                 header={
-                    <SheetHeader className="flex-row items-center justify-between gap-2 p-0 px-4 pt-2 pb-3">
+                    <SheetHeader className="flex-row items-center gap-4 p-0 px-4 pt-2 pb-3">
                         <SheetTitle>Filters</SheetTitle>
-                        {activeCount > 0 && (
-                            <button
-                                type="button"
-                                className="text-xs text-muted-foreground underline-offset-2 hover:underline"
-                                onClick={onClear}
-                                data-test="postings-filters-clear"
-                            >
-                                Clear all ({activeCount})
-                            </button>
-                        )}
+                        <div className="ml-auto flex items-center gap-4">
+                            {activeCount > 0 && (
+                                <button
+                                    type="button"
+                                    className="text-xs text-muted-foreground underline-offset-2 hover:underline"
+                                    onClick={onClear}
+                                    data-test="postings-filters-clear"
+                                >
+                                    Clear all ({activeCount})
+                                </button>
+                            )}
+                            {/* Done lives in the header like iOS sheets — at the
+                                resting 66vh detent a bottom button sits below
+                                the fold. */}
+                            <SheetClose asChild>
+                                <button
+                                    type="button"
+                                    className="text-sm font-medium text-brand"
+                                    data-test="postings-filters-done"
+                                >
+                                    Done
+                                </button>
+                            </SheetClose>
+                        </div>
                     </SheetHeader>
                 }
             >
@@ -477,16 +491,6 @@ function FiltersSheet({
                         ))}
                     </div>
                 </section>
-
-                <SheetClose asChild>
-                    <Button
-                        variant="secondary"
-                        className="mt-auto w-full"
-                        data-test="postings-filters-done"
-                    >
-                        Done
-                    </Button>
-                </SheetClose>
             </SheetContent>
         </Sheet>
     );
