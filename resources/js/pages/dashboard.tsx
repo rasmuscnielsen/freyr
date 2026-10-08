@@ -536,7 +536,7 @@ export default function Dashboard({
     // graphical-item clicks, not the whole tooltip region.
     const periodAtClientX = (clientX: number): string | null => {
         const ticks = flowChartRef.current?.querySelectorAll<HTMLElement>(
-            '.recharts-xAxis-ticks .recharts-cartesian-axis-tick',
+            '.recharts-xAxis-tick-labels .recharts-cartesian-axis-tick-label',
         );
 
         if (!ticks?.length) {
