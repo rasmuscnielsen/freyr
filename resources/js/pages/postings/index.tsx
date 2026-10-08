@@ -29,7 +29,6 @@ type Account = {
     name: string;
     bank_name: string | null;
     currency: string;
-    is_active: boolean;
 };
 
 type SubcategoryOption = {
@@ -96,7 +95,7 @@ type Paginator<T> = {
 
 type PostingsProps = {
     postings: Paginator<Posting>;
-    filters: Record<string, string | number | boolean | undefined>;
+    filters: Record<string, unknown>;
     sort: string;
     accounts: Account[];
     categories: Category[];
@@ -105,6 +104,16 @@ type PostingsProps = {
 function normalizeLabel(label: string): string {
     return label.replace('&laquo;', 'Previous').replace('&raquo;', 'Next');
 }
+
+// `filter[...]` values can arrive as arrays (`filter[text][]=…`) via a
+// hand-edited or shared URL; collapse them so state never carries one.
+const paramString = (value: unknown, separator = ' '): string =>
+    Array.isArray(value)
+        ? value.map(String).join(separator)
+        : String(value ?? '');
+
+const firstParam = (value: unknown): string =>
+    Array.isArray(value) ? paramString(value[0]) : String(value ?? '');
 
 function focusRow(index: number): void {
     window.requestAnimationFrame(() => {
@@ -142,14 +151,15 @@ export default function Postings({
     accounts,
     categories,
 }: PostingsProps) {
-    const [initialFrom = '', initialTo = ''] = String(
-        filters.posted_between ?? '',
+    const [initialFrom = '', initialTo = ''] = paramString(
+        filters.posted_between,
+        ',',
     ).split(',');
     const [filterState, setFilterState] = useState<PostingsFilterState>({
-        account: String(filters.account ?? ''),
-        category: String(filters.category ?? ''),
-        type: String(filters.type ?? ''),
-        text: String(filters.text ?? ''),
+        account: firstParam(filters.account),
+        category: firstParam(filters.category),
+        type: firstParam(filters.type),
+        text: paramString(filters.text),
         from: initialFrom,
         to: initialTo,
         uncategorized:
@@ -252,7 +262,7 @@ export default function Postings({
     };
 
     useEffect(() => {
-        if (filterState.text.trim() === String(filters.text ?? '').trim()) {
+        if (filterState.text.trim() === paramString(filters.text).trim()) {
             return;
         }
 
@@ -529,7 +539,13 @@ export default function Postings({
                                         <td className="hidden px-3 py-2 whitespace-nowrap text-muted-foreground tabular-nums md:table-cell">
                                             {formatDate(posting.date, locale)}
                                         </td>
-                                        <td className="px-3 py-2">
+                                        {/* wrap-anywhere (not break-words): bank
+                                            refs like ACCRUAL_CHECKOUT-… can't break
+                                            at underscores, and only `anywhere` lets
+                                            that token count as breakable for the
+                                            table's min-content width — otherwise it
+                                            overflows the card on phones. */}
+                                        <td className="px-3 py-2 wrap-anywhere">
                                             {/* The date column is hidden on
                                                 small screens so the amount stays
                                                 in view; surface it here instead. */}

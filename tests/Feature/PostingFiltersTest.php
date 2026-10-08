@@ -49,6 +49,34 @@ test('postings can be filtered with spatie query filter parameters', function ()
             ->where('postings.data.0.description', 'Monthly rent'));
 });
 
+test('the postings page tolerates array-shaped filter params', function () {
+    $user = User::factory()->create();
+    $account = BankAccount::factory()->for($user)->create();
+    Posting::factory()->forAccount($account)->create(['description' => 'Monthly rent']);
+
+    // `filter[text][]=…` reaches the app as an array (hand-edited or shared
+    // URLs) and used to 500 on the string cast.
+    $this->actingAs($user)
+        ->get(route('postings.index', ['filter' => ['text' => ['monthly', 'rent']]]))
+        ->assertOk()
+        ->assertInertia(fn (Assert $page) => $page
+            ->component('postings/index')
+            ->has('postings.data', 1));
+});
+
+test('the postings account filter hides archived accounts', function () {
+    $user = User::factory()->create();
+    BankAccount::factory()->for($user)->create(['name' => 'Active', 'is_active' => true]);
+    BankAccount::factory()->for($user)->create(['name' => 'Archived', 'is_active' => false]);
+
+    $this->actingAs($user)
+        ->get(route('postings.index'))
+        ->assertOk()
+        ->assertInertia(fn (Assert $page) => $page
+            ->has('accounts', 1)
+            ->where('accounts.0.name', 'Active'));
+});
+
 test('posting categories can be updated by their owner', function () {
     $user = User::factory()->create();
     $account = BankAccount::factory()->for($user)->create();
