@@ -461,6 +461,7 @@ export default function Dashboard({
     const [selectedPeriod, setSelectedPeriod] = useState<string | null>(
         breakdown?.focus ?? null,
     );
+    const [breakdownLoading, setBreakdownLoading] = useState(false);
 
     const isYearly = period.interval === 'year';
     const unit = isYearly ? 'year' : 'month';
@@ -518,6 +519,8 @@ export default function Dashboard({
         router.reload({
             only: ['breakdown'],
             data: { focus: focus ?? undefined },
+            onStart: () => setBreakdownLoading(true),
+            onFinish: () => setBreakdownLoading(false),
         });
     };
 
@@ -889,7 +892,16 @@ export default function Dashboard({
                                 <BreakdownSkeleton />
                             </div>
                         ) : (
-                            <div className="flex flex-col gap-8">
+                            // The stale rows stay mounted while the focused
+                            // period loads — dimmed like an unselected flow
+                            // bar — then the bars slide to their new widths.
+                            <div
+                                className={cn(
+                                    'flex flex-col gap-8 transition-opacity duration-200',
+                                    breakdownLoading &&
+                                        'pointer-events-none opacity-40',
+                                )}
+                            >
                                 <BreakdownGroup
                                     title="In"
                                     categories={incomeCategories}
@@ -1169,7 +1181,7 @@ function BreakdownRow({
                                             .left,
                                 )
                             }
-                            className="h-5 min-w-0 shrink rounded-full transition-opacity hover:opacity-90"
+                            className="h-5 min-w-0 shrink rounded-full transition-[width,opacity] duration-300 hover:opacity-90"
                             style={{
                                 width: `${Math.max(pct, 2)}%`,
                                 backgroundColor: barColor,
