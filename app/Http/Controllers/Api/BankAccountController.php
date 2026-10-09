@@ -5,11 +5,16 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\BankAccountResource;
 use App\Models\BankAccount;
+use Dedoc\Scramble\Attributes\Group;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 
+#[Group('Bank accounts', weight: 1)]
 class BankAccountController extends Controller
 {
+    /**
+     * List bank accounts
+     */
     public function index(Request $request): AnonymousResourceCollection
     {
         $this->authorizeRead($request);
@@ -24,6 +29,9 @@ class BankAccountController extends Controller
         );
     }
 
+    /**
+     * Show bank account
+     */
     public function show(Request $request, BankAccount $bankAccount): BankAccountResource
     {
         $this->authorizeRead($request);

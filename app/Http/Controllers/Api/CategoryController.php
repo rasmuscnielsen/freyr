@@ -5,11 +5,16 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\CategoryResource;
 use App\Models\Category;
+use Dedoc\Scramble\Attributes\Group;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 
+#[Group('Categories', weight: 2)]
 class CategoryController extends Controller
 {
+    /**
+     * List categories
+     */
     public function index(Request $request): AnonymousResourceCollection
     {
         $this->authorizeRead($request);
@@ -23,6 +28,9 @@ class CategoryController extends Controller
         );
     }
 
+    /**
+     * Show category
+     */
     public function show(Request $request, Category $category): CategoryResource
     {
         $this->authorizeRead($request);

@@ -12,6 +12,7 @@
     "license": "MIT",
     "require": {
         "php": "^8.5",
+        "dedoc/scramble": "^0.13.47",
         "inertiajs/inertia-laravel": "^3.0",
         "laravel/ai": "^0.8.0",
         "laravel/chisel": "^0.1.0",
