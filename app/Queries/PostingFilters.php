@@ -5,6 +5,7 @@ namespace App\Queries;
 use App\Models\Posting;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
+use Illuminate\Support\Arr;
 use Spatie\QueryBuilder\AllowedFilter;
 use Spatie\QueryBuilder\QueryBuilder;
 
@@ -39,7 +40,9 @@ final class PostingFilters
                 }),
                 AllowedFilter::exact('extraordinary', 'is_extraordinary'),
                 AllowedFilter::callback('text', function (Builder $query, mixed $value): void {
-                    $needle = trim((string) $value);
+                    // `filter[text][]=…` arrives as an array (hand-edited or
+                    // shared URLs); join it rather than letting the cast 500.
+                    $needle = trim(is_array($value) ? implode(' ', Arr::flatten($value)) : (string) $value);
 
                     if ($needle === '') {
                         return;

@@ -38,9 +38,9 @@ class PostingController extends Controller
             'sort' => $request->query('sort', '-date,-id'),
             'accounts' => BankAccount::query()
                 ->whereBelongsTo($user)
-                ->orderByDesc('is_active')
+                ->where('is_active', true)
                 ->orderBy('name')
-                ->get(['id', 'name', 'bank_name', 'currency', 'is_active']),
+                ->get(['id', 'name', 'bank_name', 'currency']),
             'categories' => Category::query()
                 ->with(['subcategories' => fn ($query) => $query->orderBy('name')])
                 ->orderBy('name')
