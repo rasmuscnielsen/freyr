@@ -6,9 +6,11 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\ReportWindowRequest;
 use App\Http\Resources\Reports\OverviewCategoryResource;
 use App\Queries\OverviewReport;
+use Dedoc\Scramble\Attributes\Group;
 use Dedoc\Scramble\Attributes\Response;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 
+#[Group('Reports', weight: 5)]
 class OverviewCategoriesController extends Controller
 {
     /**

@@ -6,8 +6,10 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\ReportWindowRequest;
 use App\Http\Resources\Reports\OverviewReportResource;
 use App\Queries\OverviewReport;
+use Dedoc\Scramble\Attributes\Group;
 use Dedoc\Scramble\Attributes\Response;
 
+#[Group('Reports', weight: 4)]
 class OverviewController extends Controller
 {
     /**

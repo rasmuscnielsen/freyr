@@ -5,11 +5,16 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\PostingResource;
 use App\Models\Posting;
+use Dedoc\Scramble\Attributes\Group;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 
+#[Group('Postings', weight: 3)]
 class PostingController extends Controller
 {
+    /**
+     * List postings
+     */
     public function index(Request $request): AnonymousResourceCollection
     {
         $this->authorizeRead($request);
@@ -24,6 +29,9 @@ class PostingController extends Controller
         );
     }
 
+    /**
+     * Show posting
+     */
     public function show(Request $request, Posting $posting): PostingResource
     {
         $this->authorizeRead($request);
