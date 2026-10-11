@@ -17,7 +17,7 @@ use App\Http\Controllers\RegionSetupController;
 use App\Http\Controllers\SpiirImportController;
 use Illuminate\Support\Facades\Route;
 
-Route::redirect('/', '/login')->name('home');
+Route::get('/', fn () => redirect('/login'))->name('home');
 
 Route::middleware('auth')->prefix('region-setup')->name('region-setup.')->group(function () {
     Route::get('/', [RegionSetupController::class, 'edit'])->name('edit');

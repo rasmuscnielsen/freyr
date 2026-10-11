@@ -173,8 +173,23 @@
         @apply border-border;
     }
 
+    html {
+        /* PWA: no pull-to-refresh / rubber-band on the document scroller
+           in standalone mode — reads as a web page otherwise. */
+        overscroll-behavior-y: none;
+        -webkit-tap-highlight-color: transparent;
+    }
+
     body {
         @apply bg-background text-foreground;
+        /* Kills the double-tap-zoom delay; pinch zoom still works. */
+        touch-action: manipulation;
+    }
+
+    a,
+    button {
+        /* Long-press callout on links reads as Safari, not an app. */
+        -webkit-touch-callout: none;
     }
 
     .recharts-wrapper,

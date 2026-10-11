@@ -680,7 +680,7 @@ export default function Postings({
                 </div>
 
                 {selectedIds.size > 0 && (
-                    <div className="fixed bottom-4 z-40 flex min-w-xs items-center gap-1.5 rounded-full border bg-card py-3 pr-1.5 pl-4 whitespace-nowrap shadow-lg max-sm:inset-x-2 md:left-1/2 md:-translate-x-1/2">
+                    <div className="fixed bottom-[calc(4.25rem+env(safe-area-inset-bottom,0px))] z-40 flex min-w-xs items-center gap-1.5 rounded-full border bg-card py-3 pr-1.5 pl-4 whitespace-nowrap shadow-lg max-sm:inset-x-2 md:bottom-4 md:left-1/2 md:-translate-x-1/2">
                         <span className="flex-1 pr-1 text-sm font-medium tabular-nums">
                             {selectedIds.size} selected
                         </span>

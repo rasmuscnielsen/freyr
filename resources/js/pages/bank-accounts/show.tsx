@@ -1,4 +1,4 @@
-import { Head, Link, router } from '@inertiajs/react';
+import { Head, Link, router, setLayoutProps } from '@inertiajs/react';
 import {
     ChevronLeft,
     ChevronRight,
@@ -27,7 +27,10 @@ import { formatDate, formatRelativeDateTime } from '@/lib/dates';
 import { formatMoney as formatSharedMoney } from '@/lib/money';
 import { useRegion } from '@/lib/region';
 import { cn } from '@/lib/utils';
-import { index as bankAccountsIndex } from '@/routes/bank-accounts';
+import {
+    index as bankAccountsIndex,
+    show as bankAccountRoute,
+} from '@/routes/bank-accounts';
 import {
     destroy as destroyPosting,
     store as storePosting,
@@ -191,6 +194,19 @@ export default function BankAccountShow({
     syncRuns,
     categories,
 }: ShowProps) {
+    setLayoutProps({
+        breadcrumbs: [
+            {
+                title: 'Bank accounts',
+                href: bankAccountsIndex(),
+            },
+            {
+                title: account.name,
+                href: bankAccountRoute(account.id),
+            },
+        ],
+    });
+
     const [isCreatingPosting, setIsCreatingPosting] = useState(false);
     const [editingPosting, setEditingPosting] = useState<Posting | null>(null);
     const [deletingPosting, setDeletingPosting] = useState<Posting | null>(
@@ -641,12 +657,3 @@ function DeletePostingDialog({
         </Dialog>
     );
 }
-
-BankAccountShow.layout = {
-    breadcrumbs: [
-        {
-            title: 'Bank accounts',
-            href: bankAccountsIndex(),
-        },
-    ],
-};
