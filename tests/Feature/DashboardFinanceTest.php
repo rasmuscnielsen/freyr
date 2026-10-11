@@ -9,7 +9,7 @@ use Carbon\CarbonImmutable;
 use Inertia\Testing\AssertableInertia as Assert;
 
 /**
- * Build a small budget with income, a fixed bill, a variable expense, a saving,
+ * Build a small budget with income, a bill, a living cost, a saving,
  * an investment and an excluded transfer subcategory.
  *
  * @return array{user: User, account: BankAccount, salary: Subcategory, rent: Subcategory, groceries: Subcategory, savings: Subcategory, investment: Subcategory, transfer: Subcategory}
@@ -26,23 +26,23 @@ function seedBudget(): array
     $salary = Subcategory::factory()->forCategory($incomeCategory)->create(['name' => 'Salary']);
     $rent = Subcategory::factory()->forCategory($expenseCategory)->create([
         'name' => 'Rent',
-        'expense_type' => 'Fixed',
+        'expense_group' => 'Bills',
     ]);
     $groceries = Subcategory::factory()->forCategory($expenseCategory)->create([
         'name' => 'Groceries',
-        'expense_type' => 'Variable',
+        'expense_group' => 'LivingCosts',
     ]);
     $savings = Subcategory::factory()->forCategory($savingsCategory)->create([
         'name' => 'Pension',
-        'expense_type' => null,
+        'expense_group' => null,
     ]);
     $investment = Subcategory::factory()->forCategory($investmentCategory)->create([
         'name' => 'Index funds',
-        'expense_type' => null,
+        'expense_group' => null,
     ]);
     $transfer = Subcategory::factory()->forCategory($transferCategory)->create([
         'name' => 'Internal transfer',
-        'expense_type' => null,
+        'expense_group' => null,
     ]);
 
     return compact('user', 'account', 'salary', 'rent', 'groceries', 'savings', 'investment', 'transfer');
@@ -93,7 +93,7 @@ test('dashboard aggregates income expenses using the months param for back-compa
             ->where('period.months', 3)
             ->where('summary.income', 10000)
             ->where('summary.bills', 1500)
-            ->where('summary.consumption', 1000)
+            ->where('summary.living_costs', 1000)
             ->where('summary.savings', 3000)
             ->where('summary.investments', 0)
             ->where('summary.uncategorized', 0)
@@ -115,7 +115,7 @@ test('a refund categorized under an expense category nets against the bucket ins
         ->get(route('dashboard', ['months' => 3]))
         ->assertOk()
         ->assertInertia(fn (Assert $page) => $page
-            ->where('summary.consumption', 200)
+            ->where('summary.living_costs', 200)
             ->where('summary.out', 200)
             ->where('summary.result', -200));
 });
@@ -171,13 +171,13 @@ test('the years period compares yearly buckets over every year with data', funct
                 // Jan 2024 – Jun 2026 is 30 months = 2.5 years of averaging.
                 ->where('period.units', 2.5)
                 ->where('summary.income', 26000)
-                ->where('summary.consumption', 3000)
+                ->where('summary.living_costs', 3000)
                 ->where('series.0.period', '2024')
                 ->where('series.0.complete', true)
                 ->where('series.0.income', 8000)
                 ->where('series.1.period', '2025')
                 ->where('series.1.income', 12000)
-                ->where('series.1.consumption', 3000)
+                ->where('series.1.living_costs', 3000)
                 ->where('series.1.result', 9000)
                 ->where('series.2.period', '2026')
                 ->where('series.2.complete', false)
@@ -350,7 +350,7 @@ test('breakdown category bucket follows where most of its money lands', function
     try {
         ['user' => $user, 'account' => $account, 'rent' => $rent, 'groceries' => $groceries] = seedBudget();
 
-        // Variable spending outweighs the fixed bill within the same category.
+        // Living costs outweigh the bill within the same category.
         Posting::factory()->forAccount($account)->categorizedAs($rent)
             ->create(['date' => '2026-01-10', 'amount' => -500, 'original_amount' => -500]);
         Posting::factory()->forAccount($account)->categorizedAs($groceries)
@@ -360,7 +360,7 @@ test('breakdown category bucket follows where most of its money lands', function
             ->get(route('dashboard', ['months' => 12]), breakdownPartialHeaders())
             ->assertOk()
             ->assertJsonPath('props.breakdown.categories.0.name', 'Housing')
-            ->assertJsonPath('props.breakdown.categories.0.bucket', 'consumption');
+            ->assertJsonPath('props.breakdown.categories.0.bucket', 'living_costs');
     } finally {
         CarbonImmutable::setTestNow();
     }
@@ -445,7 +445,7 @@ test('breakdown can target the in-progress preview month', function () {
             ->assertOk()
             ->assertInertia(fn (Assert $page) => $page
                 ->where('period.end', '2026-03-31')
-                ->where('summary.consumption', 500));
+                ->where('summary.living_costs', 500));
     } finally {
         CarbonImmutable::setTestNow();
     }
@@ -454,7 +454,7 @@ test('breakdown can target the in-progress preview month', function () {
 test('recategorizing a posting moves it between buckets', function () {
     ['user' => $user, 'account' => $account, 'rent' => $rent, 'groceries' => $groceries] = seedBudget();
 
-    // A fixed bill lands in the bills bucket.
+    // A bill lands in the bills bucket.
     $posting = Posting::factory()->forAccount($account)->categorizedAs($rent)
         ->create(['date' => '2026-01-10', 'amount' => -900, 'original_amount' => -900]);
 
@@ -462,9 +462,9 @@ test('recategorizing a posting moves it between buckets', function () {
         ->get(route('dashboard', ['months' => 3]))
         ->assertInertia(fn (Assert $page) => $page
             ->where('summary.bills', 900)
-            ->where('summary.consumption', 0));
+            ->where('summary.living_costs', 0));
 
-    // Recategorizing under a variable subcategory moves it to consumption,
+    // Recategorizing under a living cost subcategory moves it to living costs,
     // without touching any denormalized type snapshot.
     $posting->update(['categorized_subcategory_id' => $groceries->id]);
 
@@ -472,7 +472,7 @@ test('recategorizing a posting moves it between buckets', function () {
         ->get(route('dashboard', ['months' => 3]))
         ->assertInertia(fn (Assert $page) => $page
             ->where('summary.bills', 0)
-            ->where('summary.consumption', 900));
+            ->where('summary.living_costs', 900));
 });
 
 test('savings and investment categories land in their own buckets', function () {
@@ -540,7 +540,7 @@ test('extraordinary postings are excluded from every bucket', function () {
     $this->actingAs($user)
         ->get(route('dashboard', ['months' => 3]))
         ->assertInertia(fn (Assert $page) => $page
-            ->where('summary.consumption', 500)
+            ->where('summary.living_costs', 500)
             ->where('summary.out', 500));
 });
 
@@ -582,4 +582,43 @@ test('the balance prop sums active accounts in the reporting currency', function
             ->where('balance.total', 1250)
             ->where('balance.currency', 'EUR')
             ->where('balance.missing_accounts', 2));
+});
+
+test('all expense groups and unassigned expenses agree between PHP buckets and SQL reports including refunds', function () {
+    $this->travelTo(CarbonImmutable::parse('2026-02-15'));
+    $user = User::factory()->create();
+    $account = BankAccount::factory()->for($user)->create();
+    $category = Category::factory()->create();
+    $groups = [
+        ['Bills', 'bills', 100],
+        ['LivingCosts', 'living_costs', 200],
+        ['Lifestyle', 'lifestyle', 300],
+        ['Other', 'other', 400],
+        [null, 'other', 500],
+    ];
+
+    foreach ($groups as [$group, $bucket, $amount]) {
+        $subcategory = Subcategory::factory()->forCategory($category)->create(['expense_group' => $group]);
+        $purchase = Posting::factory()->forAccount($account)->categorizedAs($subcategory)
+            ->create(['date' => '2026-01-10', 'amount' => -$amount, 'original_amount' => -$amount]);
+        $refund = Posting::factory()->forAccount($account)->categorizedAs($subcategory)
+            ->create(['date' => '2026-01-12', 'amount' => 10, 'original_amount' => 10]);
+
+        expect($purchase->overviewBucket()?->value)->toBe($bucket)
+            ->and($refund->overviewBucket()?->value)->toBe($bucket);
+    }
+
+    $this->actingAs($user)->get(route('dashboard', ['period' => '2026']))
+        ->assertInertia(fn (Assert $page) => $page
+            ->where('summary.bills', 90)
+            ->where('summary.living_costs', 190)
+            ->where('summary.lifestyle', 290)
+            ->where('summary.other', 880)
+            ->where('summary.out', 1450)
+            ->where('summary.result', -1450)
+            ->where('series.0.bills', 90)
+            ->where('series.0.living_costs', 190)
+            ->where('series.0.lifestyle', 290)
+            ->where('series.0.other', 880)
+            ->where('series.0.result', -1450));
 });

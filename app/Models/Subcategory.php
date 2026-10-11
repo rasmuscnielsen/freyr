@@ -2,7 +2,7 @@
 
 namespace App\Models;
 
-use App\Enums\ExpenseType;
+use App\Enums\ExpenseGroup;
 use Database\Factories\SubcategoryFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -22,7 +22,7 @@ class Subcategory extends Model
         'legacy_id',
         'name',
         'hyphenated_name',
-        'expense_type',
+        'expense_group',
         'hints',
     ];
 
@@ -50,7 +50,7 @@ class Subcategory extends Model
     protected function casts(): array
     {
         return [
-            'expense_type' => ExpenseType::class,
+            'expense_group' => ExpenseGroup::class,
         ];
     }
 }

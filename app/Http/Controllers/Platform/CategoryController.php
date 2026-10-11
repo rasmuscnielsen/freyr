@@ -3,7 +3,7 @@
 namespace App\Http\Controllers\Platform;
 
 use App\Enums\CategoryType;
-use App\Enums\ExpenseType;
+use App\Enums\ExpenseGroup;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Platform\StoreCategoryRequest;
 use App\Http\Requests\Platform\UpdateCategoryRequest;
@@ -33,7 +33,7 @@ class CategoryController extends Controller
                 'subcategories' => $category->subcategories->map(fn (Subcategory $subcategory): array => [
                     'id' => $subcategory->id,
                     'name' => $subcategory->name,
-                    'expense_type' => $subcategory->expense_type?->value,
+                    'expense_group' => $subcategory->expense_group?->value,
                     'postings_count' => $subcategory->postings_count,
                 ])->all(),
             ])->all(),
@@ -41,9 +41,12 @@ class CategoryController extends Controller
                 static fn (CategoryType $type): string => $type->value,
                 CategoryType::cases(),
             ),
-            'expenseTypes' => array_map(
-                static fn (ExpenseType $type): string => $type->value,
-                ExpenseType::cases(),
+            'expenseGroups' => array_map(
+                static fn (ExpenseGroup $group): array => [
+                    'value' => $group->value,
+                    'label' => $group->label(),
+                ],
+                ExpenseGroup::cases(),
             ),
         ]);
     }
@@ -74,7 +77,7 @@ class CategoryController extends Controller
             'hyphenated_name' => Str::slug($data['name']),
         ]);
 
-        $this->syncSubcategoryExpenseTypes($category, $previousType, $nextType);
+        $this->syncSubcategoryExpenseGroups($category, $previousType, $nextType);
 
         return back();
     }
@@ -87,24 +90,12 @@ class CategoryController extends Controller
     }
 
     /**
-     * Keep subcategory `expense_type` values consistent with the parent's type
-     * after a type change: default them to {@see ExpenseType::Variable} when a
-     * category becomes an Expense, and null them out when it stops being one.
+     * A change of category type clears expense grouping for review.
      */
-    private function syncSubcategoryExpenseTypes(Category $category, CategoryType $previousType, CategoryType $nextType): void
+    private function syncSubcategoryExpenseGroups(Category $category, CategoryType $previousType, CategoryType $nextType): void
     {
-        if ($previousType === $nextType) {
-            return;
-        }
-
-        if ($nextType === CategoryType::Expense) {
-            $category->subcategories()->update(['expense_type' => ExpenseType::Variable->value]);
-
-            return;
-        }
-
-        if ($previousType === CategoryType::Expense) {
-            $category->subcategories()->update(['expense_type' => null]);
+        if ($previousType !== $nextType) {
+            $category->subcategories()->update(['expense_group' => null]);
         }
     }
 }

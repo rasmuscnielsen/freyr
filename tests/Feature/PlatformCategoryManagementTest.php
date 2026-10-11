@@ -1,7 +1,7 @@
 <?php
 
 use App\Enums\CategoryType;
-use App\Enums\ExpenseType;
+use App\Enums\ExpenseGroup;
 use App\Models\Category;
 use App\Models\Posting;
 use App\Models\Subcategory;
@@ -15,11 +15,11 @@ function platformAdmin(): User
     return User::factory()->platformAdmin()->create();
 }
 
-test('moving a subcategory preserves its postings and applies the destination expense type', function (CategoryType $sourceType, CategoryType $destinationType, ?ExpenseType $expenseType) {
+test('moving a subcategory preserves its postings and applies the destination expense group', function (CategoryType $sourceType, CategoryType $destinationType, ?ExpenseGroup $expenseGroup) {
     $source = Category::factory()->create(['type' => $sourceType]);
     $destination = Category::factory()->create(['type' => $destinationType]);
     $subcategory = Subcategory::factory()->forCategory($source)->create([
-        'expense_type' => $sourceType === CategoryType::Expense ? ExpenseType::Fixed : null,
+        'expense_group' => $sourceType === CategoryType::Expense ? ExpenseGroup::Bills : null,
     ]);
     $posting = Posting::factory()->create(['categorized_subcategory_id' => $subcategory->id]);
 
@@ -27,42 +27,42 @@ test('moving a subcategory preserves its postings and applies the destination ex
         ->patch(route('platform.subcategories.update', $subcategory), [
             'category_id' => $destination->id,
             'name' => $subcategory->name,
-            'expense_type' => $expenseType?->value,
+            'expense_group' => $expenseGroup?->value,
         ])
         ->assertRedirect()
         ->assertSessionHasNoErrors();
 
     expect($subcategory->refresh()->category_id)->toBe($destination->id)
-        ->and($subcategory->expense_type)->toBe($expenseType);
+        ->and($subcategory->expense_group)->toBe($expenseGroup);
     expect($posting->refresh()->categorized_subcategory_id)->toBe($subcategory->id)
         ->and($posting->categorizedSubcategory->category->id)->toBe($destination->id);
 })->with([
-    'expense to expense' => [CategoryType::Expense, CategoryType::Expense, ExpenseType::Fixed],
+    'expense to expense' => [CategoryType::Expense, CategoryType::Expense, ExpenseGroup::Bills],
+    'expense to expense unassigned' => [CategoryType::Expense, CategoryType::Expense, null],
     'expense to income' => [CategoryType::Expense, CategoryType::Income, null],
-    'income to expense' => [CategoryType::Income, CategoryType::Expense, ExpenseType::Variable],
+    'income to expense' => [CategoryType::Income, CategoryType::Expense, ExpenseGroup::Other],
 ]);
 
-test('invalid subcategory destinations or expense types leave the category unchanged', function (?int $categoryId, CategoryType $destinationType, ?string $expenseType, string $error) {
+test('invalid subcategory destinations or expense groups leave the category unchanged', function (?int $categoryId, CategoryType $destinationType, ?string $expenseGroup, string $error) {
     $source = Category::factory()->create(['type' => CategoryType::Income]);
     $destination = Category::factory()->create(['type' => $destinationType]);
-    $subcategory = Subcategory::factory()->forCategory($source)->create(['expense_type' => null]);
+    $subcategory = Subcategory::factory()->forCategory($source)->create(['expense_group' => null]);
 
     $this->actingAs(platformAdmin())
         ->patch(route('platform.subcategories.update', $subcategory), [
             'category_id' => $categoryId === 0 ? $destination->id : $categoryId,
             'name' => $subcategory->name,
-            'expense_type' => $expenseType,
+            'expense_group' => $expenseGroup,
         ])
         ->assertSessionHasErrors($error);
 
     expect($subcategory->refresh()->category_id)->toBe($source->id)
-        ->and($subcategory->expense_type)->toBeNull();
+        ->and($subcategory->expense_group)->toBeNull();
 })->with([
     'missing category' => [null, CategoryType::Income, null, 'category_id'],
     'unknown category' => [999999, CategoryType::Income, null, 'category_id'],
-    'expense requires type' => [0, CategoryType::Expense, null, 'expense_type'],
-    'expense rejects unknown type' => [0, CategoryType::Expense, 'invalid', 'expense_type'],
-    'income prohibits expense type' => [0, CategoryType::Income, ExpenseType::Fixed->value, 'expense_type'],
+    'expense rejects unknown type' => [0, CategoryType::Expense, 'invalid', 'expense_group'],
+    'income prohibits expense group' => [0, CategoryType::Income, ExpenseGroup::Bills->value, 'expense_group'],
 ]);
 
 test('non-admin users cannot move subcategories', function () {
@@ -140,49 +140,52 @@ test('a category name is required and capped at 100 characters', function () {
         ->assertSessionHasErrors('name');
 });
 
-test('expense_type is required for a subcategory under an expense category', function () {
+test('expense_group may be unassigned for a subcategory under an expense category', function () {
     $category = Category::factory()->create(['type' => CategoryType::Expense->value]);
 
     $this->actingAs(platformAdmin())
         ->post(route('platform.subcategories.store'), [
             'category_id' => $category->id,
             'name' => 'Supermarket',
+            'expense_group' => null,
         ])
-        ->assertSessionHasErrors('expense_type');
+        ->assertRedirect()->assertSessionHasNoErrors();
+
+    expect(Subcategory::query()->firstOrFail()->expense_group)->toBeNull();
 });
 
-test('a subcategory under an expense category persists its expense_type', function () {
+test('a subcategory under an expense category persists its expense_group', function () {
     $category = Category::factory()->create(['type' => CategoryType::Expense->value]);
 
     $this->actingAs(platformAdmin())
         ->post(route('platform.subcategories.store'), [
             'category_id' => $category->id,
             'name' => 'Rent',
-            'expense_type' => ExpenseType::Fixed->value,
+            'expense_group' => ExpenseGroup::Bills->value,
         ])
         ->assertRedirect();
 
     $subcategory = Subcategory::query()->firstOrFail();
 
     expect($subcategory->name)->toBe('Rent')
-        ->and($subcategory->expense_type)->toBe(ExpenseType::Fixed)
+        ->and($subcategory->expense_group)->toBe(ExpenseGroup::Bills)
         ->and($subcategory->hyphenated_name)->toBe('rent')
         ->and($subcategory->legacy_id)->toBeNull();
 });
 
-test('expense_type is rejected for a subcategory under a non-expense category', function () {
+test('expense_group is rejected for a subcategory under a non-expense category', function () {
     $category = Category::factory()->create(['type' => CategoryType::Income->value]);
 
     $this->actingAs(platformAdmin())
         ->post(route('platform.subcategories.store'), [
             'category_id' => $category->id,
             'name' => 'Salary',
-            'expense_type' => ExpenseType::Fixed->value,
+            'expense_group' => ExpenseGroup::Bills->value,
         ])
-        ->assertSessionHasErrors('expense_type');
+        ->assertSessionHasErrors('expense_group');
 });
 
-test('a subcategory under a non-expense category is stored with a null expense_type', function () {
+test('a subcategory under a non-expense category is stored with a null expense_group', function () {
     $category = Category::factory()->create(['type' => CategoryType::Income->value]);
 
     $this->actingAs(platformAdmin())
@@ -192,13 +195,13 @@ test('a subcategory under a non-expense category is stored with a null expense_t
         ])
         ->assertRedirect();
 
-    expect(Subcategory::query()->firstOrFail()->expense_type)->toBeNull();
+    expect(Subcategory::query()->firstOrFail()->expense_group)->toBeNull();
 });
 
-test('changing a category away from expense nulls its subcategory expense types', function () {
+test('changing a category away from expense nulls its subcategory expense groups', function () {
     $category = Category::factory()->create(['type' => CategoryType::Expense->value]);
     $subcategory = Subcategory::factory()->forCategory($category)->create([
-        'expense_type' => ExpenseType::Fixed->value,
+        'expense_group' => ExpenseGroup::Bills->value,
     ]);
 
     $this->actingAs(platformAdmin())
@@ -208,13 +211,13 @@ test('changing a category away from expense nulls its subcategory expense types'
         ])
         ->assertRedirect();
 
-    expect($subcategory->refresh()->expense_type)->toBeNull();
+    expect($subcategory->refresh()->expense_group)->toBeNull();
 });
 
-test('changing a category to expense defaults its subcategory expense types to variable', function () {
+test('changing a category to expense leaves its subcategory groups unassigned', function () {
     $category = Category::factory()->create(['type' => CategoryType::Income->value]);
     $subcategory = Subcategory::factory()->forCategory($category)->create([
-        'expense_type' => null,
+        'expense_group' => null,
     ]);
 
     $this->actingAs(platformAdmin())
@@ -224,7 +227,7 @@ test('changing a category to expense defaults its subcategory expense types to v
         ])
         ->assertRedirect();
 
-    expect($subcategory->refresh()->expense_type)->toBe(ExpenseType::Variable);
+    expect($subcategory->refresh()->expense_group)->toBeNull();
 });
 
 test('deleting a subcategory uncategorizes its postings', function () {

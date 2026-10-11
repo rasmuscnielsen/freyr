@@ -14,7 +14,7 @@ class OverviewReportResource extends JsonResource
     /**
      * Transform the resource into an array.
      *
-     * @return array{interval: string, from: string, to: string, currency: string|null, summary: array{in: float, out: float, result: float, income: float, bills: float, consumption: float, investments: float, savings: float, uncategorized: float, coverage: array{eligible: int, converted: int, missing: int}}, series: array<int, array{period: string, label: string, complete: bool, income: float, bills: float, consumption: float, investments: float, savings: float, uncategorized: float, result: float, missing: int}>}
+     * @return array{interval: string, from: string, to: string, currency: string|null, summary: array{in: float, out: float, result: float, income: float, bills: float, living_costs: float, lifestyle: float, other: float, investments: float, savings: float, uncategorized: float, coverage: array{eligible: int, converted: int, missing: int}}, series: array<int, array{period: string, label: string, complete: bool, income: float, bills: float, living_costs: float, lifestyle: float, other: float, investments: float, savings: float, uncategorized: float, result: float, missing: int}>}
      */
     public function toArray(Request $request): array
     {

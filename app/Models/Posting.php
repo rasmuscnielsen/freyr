@@ -143,7 +143,7 @@ class Posting extends Model
             return (float) $amount >= 0 ? Bucket::Income : Bucket::Uncategorized;
         }
 
-        return Bucket::forCategory($category->type, $this->categorizedSubcategory?->expense_type);
+        return Bucket::forCategory($category->type, $this->categorizedSubcategory?->expense_group);
     }
 
     /**

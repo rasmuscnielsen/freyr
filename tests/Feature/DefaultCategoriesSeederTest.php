@@ -1,6 +1,7 @@
 <?php
 
 use App\Enums\CategoryType;
+use App\Enums\ExpenseGroup;
 use App\Models\BankAccount;
 use App\Models\Category;
 use App\Models\Posting;
@@ -19,6 +20,13 @@ test('it seeds the default category tree idempotently', function () {
 
     expect(Category::query()->pluck('type')->map(fn ($type) => $type->value)->unique()->sort()->values()->all())
         ->toBe(['Exclude', 'Expense', 'Income', 'Investment', 'Saving']);
+
+    expect(Subcategory::query()->whereHas('category', fn ($query) => $query->where('type', CategoryType::Expense->value))
+        ->pluck('expense_group')->unique()->count())->toBe(4)
+        ->and(Subcategory::query()->where('legacy_id', DefaultCategoriesSeeder::SUBCATEGORY_LEGACY_ID_PREFIX.'groceries')
+            ->firstOrFail()->expense_group)->toBe(ExpenseGroup::LivingCosts)
+        ->and(Subcategory::query()->whereHas('category', fn ($query) => $query->where('type', '!=', CategoryType::Expense->value))
+            ->whereNotNull('expense_group')->count())->toBe(0);
 
     // The former Transfers category now excludes its postings from the overview.
     $transfers = Category::query()

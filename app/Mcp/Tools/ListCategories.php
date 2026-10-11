@@ -21,7 +21,7 @@ class ListCategories extends FreyrTool
         return <<<'MARKDOWN'
             The categorization vocabulary: every category with its type
             (income/expense/investment/saving/exclude) and each of its
-            subcategories (id, name, expense type, and `hints` describing what
+            subcategories (id, name, expense group (Bills/LivingCosts/Lifestyle/Other; null means unassigned), and `hints` describing what
             belongs there). Reference these ids in `categorize-postings` and
             `edit-posting`.
             MARKDOWN;
