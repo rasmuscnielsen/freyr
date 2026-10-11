@@ -49,10 +49,15 @@ type Category = {
     subcategories: Subcategory[];
 };
 
+type ExpenseGroup = {
+    value: string;
+    label: string;
+};
+
 type CategoriesProps = {
     categories: Category[];
     categoryTypes: string[];
-    expenseGroups: string[];
+    expenseGroups: ExpenseGroup[];
 };
 
 const EXPENSE_TYPE = 'Expense';
@@ -78,7 +83,7 @@ const typeBadgeClasses: Record<string, string> = {
  */
 const expenseGroupBadgeClasses: Record<string, string> = {
     Bills: 'border-transparent bg-chart-bills/12 text-chart-bills',
-    'Living costs':
+    LivingCosts:
         'border-transparent bg-chart-living-costs/12 text-chart-living-costs',
     Lifestyle: 'border-transparent bg-chart-lifestyle/12 text-chart-lifestyle',
     Other: 'border-transparent bg-chart-other/12 text-chart-other',
@@ -143,6 +148,14 @@ export default function Categories({
         category: Category;
         subcategory: Subcategory;
     } | null>(null);
+
+    const expenseGroupLabels = useMemo(
+        () =>
+            Object.fromEntries(
+                expenseGroups.map((group) => [group.value, group.label]),
+            ),
+        [expenseGroups],
+    );
 
     const orderedCategories = useMemo(() => {
         const order = orderedTypes(categoryTypes);
@@ -225,6 +238,9 @@ export default function Categories({
                                         <CategoryRows
                                             key={category.id}
                                             category={category}
+                                            expenseGroupLabels={
+                                                expenseGroupLabels
+                                            }
                                             onEditCategory={() =>
                                                 setEditingCategory(category)
                                             }
@@ -311,6 +327,7 @@ export default function Categories({
 
 function CategoryRows({
     category,
+    expenseGroupLabels,
     onEditCategory,
     onDeleteCategory,
     onAddSubcategory,
@@ -318,6 +335,7 @@ function CategoryRows({
     onDeleteSubcategory,
 }: {
     category: Category;
+    expenseGroupLabels: Record<string, string>;
     onEditCategory: () => void;
     onDeleteCategory: () => void;
     onAddSubcategory: () => void;
@@ -404,7 +422,11 @@ function CategoryRows({
                                     ] ?? 'text-muted-foreground',
                                 )}
                             >
-                                {subcategory.expense_group ?? 'Unassigned'}
+                                {subcategory.expense_group === null
+                                    ? 'Unassigned'
+                                    : (expenseGroupLabels[
+                                          subcategory.expense_group
+                                      ] ?? subcategory.expense_group)}
                             </Badge>
                         )}
                     </td>
@@ -559,7 +581,7 @@ function SubcategoryDialog({
     categories: Category[];
     category: Category | null;
     subcategory: Subcategory | null;
-    expenseGroups: string[];
+    expenseGroups: ExpenseGroup[];
     open: boolean;
     onClose: () => void;
 }) {
@@ -682,9 +704,12 @@ function SubcategoryDialog({
                                     <SelectItem value="unassigned">
                                         Unassigned
                                     </SelectItem>
-                                    {expenseGroups.map((type) => (
-                                        <SelectItem key={type} value={type}>
-                                            {type}
+                                    {expenseGroups.map((group) => (
+                                        <SelectItem
+                                            key={group.value}
+                                            value={group.value}
+                                        >
+                                            {group.label}
                                         </SelectItem>
                                     ))}
                                 </SelectContent>

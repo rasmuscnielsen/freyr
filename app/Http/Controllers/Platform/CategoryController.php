@@ -42,7 +42,10 @@ class CategoryController extends Controller
                 CategoryType::cases(),
             ),
             'expenseGroups' => array_map(
-                static fn (ExpenseGroup $type): string => $type->value,
+                static fn (ExpenseGroup $group): array => [
+                    'value' => $group->value,
+                    'label' => $group->label(),
+                ],
                 ExpenseGroup::cases(),
             ),
         ]);

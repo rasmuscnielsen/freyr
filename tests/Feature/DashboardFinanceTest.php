@@ -30,7 +30,7 @@ function seedBudget(): array
     ]);
     $groceries = Subcategory::factory()->forCategory($expenseCategory)->create([
         'name' => 'Groceries',
-        'expense_group' => 'Living costs',
+        'expense_group' => 'LivingCosts',
     ]);
     $savings = Subcategory::factory()->forCategory($savingsCategory)->create([
         'name' => 'Pension',
@@ -591,7 +591,7 @@ test('all expense groups and unassigned expenses agree between PHP buckets and S
     $category = Category::factory()->create();
     $groups = [
         ['Bills', 'bills', 100],
-        ['Living costs', 'living_costs', 200],
+        ['LivingCosts', 'living_costs', 200],
         ['Lifestyle', 'lifestyle', 300],
         ['Other', 'other', 400],
         [null, 'other', 500],

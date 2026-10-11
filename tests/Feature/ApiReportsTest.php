@@ -94,7 +94,7 @@ test('the categories report totals the window per category and can split by peri
     $salary = Subcategory::factory()->forCategory($income)->create(['name' => 'Salary']);
     $housing = Category::factory()->create(['name' => 'Housing']);
     $rent = Subcategory::factory()->forCategory($housing)->create(['name' => 'Rent', 'expense_group' => 'Bills']);
-    $groceries = Subcategory::factory()->forCategory($housing)->create(['name' => 'Groceries', 'expense_group' => 'Living costs']);
+    $groceries = Subcategory::factory()->forCategory($housing)->create(['name' => 'Groceries', 'expense_group' => 'LivingCosts']);
 
     Posting::factory()->forAccount($account)->categorizedAs($salary)->income()
         ->create(['date' => '2025-01-05', 'amount' => 10000, 'original_amount' => 10000]);

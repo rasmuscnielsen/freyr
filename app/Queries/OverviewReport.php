@@ -424,7 +424,7 @@ final class OverviewReport
                 WHEN categories.id IS NULL THEN 'uncategorized'
                 WHEN categories.type = 'Income' THEN 'income'
                 WHEN categories.type = 'Expense' AND subcategories.expense_group = 'Bills' THEN 'bills'
-                WHEN categories.type = 'Expense' AND subcategories.expense_group = 'Living costs' THEN 'living_costs'
+                WHEN categories.type = 'Expense' AND subcategories.expense_group = 'LivingCosts' THEN 'living_costs'
                 WHEN categories.type = 'Expense' AND subcategories.expense_group = 'Lifestyle' THEN 'lifestyle'
                 WHEN categories.type = 'Expense' THEN 'other'
                 WHEN categories.type = 'Investment' THEN 'investments'

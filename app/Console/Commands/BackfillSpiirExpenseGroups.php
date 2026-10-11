@@ -49,7 +49,7 @@ class BackfillSpiirExpenseGroups extends Command
                 continue;
             }
 
-            $proposals[] = [$subcategory->legacy_id, $subcategory->name, $group->value];
+            $proposals[] = [$subcategory->legacy_id, $subcategory->name, $group->label()];
             if ($this->option('apply')) {
                 $changed += Subcategory::query()->whereKey($subcategory->id)
                     ->whereHas('category', fn (Builder $query): Builder => $query->where('type', CategoryType::Expense->value))
