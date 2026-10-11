@@ -4,7 +4,6 @@ namespace App\Services\Spiir;
 
 use App\Actions\RecalculateAccountBalance;
 use App\Enums\CategoryType;
-use App\Enums\ExpenseType;
 use App\Models\BankAccount;
 use App\Models\BankConnection;
 use App\Models\Category;
@@ -50,26 +49,30 @@ final class Importer
                 $categoryCount++;
             }
 
-            $categoryIds = Category::query()->pluck('id', 'legacy_id');
+            $categories = Category::query()->get()->keyBy('legacy_id');
             $subcategoryCount = 0;
 
             foreach ($payload['subcategories'] ?? [] as $subcategory) {
-                $categoryId = $categoryIds[(string) $subcategory['categoryId']] ?? null;
+                $parent = $categories[(string) $subcategory['categoryId']] ?? null;
 
-                if ($categoryId === null) {
+                if ($parent === null) {
                     continue;
                 }
 
-                Subcategory::query()->updateOrCreate(
-                    ['legacy_id' => (string) $subcategory['id']],
-                    [
-                        'category_id' => $categoryId,
-                        'name' => $subcategory['name'],
-                        'hyphenated_name' => $subcategory['hyphenatedName'] ?? null,
-                        'expense_type' => $this->expenseType($subcategory['expenseType'] ?? null)?->value,
-                        'hints' => $subcategory['hints'] ?? null,
-                    ],
-                );
+                $record = Subcategory::query()->firstOrNew(['legacy_id' => (string) $subcategory['id']]);
+                $group = $parent->type === CategoryType::Expense
+                    ? ($record->expense_group ?? ExpenseGroupMapping::forSubcategory(
+                        (string) $subcategory['id'], $subcategory['name'], $parent->legacy_id,
+                    ))
+                    : null;
+
+                $record->fill([
+                    'category_id' => $parent->id,
+                    'name' => $subcategory['name'],
+                    'hyphenated_name' => $subcategory['hyphenatedName'] ?? null,
+                    'expense_group' => $group,
+                    'hints' => $subcategory['hints'] ?? null,
+                ])->save();
 
                 $subcategoryCount++;
             }
@@ -592,10 +595,5 @@ final class Importer
     private function categoryType(mixed $value): CategoryType
     {
         return CategoryType::tryFrom((string) $value) ?? CategoryType::Exclude;
-    }
-
-    private function expenseType(mixed $value): ?ExpenseType
-    {
-        return ExpenseType::tryFrom((string) $value);
     }
 }

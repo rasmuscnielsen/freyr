@@ -19,7 +19,7 @@ class SubcategoryController extends Controller
             'category_id' => $data['category_id'],
             'name' => $data['name'],
             'hyphenated_name' => Str::slug($data['name']),
-            'expense_type' => $data['expense_type'] ?? null,
+            'expense_group' => $data['expense_group'] ?? null,
             'legacy_id' => null,
         ]);
 
@@ -34,7 +34,7 @@ class SubcategoryController extends Controller
             'category_id' => $data['category_id'],
             'name' => $data['name'],
             'hyphenated_name' => Str::slug($data['name']),
-            'expense_type' => $data['expense_type'] ?? null,
+            'expense_group' => $data['expense_group'] ?? null,
         ]);
 
         return back();

@@ -25,7 +25,7 @@ use Illuminate\Support\Facades\DB;
  * Postings without a resolved reporting amount count as `missing` so
  * partial periods stay honest.
  *
- * @phpstan-type OverviewPoint array{period: string, label: string, complete: bool, income: float, bills: float, consumption: float, investments: float, savings: float, uncategorized: float, result: float, missing: int}
+ * @phpstan-type OverviewPoint array{period: string, label: string, complete: bool, income: float, bills: float, living_costs: float, lifestyle: float, other: float, investments: float, savings: float, uncategorized: float, result: float, missing: int}
  * @phpstan-type OverviewCategory array{id: int|null, name: string, type: string, bucket: string|null, total: float, missing: int, subcategories: array<int, array{id: int|null, name: string, amount: float}>, topPostings: array<int, array{description: string|null, date: string, amount: float}>, series?: array<int, array{period: string, total: float}>}
  */
 final class OverviewReport
@@ -120,7 +120,7 @@ final class OverviewReport
      * difference in `result`, the per-bucket totals, and the coverage of
      * postings with a resolved reporting amount.
      *
-     * @return array{in: float, out: float, result: float, income: float, bills: float, consumption: float, investments: float, savings: float, uncategorized: float, coverage: array{eligible: int, converted: int, missing: int}}
+     * @return array{in: float, out: float, result: float, income: float, bills: float, living_costs: float, lifestyle: float, other: float, investments: float, savings: float, uncategorized: float, coverage: array{eligible: int, converted: int, missing: int}}
      */
     public function summary(): array
     {
@@ -148,11 +148,13 @@ final class OverviewReport
 
         $income = round($totals[Bucket::Income->value], 2);
         $bills = round($totals[Bucket::Bills->value], 2);
-        $consumption = round($totals[Bucket::Consumption->value], 2);
+        $livingCosts = round($totals[Bucket::LivingCosts->value], 2);
+        $lifestyle = round($totals[Bucket::Lifestyle->value], 2);
+        $other = round($totals[Bucket::Other->value], 2);
         $investments = round($totals[Bucket::Investments->value], 2);
         $savings = round($totals[Bucket::Savings->value], 2);
         $uncategorized = round($totals[Bucket::Uncategorized->value], 2);
-        $out = round($bills + $consumption + $investments + $savings + $uncategorized, 2);
+        $out = round($bills + $livingCosts + $lifestyle + $other + $investments + $savings + $uncategorized, 2);
 
         return [
             'in' => $income,
@@ -160,7 +162,9 @@ final class OverviewReport
             'result' => round($income - $out, 2),
             'income' => $income,
             'bills' => $bills,
-            'consumption' => $consumption,
+            'living_costs' => $livingCosts,
+            'lifestyle' => $lifestyle,
+            'other' => $other,
             'investments' => $investments,
             'savings' => $savings,
             'uncategorized' => $uncategorized,
@@ -289,7 +293,9 @@ final class OverviewReport
                 'complete' => $cursor->gte($this->start) && $this->interval->endOf($cursor)->lte($this->end),
                 'income' => 0.0,
                 'bills' => 0.0,
-                'consumption' => 0.0,
+                'living_costs' => 0.0,
+                'lifestyle' => 0.0,
+                'other' => 0.0,
                 'investments' => 0.0,
                 'savings' => 0.0,
                 'uncategorized' => 0.0,
@@ -318,7 +324,9 @@ final class OverviewReport
             'result' => round(
                 $point['income']
                 - $point['bills']
-                - $point['consumption']
+                - $point['living_costs']
+                - $point['lifestyle']
+                - $point['other']
                 - $point['investments']
                 - $point['savings']
                 - $point['uncategorized'],
@@ -415,8 +423,10 @@ final class OverviewReport
                 WHEN categories.id IS NULL AND COALESCE(postings.original_amount, postings.amount, 0) >= 0 THEN 'income'
                 WHEN categories.id IS NULL THEN 'uncategorized'
                 WHEN categories.type = 'Income' THEN 'income'
-                WHEN categories.type = 'Expense' AND subcategories.expense_type = 'Fixed' THEN 'bills'
-                WHEN categories.type = 'Expense' THEN 'consumption'
+                WHEN categories.type = 'Expense' AND subcategories.expense_group = 'Bills' THEN 'bills'
+                WHEN categories.type = 'Expense' AND subcategories.expense_group = 'Living costs' THEN 'living_costs'
+                WHEN categories.type = 'Expense' AND subcategories.expense_group = 'Lifestyle' THEN 'lifestyle'
+                WHEN categories.type = 'Expense' THEN 'other'
                 WHEN categories.type = 'Investment' THEN 'investments'
                 WHEN categories.type = 'Saving' THEN 'savings'
                 ELSE NULL

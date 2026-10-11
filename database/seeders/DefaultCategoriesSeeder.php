@@ -3,7 +3,7 @@
 namespace Database\Seeders;
 
 use App\Enums\CategoryType;
-use App\Enums\ExpenseType;
+use App\Enums\ExpenseGroup;
 use App\Models\Category;
 use App\Models\Subcategory;
 use Illuminate\Database\Console\Seeds\WithoutModelEvents;
@@ -44,7 +44,7 @@ class DefaultCategoriesSeeder extends Seeder
                         'category_id' => $category->id,
                         'name' => $subcategoryDefinition['name'],
                         'hyphenated_name' => Str::slug($subcategoryDefinition['name']),
-                        'expense_type' => ($subcategoryDefinition['expense_type'] ?? null)?->value,
+                        'expense_group' => ($subcategoryDefinition['expense_group'] ?? null)?->value,
                         'hints' => null,
                     ],
                 );
@@ -53,7 +53,7 @@ class DefaultCategoriesSeeder extends Seeder
     }
 
     /**
-     * @return list<array{key:string,name:string,type:CategoryType,subcategories:list<array{key:string,name:string,expense_type?:ExpenseType|null}>}>
+     * @return list<array{key:string,name:string,type:CategoryType,subcategories:list<array{key:string,name:string,expense_group?:ExpenseGroup|null}>}>
      */
     private function categoryDefinitions(): array
     {
@@ -75,13 +75,13 @@ class DefaultCategoriesSeeder extends Seeder
                 'name' => 'Housing',
                 'type' => CategoryType::Expense,
                 'subcategories' => [
-                    ['key' => 'rent', 'name' => 'Rent', 'expense_type' => ExpenseType::Fixed],
-                    ['key' => 'mortgage', 'name' => 'Mortgage', 'expense_type' => ExpenseType::Fixed],
-                    ['key' => 'utilities', 'name' => 'Utilities', 'expense_type' => ExpenseType::Fixed],
-                    ['key' => 'internet', 'name' => 'Internet', 'expense_type' => ExpenseType::Fixed],
-                    ['key' => 'phone', 'name' => 'Phone', 'expense_type' => ExpenseType::Fixed],
-                    ['key' => 'insurance', 'name' => 'Insurance', 'expense_type' => ExpenseType::Fixed],
-                    ['key' => 'home', 'name' => 'Home & garden', 'expense_type' => ExpenseType::Variable],
+                    ['key' => 'rent', 'name' => 'Rent', 'expense_group' => ExpenseGroup::Bills],
+                    ['key' => 'mortgage', 'name' => 'Mortgage', 'expense_group' => ExpenseGroup::Bills],
+                    ['key' => 'utilities', 'name' => 'Utilities', 'expense_group' => ExpenseGroup::Bills],
+                    ['key' => 'internet', 'name' => 'Internet', 'expense_group' => ExpenseGroup::Bills],
+                    ['key' => 'phone', 'name' => 'Phone', 'expense_group' => ExpenseGroup::Bills],
+                    ['key' => 'insurance', 'name' => 'Insurance', 'expense_group' => ExpenseGroup::Bills],
+                    ['key' => 'home', 'name' => 'Home & garden', 'expense_group' => ExpenseGroup::LivingCosts],
                 ],
             ],
             [
@@ -89,10 +89,10 @@ class DefaultCategoriesSeeder extends Seeder
                 'name' => 'Food & groceries',
                 'type' => CategoryType::Expense,
                 'subcategories' => [
-                    ['key' => 'groceries', 'name' => 'Groceries', 'expense_type' => ExpenseType::Variable],
-                    ['key' => 'restaurants', 'name' => 'Restaurants', 'expense_type' => ExpenseType::Variable],
-                    ['key' => 'takeaway', 'name' => 'Takeaway', 'expense_type' => ExpenseType::Variable],
-                    ['key' => 'coffee', 'name' => 'Coffee & snacks', 'expense_type' => ExpenseType::Variable],
+                    ['key' => 'groceries', 'name' => 'Groceries', 'expense_group' => ExpenseGroup::LivingCosts],
+                    ['key' => 'restaurants', 'name' => 'Restaurants', 'expense_group' => ExpenseGroup::Lifestyle],
+                    ['key' => 'takeaway', 'name' => 'Takeaway', 'expense_group' => ExpenseGroup::Lifestyle],
+                    ['key' => 'coffee', 'name' => 'Coffee & snacks', 'expense_group' => ExpenseGroup::Lifestyle],
                 ],
             ],
             [
@@ -100,11 +100,11 @@ class DefaultCategoriesSeeder extends Seeder
                 'name' => 'Transport',
                 'type' => CategoryType::Expense,
                 'subcategories' => [
-                    ['key' => 'transport', 'name' => 'Public transport', 'expense_type' => ExpenseType::Variable],
-                    ['key' => 'fuel', 'name' => 'Fuel', 'expense_type' => ExpenseType::Variable],
-                    ['key' => 'car', 'name' => 'Car & maintenance', 'expense_type' => ExpenseType::Variable],
-                    ['key' => 'car_fixed', 'name' => 'Car insurance & tax', 'expense_type' => ExpenseType::Fixed],
-                    ['key' => 'taxi', 'name' => 'Taxi & ride sharing', 'expense_type' => ExpenseType::Variable],
+                    ['key' => 'transport', 'name' => 'Public transport', 'expense_group' => ExpenseGroup::LivingCosts],
+                    ['key' => 'fuel', 'name' => 'Fuel', 'expense_group' => ExpenseGroup::LivingCosts],
+                    ['key' => 'car', 'name' => 'Car & maintenance', 'expense_group' => ExpenseGroup::LivingCosts],
+                    ['key' => 'car_fixed', 'name' => 'Car insurance & tax', 'expense_group' => ExpenseGroup::Bills],
+                    ['key' => 'taxi', 'name' => 'Taxi & ride sharing', 'expense_group' => ExpenseGroup::Lifestyle],
                 ],
             ],
             [
@@ -112,13 +112,13 @@ class DefaultCategoriesSeeder extends Seeder
                 'name' => 'Personal',
                 'type' => CategoryType::Expense,
                 'subcategories' => [
-                    ['key' => 'clothing', 'name' => 'Clothing', 'expense_type' => ExpenseType::Variable],
-                    ['key' => 'personal_care', 'name' => 'Personal care', 'expense_type' => ExpenseType::Variable],
-                    ['key' => 'fitness', 'name' => 'Fitness & sports', 'expense_type' => ExpenseType::Fixed],
-                    ['key' => 'subscriptions', 'name' => 'Subscriptions & memberships', 'expense_type' => ExpenseType::Fixed],
-                    ['key' => 'electronics', 'name' => 'Electronics', 'expense_type' => ExpenseType::Variable],
-                    ['key' => 'gifts_given', 'name' => 'Gifts & charity', 'expense_type' => ExpenseType::Variable],
-                    ['key' => 'education', 'name' => 'Education', 'expense_type' => ExpenseType::Variable],
+                    ['key' => 'clothing', 'name' => 'Clothing', 'expense_group' => ExpenseGroup::LivingCosts],
+                    ['key' => 'personal_care', 'name' => 'Personal care', 'expense_group' => ExpenseGroup::LivingCosts],
+                    ['key' => 'fitness', 'name' => 'Fitness & sports', 'expense_group' => ExpenseGroup::Bills],
+                    ['key' => 'subscriptions', 'name' => 'Subscriptions & memberships', 'expense_group' => ExpenseGroup::Bills],
+                    ['key' => 'electronics', 'name' => 'Electronics', 'expense_group' => ExpenseGroup::Lifestyle],
+                    ['key' => 'gifts_given', 'name' => 'Gifts & charity', 'expense_group' => ExpenseGroup::Lifestyle],
+                    ['key' => 'education', 'name' => 'Education', 'expense_group' => ExpenseGroup::LivingCosts],
                 ],
             ],
             [
@@ -126,10 +126,10 @@ class DefaultCategoriesSeeder extends Seeder
                 'name' => 'Leisure',
                 'type' => CategoryType::Expense,
                 'subcategories' => [
-                    ['key' => 'streaming', 'name' => 'Streaming', 'expense_type' => ExpenseType::Fixed],
-                    ['key' => 'entertainment', 'name' => 'Entertainment & culture', 'expense_type' => ExpenseType::Variable],
-                    ['key' => 'hobbies', 'name' => 'Hobbies', 'expense_type' => ExpenseType::Variable],
-                    ['key' => 'travel', 'name' => 'Travel', 'expense_type' => ExpenseType::Variable],
+                    ['key' => 'streaming', 'name' => 'Streaming', 'expense_group' => ExpenseGroup::Bills],
+                    ['key' => 'entertainment', 'name' => 'Entertainment & culture', 'expense_group' => ExpenseGroup::Lifestyle],
+                    ['key' => 'hobbies', 'name' => 'Hobbies', 'expense_group' => ExpenseGroup::Lifestyle],
+                    ['key' => 'travel', 'name' => 'Travel', 'expense_group' => ExpenseGroup::Lifestyle],
                 ],
             ],
             [
@@ -137,9 +137,9 @@ class DefaultCategoriesSeeder extends Seeder
                 'name' => 'Health',
                 'type' => CategoryType::Expense,
                 'subcategories' => [
-                    ['key' => 'pharmacy', 'name' => 'Pharmacy', 'expense_type' => ExpenseType::Variable],
-                    ['key' => 'doctor', 'name' => 'Doctor & dentist', 'expense_type' => ExpenseType::Variable],
-                    ['key' => 'glasses', 'name' => 'Glasses & contacts', 'expense_type' => ExpenseType::Variable],
+                    ['key' => 'pharmacy', 'name' => 'Pharmacy', 'expense_group' => ExpenseGroup::LivingCosts],
+                    ['key' => 'doctor', 'name' => 'Doctor & dentist', 'expense_group' => ExpenseGroup::LivingCosts],
+                    ['key' => 'glasses', 'name' => 'Glasses & contacts', 'expense_group' => ExpenseGroup::LivingCosts],
                 ],
             ],
             [
@@ -147,9 +147,9 @@ class DefaultCategoriesSeeder extends Seeder
                 'name' => 'Family & children',
                 'type' => CategoryType::Expense,
                 'subcategories' => [
-                    ['key' => 'childcare', 'name' => 'Childcare', 'expense_type' => ExpenseType::Fixed],
-                    ['key' => 'kids', 'name' => 'Kids activities & gear', 'expense_type' => ExpenseType::Variable],
-                    ['key' => 'pets', 'name' => 'Pets', 'expense_type' => ExpenseType::Variable],
+                    ['key' => 'childcare', 'name' => 'Childcare', 'expense_group' => ExpenseGroup::Bills],
+                    ['key' => 'kids', 'name' => 'Kids activities & gear', 'expense_group' => ExpenseGroup::LivingCosts],
+                    ['key' => 'pets', 'name' => 'Pets', 'expense_group' => ExpenseGroup::LivingCosts],
                 ],
             ],
             [
@@ -157,11 +157,11 @@ class DefaultCategoriesSeeder extends Seeder
                 'name' => 'Financial',
                 'type' => CategoryType::Expense,
                 'subcategories' => [
-                    ['key' => 'bank_fees', 'name' => 'Bank fees', 'expense_type' => ExpenseType::Fixed],
-                    ['key' => 'loan_payments', 'name' => 'Loan payments', 'expense_type' => ExpenseType::Fixed],
-                    ['key' => 'other_expenses', 'name' => 'Other expenses', 'expense_type' => ExpenseType::Variable],
-                    ['key' => 'cash_withdrawal', 'name' => 'Cash withdrawal', 'expense_type' => ExpenseType::Variable],
-                    ['key' => 'peer_transfers', 'name' => 'Peer transfers', 'expense_type' => ExpenseType::Variable],
+                    ['key' => 'bank_fees', 'name' => 'Bank fees', 'expense_group' => ExpenseGroup::Other],
+                    ['key' => 'loan_payments', 'name' => 'Loan payments', 'expense_group' => ExpenseGroup::Bills],
+                    ['key' => 'other_expenses', 'name' => 'Other expenses', 'expense_group' => ExpenseGroup::Other],
+                    ['key' => 'cash_withdrawal', 'name' => 'Cash withdrawal', 'expense_group' => ExpenseGroup::Other],
+                    ['key' => 'peer_transfers', 'name' => 'Peer transfers', 'expense_group' => ExpenseGroup::Other],
                 ],
             ],
             [

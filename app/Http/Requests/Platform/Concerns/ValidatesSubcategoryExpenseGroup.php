@@ -3,16 +3,16 @@
 namespace App\Http\Requests\Platform\Concerns;
 
 use App\Enums\CategoryType;
-use App\Enums\ExpenseType;
+use App\Enums\ExpenseGroup;
 use App\Models\Category;
 use Illuminate\Validation\Rule;
 
 /**
- * Shared validation for a subcategory's `expense_type`, which is only
+ * Shared validation for a subcategory's `expense_group`, which is only
  * meaningful when its parent category is of type {@see CategoryType::Expense}:
- * it is required for Expense parents and must be absent for every other type.
+ * it is optional for Expense parents and must be absent for every other type.
  */
-trait ValidatesSubcategoryExpenseType
+trait ValidatesSubcategoryExpenseGroup
 {
     /**
      * Resolve the parent category the subcategory is being validated against.
@@ -22,10 +22,10 @@ trait ValidatesSubcategoryExpenseType
     /**
      * @return array<int, mixed>
      */
-    protected function expenseTypeRules(): array
+    protected function expenseGroupRules(): array
     {
         if ($this->targetCategory()?->type === CategoryType::Expense) {
-            return ['required', Rule::enum(ExpenseType::class)];
+            return ['nullable', Rule::enum(ExpenseGroup::class)];
         }
 
         return ['nullable', 'prohibited'];

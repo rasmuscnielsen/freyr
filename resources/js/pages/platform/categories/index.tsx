@@ -38,7 +38,7 @@ import {
 type Subcategory = {
     id: number;
     name: string;
-    expense_type: string | null;
+    expense_group: string | null;
     postings_count: number;
 };
 
@@ -52,7 +52,7 @@ type Category = {
 type CategoriesProps = {
     categories: Category[];
     categoryTypes: string[];
-    expenseTypes: string[];
+    expenseGroups: string[];
 };
 
 const EXPENSE_TYPE = 'Expense';
@@ -66,8 +66,7 @@ const typeGroupOrder = ['Income', 'Expense', 'Investment', 'Saving', 'Exclude'];
  */
 const typeBadgeClasses: Record<string, string> = {
     Income: 'border-transparent bg-chart-income/12 text-chart-income',
-    Expense:
-        'border-transparent bg-chart-consumption/12 text-chart-consumption',
+    Expense: 'border-transparent bg-chart-bills/12 text-chart-bills',
     Investment:
         'border-transparent bg-chart-investments/12 text-chart-investments',
     Saving: 'border-transparent bg-chart-savings/15 text-chart-savings',
@@ -75,13 +74,14 @@ const typeBadgeClasses: Record<string, string> = {
 };
 
 /**
- * Fixed expenses land in the bills bucket, variable ones in consumption, so
- * the expense-type badges borrow those bucket colors.
+ * Expense-group badges use the corresponding dashboard bucket colors.
  */
-const expenseTypeBadgeClasses: Record<string, string> = {
-    Fixed: 'border-transparent bg-chart-bills/12 text-chart-bills',
-    Variable:
-        'border-transparent bg-chart-consumption/12 text-chart-consumption',
+const expenseGroupBadgeClasses: Record<string, string> = {
+    Bills: 'border-transparent bg-chart-bills/12 text-chart-bills',
+    'Living costs':
+        'border-transparent bg-chart-living-costs/12 text-chart-living-costs',
+    Lifestyle: 'border-transparent bg-chart-lifestyle/12 text-chart-lifestyle',
+    Other: 'border-transparent bg-chart-other/12 text-chart-other',
 };
 
 function TypeBadge({ type }: { type: string }) {
@@ -124,7 +124,7 @@ Categories.layout = {
 export default function Categories({
     categories,
     categoryTypes,
-    expenseTypes,
+    expenseGroups,
 }: CategoriesProps) {
     const [editingCategory, setEditingCategory] = useState<Category | null>(
         null,
@@ -285,7 +285,7 @@ export default function Categories({
                     editingSubcategory?.category ?? creatingSubcategoryFor
                 }
                 subcategory={editingSubcategory?.subcategory ?? null}
-                expenseTypes={expenseTypes}
+                expenseGroups={expenseGroups}
                 open={
                     editingSubcategory !== null ||
                     creatingSubcategoryFor !== null
@@ -395,16 +395,16 @@ function CategoryRows({
                         </div>
                     </td>
                     <td className="py-1.5 pr-3 pl-3">
-                        {subcategory.expense_type && (
+                        {category.type === EXPENSE_TYPE && (
                             <Badge
                                 variant="outline"
                                 className={cn(
-                                    expenseTypeBadgeClasses[
-                                        subcategory.expense_type
+                                    expenseGroupBadgeClasses[
+                                        subcategory.expense_group ?? ''
                                     ] ?? 'text-muted-foreground',
                                 )}
                             >
-                                {subcategory.expense_type}
+                                {subcategory.expense_group ?? 'Unassigned'}
                             </Badge>
                         )}
                     </td>
@@ -545,21 +545,21 @@ function CategoryDialog({
 type SubcategoryForm = {
     category_id: number;
     name: string;
-    expense_type: string | null;
+    expense_group: string | null;
 };
 
 function SubcategoryDialog({
     categories,
     category,
     subcategory,
-    expenseTypes,
+    expenseGroups,
     open,
     onClose,
 }: {
     categories: Category[];
     category: Category | null;
     subcategory: Subcategory | null;
-    expenseTypes: string[];
+    expenseGroups: string[];
     open: boolean;
     onClose: () => void;
 }) {
@@ -567,9 +567,9 @@ function SubcategoryDialog({
     const form = useForm<SubcategoryForm>({
         category_id: category?.id ?? 0,
         name: subcategory?.name ?? '',
-        expense_type:
+        expense_group:
             category?.type === EXPENSE_TYPE
-                ? (subcategory?.expense_type ?? expenseTypes[0] ?? null)
+                ? (subcategory?.expense_group ?? null)
                 : null,
     });
     const isExpense =
@@ -579,7 +579,7 @@ function SubcategoryDialog({
     const submit = () => {
         form.transform((data) => ({
             ...data,
-            expense_type: isExpense ? data.expense_type : null,
+            expense_group: isExpense ? data.expense_group : null,
         }));
 
         if (isEditing) {
@@ -621,14 +621,12 @@ function SubcategoryDialog({
                                 form.setData({
                                     ...form.data,
                                     category_id: categoryId,
-                                    expense_type:
+                                    expense_group:
                                         categories.find(
                                             (option) =>
                                                 option.id === categoryId,
                                         )?.type === EXPENSE_TYPE
-                                            ? (form.data.expense_type ??
-                                              expenseTypes[0] ??
-                                              null)
+                                            ? form.data.expense_group
                                             : null,
                                 });
                             }}
@@ -667,25 +665,31 @@ function SubcategoryDialog({
 
                     {isExpense && (
                         <div className="grid gap-2">
-                            <Label>Expense type</Label>
+                            <Label>Expense group</Label>
                             <Select
-                                value={form.data.expense_type ?? undefined}
+                                value={form.data.expense_group ?? 'unassigned'}
                                 onValueChange={(value) =>
-                                    form.setData('expense_type', value)
+                                    form.setData(
+                                        'expense_group',
+                                        value === 'unassigned' ? null : value,
+                                    )
                                 }
                             >
                                 <SelectTrigger className="w-full">
-                                    <SelectValue placeholder="Select a type" />
+                                    <SelectValue placeholder="Select a group" />
                                 </SelectTrigger>
                                 <SelectContent>
-                                    {expenseTypes.map((type) => (
+                                    <SelectItem value="unassigned">
+                                        Unassigned
+                                    </SelectItem>
+                                    {expenseGroups.map((type) => (
                                         <SelectItem key={type} value={type}>
                                             {type}
                                         </SelectItem>
                                     ))}
                                 </SelectContent>
                             </Select>
-                            <InputError message={form.errors.expense_type} />
+                            <InputError message={form.errors.expense_group} />
                         </div>
                     )}
                 </div>

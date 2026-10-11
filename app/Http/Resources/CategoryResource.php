@@ -24,7 +24,7 @@ class CategoryResource extends JsonResource
                 'name' => $subcategory->name,
                 'type' => $this->type,
                 'hyphenated_name' => $subcategory->hyphenated_name,
-                'expense_type' => $subcategory->expense_type,
+                'expense_group' => $subcategory->expense_group,
                 'hints' => $subcategory->hints,
             ])->values()),
             'created_at' => $this->created_at?->toJSON(),

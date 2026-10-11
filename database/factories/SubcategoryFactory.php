@@ -25,7 +25,7 @@ class SubcategoryFactory extends Factory
             'legacy_id' => fake()->unique()->numerify('legacy-subcategory-####'),
             'name' => fake()->words(2, true),
             'hyphenated_name' => null,
-            'expense_type' => 'Variable',
+            'expense_group' => null,
             'hints' => null,
         ];
     }

@@ -55,7 +55,9 @@ type Summary = {
     result: number;
     income: number;
     bills: number;
-    consumption: number;
+    living_costs: number;
+    lifestyle: number;
+    other: number;
     investments: number;
     savings: number;
     uncategorized: number;
@@ -69,7 +71,9 @@ type FlowPoint = {
     complete: boolean;
     income: number;
     bills: number;
-    consumption: number;
+    living_costs: number;
+    lifestyle: number;
+    other: number;
     investments: number;
     savings: number;
     uncategorized: number;
@@ -122,7 +126,9 @@ type DashboardProps = {
 
 type BucketKey =
     | 'bills'
-    | 'consumption'
+    | 'living_costs'
+    | 'lifestyle'
+    | 'other'
     | 'investments'
     | 'savings'
     | 'uncategorized';
@@ -135,7 +141,7 @@ type BucketMeta = {
 };
 
 /**
- * The five outgoing buckets, in the order they stack and appear in the legend.
+ * The outgoing buckets, in the order they stack and appear in the legend.
  * Colours map to the `--color-chart-*` tokens defined in app.css.
  */
 const BUCKETS: BucketMeta[] = [
@@ -146,10 +152,22 @@ const BUCKETS: BucketMeta[] = [
         cssVar: 'var(--color-chart-bills)',
     },
     {
-        key: 'consumption',
-        label: 'Consumption',
-        colorClass: 'bg-chart-consumption',
-        cssVar: 'var(--color-chart-consumption)',
+        key: 'living_costs',
+        label: 'Living costs',
+        colorClass: 'bg-chart-living-costs',
+        cssVar: 'var(--color-chart-living-costs)',
+    },
+    {
+        key: 'lifestyle',
+        label: 'Lifestyle',
+        colorClass: 'bg-chart-lifestyle',
+        cssVar: 'var(--color-chart-lifestyle)',
+    },
+    {
+        key: 'other',
+        label: 'Other',
+        colorClass: 'bg-chart-other',
+        cssVar: 'var(--color-chart-other)',
     },
     {
         key: 'investments',
@@ -482,7 +500,9 @@ export default function Dashboard({
     const flowData = series.map((point) => ({
         ...point,
         billsStacked: -Math.abs(point.bills),
-        consumptionStacked: -Math.abs(point.consumption),
+        living_costsStacked: -Math.abs(point.living_costs),
+        lifestyleStacked: -Math.abs(point.lifestyle),
+        otherStacked: -Math.abs(point.other),
         investmentsStacked: -Math.abs(point.investments),
         savingsStacked: -Math.abs(point.savings),
         uncategorizedStacked: -Math.abs(point.uncategorized),
@@ -502,7 +522,9 @@ export default function Dashboard({
         ...domainSource.map((point) =>
             Math.min(
                 point.billsStacked +
-                    point.consumptionStacked +
+                    point.living_costsStacked +
+                    point.lifestyleStacked +
+                    point.otherStacked +
                     point.investmentsStacked +
                     point.savingsStacked +
                     point.uncategorizedStacked,
@@ -588,12 +610,10 @@ export default function Dashboard({
                 : (anchors[0].center -
                       (flowChartRef.current?.getBoundingClientRect().left ??
                           0)) /
-                      (anchors[0].index + 0.5) ||
-                  1;
+                      (anchors[0].index + 0.5) || 1;
 
         const nearest = anchors.reduce((best, anchor) =>
-            Math.abs(clientX - anchor.center) <
-            Math.abs(clientX - best.center)
+            Math.abs(clientX - anchor.center) < Math.abs(clientX - best.center)
                 ? anchor
                 : best,
         );
@@ -621,9 +641,7 @@ export default function Dashboard({
                     `${selectedPeriod}-12-31`,
                 ].join(',');
             } else {
-                const [year, monthPart] = selectedPeriod
-                    .split('-')
-                    .map(Number);
+                const [year, monthPart] = selectedPeriod.split('-').map(Number);
                 const from = new Date(Date.UTC(year, monthPart - 1, 1));
                 const to = new Date(Date.UTC(year, monthPart, 0));
                 filter.posted_between = [

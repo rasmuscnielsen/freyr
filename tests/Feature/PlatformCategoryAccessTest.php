@@ -30,7 +30,7 @@ test('platform admins can view the categories index', function () {
             ->component('platform/categories/index')
             ->has('categories')
             ->has('categoryTypes')
-            ->has('expenseTypes'));
+            ->has('expenseGroups'));
 });
 
 test('isPlatformAdmin is shared through inertia for admins and non-admins', function () {

@@ -2,28 +2,30 @@
 
 use App\Enums\Bucket;
 use App\Enums\CategoryType;
-use App\Enums\ExpenseType;
+use App\Enums\ExpenseGroup;
 
-test('it maps every category and expense type combination to a bucket', function (CategoryType $categoryType, ?ExpenseType $expenseType, ?Bucket $expected) {
-    expect(Bucket::forCategory($categoryType, $expenseType))->toBe($expected);
+test('it maps every category and expense group combination to a bucket', function (CategoryType $categoryType, ?ExpenseGroup $expenseGroup, ?Bucket $expected) {
+    expect(Bucket::forCategory($categoryType, $expenseGroup))->toBe($expected);
 })->with([
-    'income (no expense type)' => [CategoryType::Income, null, Bucket::Income],
-    'income (fixed ignored)' => [CategoryType::Income, ExpenseType::Fixed, Bucket::Income],
-    'income (variable ignored)' => [CategoryType::Income, ExpenseType::Variable, Bucket::Income],
+    'income (no expense group)' => [CategoryType::Income, null, Bucket::Income],
+    'income (bills ignored)' => [CategoryType::Income, ExpenseGroup::Bills, Bucket::Income],
+    'income (other ignored)' => [CategoryType::Income, ExpenseGroup::Other, Bucket::Income],
 
-    'expense fixed → bills' => [CategoryType::Expense, ExpenseType::Fixed, Bucket::Bills],
-    'expense variable → consumption' => [CategoryType::Expense, ExpenseType::Variable, Bucket::Consumption],
-    'expense null → consumption' => [CategoryType::Expense, null, Bucket::Consumption],
+    'expense bills → bills' => [CategoryType::Expense, ExpenseGroup::Bills, Bucket::Bills],
+    'expense living costs → living costs' => [CategoryType::Expense, ExpenseGroup::LivingCosts, Bucket::LivingCosts],
+    'expense lifestyle → lifestyle' => [CategoryType::Expense, ExpenseGroup::Lifestyle, Bucket::Lifestyle],
+    'expense other → other' => [CategoryType::Expense, ExpenseGroup::Other, Bucket::Other],
+    'expense unassigned → other' => [CategoryType::Expense, null, Bucket::Other],
 
-    'investment (no expense type)' => [CategoryType::Investment, null, Bucket::Investments],
-    'investment (fixed ignored)' => [CategoryType::Investment, ExpenseType::Fixed, Bucket::Investments],
-    'investment (variable ignored)' => [CategoryType::Investment, ExpenseType::Variable, Bucket::Investments],
+    'investment (no expense group)' => [CategoryType::Investment, null, Bucket::Investments],
+    'investment (bills ignored)' => [CategoryType::Investment, ExpenseGroup::Bills, Bucket::Investments],
+    'investment (other ignored)' => [CategoryType::Investment, ExpenseGroup::Other, Bucket::Investments],
 
-    'saving (no expense type)' => [CategoryType::Saving, null, Bucket::Savings],
-    'saving (fixed ignored)' => [CategoryType::Saving, ExpenseType::Fixed, Bucket::Savings],
-    'saving (variable ignored)' => [CategoryType::Saving, ExpenseType::Variable, Bucket::Savings],
+    'saving (no expense group)' => [CategoryType::Saving, null, Bucket::Savings],
+    'saving (bills ignored)' => [CategoryType::Saving, ExpenseGroup::Bills, Bucket::Savings],
+    'saving (other ignored)' => [CategoryType::Saving, ExpenseGroup::Other, Bucket::Savings],
 
-    'exclude (no expense type)' => [CategoryType::Exclude, null, null],
-    'exclude (fixed ignored)' => [CategoryType::Exclude, ExpenseType::Fixed, null],
-    'exclude (variable ignored)' => [CategoryType::Exclude, ExpenseType::Variable, null],
+    'exclude (no expense group)' => [CategoryType::Exclude, null, null],
+    'exclude (bills ignored)' => [CategoryType::Exclude, ExpenseGroup::Bills, null],
+    'exclude (other ignored)' => [CategoryType::Exclude, ExpenseGroup::Other, null],
 ]);

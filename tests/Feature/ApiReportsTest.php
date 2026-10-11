@@ -27,7 +27,7 @@ test('the overview report aggregates monthly buckets over the requested window',
         $user = User::factory()->create(['reporting_currency' => 'DKK']);
         $account = BankAccount::factory()->for($user)->create();
         $salary = Subcategory::factory()->forCategory(Category::factory()->income()->create())->create();
-        $rent = Subcategory::factory()->forCategory(Category::factory()->create())->create(['expense_type' => 'Fixed']);
+        $rent = Subcategory::factory()->forCategory(Category::factory()->create())->create(['expense_group' => 'Bills']);
 
         Posting::factory()->forAccount($account)->categorizedAs($salary)->income()
             ->create(['date' => '2026-01-05', 'amount' => 10000, 'original_amount' => 10000]);
@@ -93,8 +93,8 @@ test('the categories report totals the window per category and can split by peri
     $income = Category::factory()->income()->create(['name' => 'Income']);
     $salary = Subcategory::factory()->forCategory($income)->create(['name' => 'Salary']);
     $housing = Category::factory()->create(['name' => 'Housing']);
-    $rent = Subcategory::factory()->forCategory($housing)->create(['name' => 'Rent', 'expense_type' => 'Fixed']);
-    $groceries = Subcategory::factory()->forCategory($housing)->create(['name' => 'Groceries', 'expense_type' => 'Variable']);
+    $rent = Subcategory::factory()->forCategory($housing)->create(['name' => 'Rent', 'expense_group' => 'Bills']);
+    $groceries = Subcategory::factory()->forCategory($housing)->create(['name' => 'Groceries', 'expense_group' => 'Living costs']);
 
     Posting::factory()->forAccount($account)->categorizedAs($salary)->income()
         ->create(['date' => '2025-01-05', 'amount' => 10000, 'original_amount' => 10000]);
