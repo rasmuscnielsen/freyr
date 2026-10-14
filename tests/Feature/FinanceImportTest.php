@@ -11,8 +11,7 @@ use App\Services\Spiir\Importer;
 test('it imports a spiir export idempotently', function () {
     $path = base_path('tests/Fixtures/spiir-export');
 
-    $this->artisan('app:spiir:import', ['path' => $path])
-        ->assertSuccessful();
+    app(Importer::class)->importExport($path);
 
     expect(Category::query()->count())->toBe(3)
         ->and(Subcategory::query()->count())->toBe(3)
@@ -66,8 +65,7 @@ test('it imports a spiir export idempotently', function () {
     // Spiir's legacy 'Transfer' category type collapses onto Exclude.
     expect(Category::query()->where('legacy_id', '300')->firstOrFail()->type)->toBe(CategoryType::Exclude);
 
-    $this->artisan('app:spiir:import', ['path' => $path])
-        ->assertSuccessful();
+    app(Importer::class)->importExport($path);
 
     expect(Category::query()->count())->toBe(3)
         ->and(Subcategory::query()->count())->toBe(3)
@@ -109,10 +107,9 @@ test('it imports a spiir export for an explicit user', function () {
         ->and(Posting::query()->count())->toBe(7);
 });
 
-test('it fails when the export path is not a directory', function () {
-    $this->artisan('app:spiir:import', ['path' => base_path('tests/Fixtures/does-not-exist')])
-        ->assertFailed();
-});
+test('it fails when the export files are missing', function () {
+    app(Importer::class)->importExport(base_path('tests/Fixtures/does-not-exist'));
+})->throws(RuntimeException::class, 'Missing Spiir export file');
 
 test('spiir account group duplicates are skipped without collapsing identical unflagged postings', function () {
     $path = sys_get_temp_dir().'/freyr-spiir-duplicates-'.bin2hex(random_bytes(6));

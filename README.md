@@ -208,21 +208,11 @@ is a first-class flow. The recommended order:
 2. **Import your export.** On a fresh install, the setup wizard lets you
    upload the four export files (`Categories.json`, `User.csv`, `Account.csv`,
    `Posting.csv`) straight from your browser — it is also available later
-   under **Platform → Settings** while no postings exist. Alternatively, keep
-   the export directory **outside the project directory** — so it cannot end
-   up in version control — and run:
-
-   ```bash
-   php artisan app:spiir:import ~/spiir-export
-   ```
+   under **Platform → Settings** while no postings exist.
 
    The importer creates your user, accounts, categories, and postings from the
    export. Your Spiir category tree **replaces** the seeded default categories
-   (the command warns before doing this); any postings that were categorized
-   with a default category become uncategorized.
-
-   Re-running the import on the same database is safe — rows are matched by
-   their Spiir ids and updated in place.
+   (the upload form warns before doing this).
 3. **Connect your bank** from the Bank connections page and link each remote
    account to the matching imported account. When you link an account that
    already has imported history, Freyr only syncs transactions **newer** than
