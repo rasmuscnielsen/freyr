@@ -1,4 +1,6 @@
-/.agents
+/.agents/*
+!/.agents/setup
+/.amp/portals/
 /.claude/skills
 /.cursor/skills
 /.junie/mcp

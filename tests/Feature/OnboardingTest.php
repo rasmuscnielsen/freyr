@@ -34,6 +34,23 @@ test('a fresh install redirects the login page to the onboarding welcome', funct
     $this->get(route('login'))->assertRedirect(route('onboarding.welcome'));
 });
 
+test('only configured proxies can forward HTTPS for onboarding redirects', function (string $proxies, string $remoteAddress, string $forwardedScheme, string $scheme) {
+    config(['trustedproxy.proxies' => $proxies]);
+
+    $this->withServerVariables(['REMOTE_ADDR' => $remoteAddress])
+        ->withHeader('X-Forwarded-Proto', $forwardedScheme)
+        ->get('http://freyr.test/login')
+        ->assertRedirect("{$scheme}://freyr.test/onboarding");
+})->with([
+    'IPv4 in a comma-separated list' => ['::1, 127.0.0.1', '127.0.0.1', 'https', 'https'],
+    'IPv6' => ['127.0.0.1,::1', '::1', 'https', 'https'],
+    'no trusted proxies' => ['', '127.0.0.1', 'https', 'http'],
+    'untrusted remote' => ['127.0.0.1,::1', '192.0.2.1', 'https', 'http'],
+    'inside a CIDR range' => ['192.0.2.0/24', '192.0.2.254', 'https', 'https'],
+    'outside a CIDR range' => ['192.0.2.0/24', '192.0.3.1', 'https', 'http'],
+    'HTTP through a trusted proxy' => ['127.0.0.1', '127.0.0.1', 'http', 'http'],
+]);
+
 test('the onboarding welcome renders on a fresh install', function () {
     $this->get(route('onboarding.welcome'))
         ->assertOk()
