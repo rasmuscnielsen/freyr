@@ -26,9 +26,12 @@ class PostingController extends Controller
      * other postings into a gap or a duplicate, but a posting whose booking
      * date is edited mid-iteration can be seen twice or missed.
      *
-     * For incremental sync, pass the time the previous sync started as
-     * `filter[updated_since]`; that also picks up postings edited during the
-     * previous iteration. Deleted postings are not reported.
+     * For incremental sync, pass the time the previous sync started, minus a
+     * safety margin, as `filter[updated_since]` and upsert results by `id`.
+     * That also picks up postings edited during the previous iteration. The
+     * margin covers changes committed after their `updated_at` was stamped
+     * (e.g. a long-running import); an hour is ample. Deleted postings are
+     * not reported.
      */
     public function index(ListPostingsRequest $request): AnonymousResourceCollection
     {

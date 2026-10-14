@@ -7,6 +7,8 @@ use App\Models\Posting;
 use App\Models\Subcategory;
 use App\Models\User;
 use App\Services\Spiir\Importer;
+use Database\Seeders\DefaultCategoriesSeeder;
+use Illuminate\Support\Carbon;
 
 test('it imports a spiir export idempotently', function () {
     $path = base_path('tests/Fixtures/spiir-export');
@@ -181,4 +183,20 @@ test('spiir placeholder external IDs remain missing after repeated imports', fun
         }
         rmdir($path);
     }
+});
+
+test('postings losing a removed default category are marked as updated', function () {
+    $user = User::factory()->create();
+    $this->seed(DefaultCategoriesSeeder::class);
+    $subcategory = Subcategory::query()->where('legacy_id', 'like', DefaultCategoriesSeeder::SUBCATEGORY_LEGACY_ID_PREFIX.'%')->firstOrFail();
+
+    Carbon::setTestNow('2026-05-01 10:00:00');
+    $manual = Posting::factory()->forAccount(BankAccount::factory()->for($user)->create())->categorizedAs($subcategory)->create();
+
+    Carbon::setTestNow('2026-05-02 10:00:00');
+    app(Importer::class)->importExport(base_path('tests/Fixtures/spiir-export'), $user);
+
+    expect($manual->fresh())
+        ->categorized_subcategory_id->toBeNull()
+        ->updated_at->toDateTimeString()->toBe('2026-05-02 10:00:00');
 });

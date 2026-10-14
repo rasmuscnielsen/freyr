@@ -14,11 +14,17 @@ class Subcategory extends Model
     /** @use HasFactory<SubcategoryFactory> */
     use HasFactory;
 
+    /** @var list<int> */
+    private array $referencingPostingIds = [];
+
     protected static function booted(): void
     {
-        // The postings FKs null on delete without touching the rows; bump
-        // `updated_at` first so API `updated_since` sync sees the change.
-        static::deleting(fn (Subcategory $subcategory) => Posting::touchForSubcategories([$subcategory->id]));
+        // Deleting nulls posting FKs in the database without touching the
+        // rows; bump their `updated_at` afterwards for `updated_since` sync.
+        static::deleting(function (Subcategory $model): void {
+            $model->referencingPostingIds = Posting::idsReferencingSubcategories([$model->id]);
+        });
+        static::deleted(fn (Subcategory $model) => Posting::touchByIds($model->referencingPostingIds));
     }
 
     /**

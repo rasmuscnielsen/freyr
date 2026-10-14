@@ -98,9 +98,12 @@ final class Importer
      */
     private function removeDefaultCategories(): void
     {
+        // Deleted one by one so the model events bump the `updated_at` of
+        // postings that lose their category (see Category::booted()).
         Category::query()
             ->where('legacy_id', 'like', DefaultCategoriesSeeder::CATEGORY_LEGACY_ID_PREFIX.'%')
-            ->delete();
+            ->get()
+            ->each->delete();
     }
 
     public function canImport(): bool

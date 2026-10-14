@@ -6,6 +6,7 @@ use App\Models\Posting;
 use App\Models\Subcategory;
 use App\Models\User;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use Laravel\Passport\Passport;
 
 /**
@@ -213,6 +214,21 @@ test('postings whose category is deleted show up in incremental sync', function 
         ->assertJsonPath('data.*.id', [$posting->id])
         ->assertJsonPath('data.0.subcategory', null);
 })->with(['subcategory', 'category']);
+
+test('postings losing their category are stamped when the delete commits, not before', function () {
+    $subcategory = Subcategory::factory()->forCategory(Category::factory()->create())->create();
+    $posting = Posting::factory()->categorizedAs($subcategory)->create();
+
+    // A sync starting between the delete and its commit reads the old row;
+    // the stamp must not predate that sync's start.
+    DB::transaction(function () use ($subcategory) {
+        Carbon::setTestNow('2026-05-02 10:00:00');
+        $subcategory->delete();
+        Carbon::setTestNow('2026-05-02 10:00:05');
+    });
+
+    expect($posting->fresh()->updated_at->toDateTimeString())->toBe('2026-05-02 10:00:05');
+});
 
 test('postings can be filtered by amount range and several accounts', function () {
     $user = User::factory()->create();

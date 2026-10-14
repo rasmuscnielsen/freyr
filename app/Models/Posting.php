@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Support\Facades\DB;
 
 class Posting extends Model
 {
@@ -115,22 +116,46 @@ class Posting extends Model
      * @return Builder<Posting>
      */
     /**
-     * Bump `updated_at` on postings referencing the given subcategories,
-     * ahead of a delete that nulls those references in the database.
+     * Ids of postings referencing the given subcategories, captured ahead of
+     * a delete that nulls those references in the database (see
+     * touchByIds()).
      *
      * @param  list<int>  $subcategoryIds
+     * @return list<int>
      */
-    public static function touchForSubcategories(array $subcategoryIds): void
+    public static function idsReferencingSubcategories(array $subcategoryIds): array
     {
         if ($subcategoryIds === []) {
-            return;
+            return [];
         }
 
-        static::query()
+        return static::query()
             ->where(fn (Builder $query) => $query
                 ->whereIn('categorized_subcategory_id', $subcategoryIds)
                 ->orWhereIn('subcategory_id', $subcategoryIds))
-            ->update(['updated_at' => now()]);
+            ->pluck('id')
+            ->all();
+    }
+
+    /**
+     * Bump `updated_at` after a database-level change (FK null on delete)
+     * so API `updated_since` sync sees it. Deferred until the surrounding
+     * transaction commits: a timestamp written earlier could predate the
+     * start of a sync that still read the old row.
+     *
+     * @param  list<int>  $ids
+     */
+    public static function touchByIds(array $ids): void
+    {
+        if ($ids === []) {
+            return;
+        }
+
+        DB::afterCommit(function () use ($ids): void {
+            foreach (array_chunk($ids, 1000) as $chunk) {
+                static::query()->whereKey($chunk)->update(['updated_at' => now()]);
+            }
+        });
     }
 
     public function scopeForUser(Builder $query, User $user): Builder
