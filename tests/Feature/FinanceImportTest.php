@@ -219,3 +219,22 @@ test('a re-import revives deleted postings in place and leaves other trashed pos
     expect(Posting::query()->orderBy('id')->pluck('id')->all())->toBe($ids)
         ->and(Posting::onlyTrashed()->pluck('id')->all())->toBe([$unrelated->id]);
 });
+
+test('a re-import never links a posting to a deleted counter entry', function () {
+    $user = User::factory()->create();
+    app(Importer::class)->importExport(base_path('tests/Fixtures/spiir-export'), $user);
+    Posting::query()->where('legacy_id', 'post-4')->firstOrFail()->delete();
+
+    // An export without the deleted counter entry leaves it trashed.
+    $path = sys_get_temp_dir().'/spiir-export-'.uniqid();
+    mkdir($path);
+    foreach (glob(base_path('tests/Fixtures/spiir-export/*')) as $fixture) {
+        copy($fixture, $path.'/'.basename($fixture));
+    }
+    $postings = file($path.'/Posting.csv');
+    file_put_contents($path.'/Posting.csv', implode('', array_filter($postings, fn (string $line) => ! str_starts_with($line, 'post-4;'))));
+
+    app(Importer::class)->importExport($path, $user);
+
+    expect(Posting::query()->where('legacy_id', 'post-3')->firstOrFail()->counter_entry_posting_id)->toBeNull();
+});

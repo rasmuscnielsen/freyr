@@ -427,7 +427,8 @@ final class Importer
             unset($rows[$parent['legacy_id']]);
             // Soft, so sync clients that already have the parent learn it is
             // gone; it is out of $rows, so its legacy id is never upserted.
-            Posting::query()->where('legacy_id', $parent['legacy_id'])->delete();
+            // Per model, so the softDeleted hook unlinks counter entries.
+            Posting::query()->where('legacy_id', $parent['legacy_id'])->get()->each->delete();
         }
 
         $updateColumns = array_values(array_diff(array_keys(reset($rows) ?: []), ['legacy_id', 'created_at']));
@@ -470,6 +471,7 @@ final class Importer
             FROM postings AS counter_entry
             WHERE postings.counter_entry_posting_id IS NULL
               AND postings.counter_entry_legacy_id = counter_entry.legacy_id
+              AND counter_entry.deleted_at IS NULL
         SQL);
     }
 
