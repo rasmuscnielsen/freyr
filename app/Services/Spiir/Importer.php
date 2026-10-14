@@ -123,6 +123,10 @@ final class Importer
         return DB::transaction(function () use ($path, $user, $reportingCurrency): array {
             $user ??= $this->resolveUser($path);
 
+            // Trashed postings from an earlier import still hold their unique
+            // legacy ids; the upsert would revive them as still-deleted rows.
+            Posting::onlyTrashed()->whereNotNull('legacy_id')->forceDelete();
+
             // The export's reporting currency replaces the user's initial
             // choice before any history is written — the only way the fixed
             // currency may still move. Rolls back with the import on failure.

@@ -200,3 +200,18 @@ test('postings losing a removed default category are marked as updated', functio
         ->categorized_subcategory_id->toBeNull()
         ->updated_at->toDateTimeString()->toBe('2026-05-02 10:00:00');
 });
+
+test('a re-import after deleting every posting restores them', function () {
+    $user = User::factory()->create();
+    $path = base_path('tests/Fixtures/spiir-export');
+
+    $imported = app(Importer::class)->importExport($path, $user)['postings'];
+    Posting::query()->get()->each->delete();
+
+    expect(app(Importer::class)->canImport())->toBeTrue();
+
+    app(Importer::class)->importExport($path, $user);
+
+    expect(Posting::query()->count())->toBe($imported)
+        ->and(Posting::onlyTrashed()->count())->toBe(0);
+});
