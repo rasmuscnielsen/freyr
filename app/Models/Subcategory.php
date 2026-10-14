@@ -20,7 +20,7 @@ class Subcategory extends Model
     protected static function booted(): void
     {
         // Deleting nulls posting FKs in the database without touching the
-        // rows; bump their `updated_at` afterwards for `updated_since` sync.
+        // rows; bump their `updated_at` afterwards for `changed_since` sync.
         static::deleting(function (Subcategory $model): void {
             $model->referencingPostingIds = Posting::idsReferencingSubcategories([$model->id]);
         });

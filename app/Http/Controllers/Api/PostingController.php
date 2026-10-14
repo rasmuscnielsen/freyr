@@ -27,11 +27,14 @@ class PostingController extends Controller
      * date is edited mid-iteration can be seen twice or missed.
      *
      * For incremental sync, pass the time the previous sync started, minus a
-     * safety margin, as `filter[updated_since]` and upsert results by `id`.
-     * That also picks up postings edited during the previous iteration. The
-     * margin covers changes committed after their `updated_at` was stamped
-     * (e.g. a long-running import); an hour is ample. Deleted postings are
-     * not reported.
+     * safety margin, as `filter[changed_since]`; upsert results by `id` and
+     * remove those with a non-null `deleted_at`. That also picks up postings
+     * edited during the previous iteration. The margin covers changes
+     * committed after their `updated_at` was stamped (e.g. a long-running
+     * import); an hour is ample. Postings of a deleted bank account are
+     * removed with it and not reported: drop them when the account
+     * disappears from the bank accounts list. `meta.totals` excludes
+     * deleted postings.
      */
     public function index(ListPostingsRequest $request): AnonymousResourceCollection
     {
@@ -68,6 +71,12 @@ class PostingController extends Controller
      */
     private function list(ListPostingsRequest $request, $baseQuery): AnonymousResourceCollection
     {
+        // Incremental sync must learn about deletions, so trashed postings
+        // are only ever listed under `changed_since`.
+        if ($request->has('filter.changed_since')) {
+            $baseQuery->withTrashed();
+        }
+
         $query = PostingFilters::apply($baseQuery, $request);
 
         // Cursor pagination needs a unique ordering. The default sort already
@@ -83,7 +92,7 @@ class PostingController extends Controller
 
         $totals = null;
         if ($request->boolean('with_totals')) {
-            $aggregate = $query->clone()->getEloquentBuilder()->toBase()->reorder()
+            $aggregate = $query->clone()->getEloquentBuilder()->toBase()->reorder()->whereNull('deleted_at')
                 ->selectRaw('count(*) as count, coalesce(sum(amount), 0) as amount_sum')
                 ->first();
             $totals = ['count' => (int) $aggregate->count, 'amount_sum' => (float) $aggregate->amount_sum];

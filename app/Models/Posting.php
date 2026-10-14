@@ -9,12 +9,16 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Facades\DB;
 
 class Posting extends Model
 {
     /** @use HasFactory<PostingFactory> */
     use HasFactory;
+
+    // Soft so API sync clients can be told about deletions (`deleted_at`).
+    use SoftDeletes;
 
     /**
      * @var list<string>
@@ -139,7 +143,7 @@ class Posting extends Model
 
     /**
      * Bump `updated_at` after a database-level change (FK null on delete)
-     * so API `updated_since` sync sees it. Deferred until the surrounding
+     * so API `changed_since` sync sees it. Deferred until the surrounding
      * transaction commits: a timestamp written earlier could predate the
      * start of a sync that still read the old row.
      *

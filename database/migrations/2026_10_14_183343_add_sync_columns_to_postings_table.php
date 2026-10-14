@@ -11,8 +11,10 @@ return new class extends Migration
      */
     public function up(): void
     {
-        // Backs the API's `filter[updated_since]` incremental sync.
+        // Back the API's `filter[changed_since]` incremental sync: deletes are
+        // soft so they can be reported, and stamp `updated_at` as well.
         Schema::table('postings', function (Blueprint $table) {
+            $table->softDeletes();
             $table->index(['user_id', 'updated_at']);
         });
     }
@@ -24,6 +26,7 @@ return new class extends Migration
     {
         Schema::table('postings', function (Blueprint $table) {
             $table->dropIndex(['user_id', 'updated_at']);
+            $table->dropSoftDeletes();
         });
     }
 };

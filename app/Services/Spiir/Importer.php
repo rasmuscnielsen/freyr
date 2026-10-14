@@ -422,7 +422,9 @@ final class Importer
             }
 
             unset($rows[$parent['legacy_id']]);
-            Posting::query()->where('legacy_id', $parent['legacy_id'])->delete();
+            // Forced: the parent is replaced by its children, and a trashed row
+            // would keep holding its unique legacy id.
+            Posting::query()->withTrashed()->where('legacy_id', $parent['legacy_id'])->forceDelete();
         }
 
         $updateColumns = array_values(array_diff(array_keys(reset($rows) ?: []), ['legacy_id', 'created_at']));

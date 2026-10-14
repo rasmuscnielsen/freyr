@@ -68,7 +68,7 @@ final class PostingFilters
                 AllowedFilter::callback('date_to', fn (Builder $query, mixed $value) => self::whereDateBound($query, '<=', $value))->delimiter(''),
                 AllowedFilter::callback('amount_min', fn (Builder $query, mixed $value) => self::whereAmountBound($query, '>=', $value))->delimiter(''),
                 AllowedFilter::callback('amount_max', fn (Builder $query, mixed $value) => self::whereAmountBound($query, '<=', $value))->delimiter(''),
-                AllowedFilter::callback('updated_since', function (Builder $query, mixed $value): void {
+                AllowedFilter::callback('changed_since', function (Builder $query, mixed $value): void {
                     if (! is_string($value) || $value === '') {
                         return;
                     }

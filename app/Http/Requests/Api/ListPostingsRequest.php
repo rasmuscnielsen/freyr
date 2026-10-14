@@ -51,10 +51,11 @@ class ListPostingsRequest extends FormRequest
             /** Inclusive upper bound on the reporting-currency amount. */
             'filter.amount_max' => ['sometimes', 'numeric'],
             /**
-             * Only postings created or changed at or after this ISO 8601
-             * timestamp, e.g. `2026-05-02T09:00:00Z`.
+             * Only postings created, changed or deleted at or after this ISO
+             * 8601 timestamp, e.g. `2026-05-02T09:00:00Z`. Deleted postings
+             * are included, marked by a non-null `deleted_at`.
              */
-            'filter.updated_since' => ['sometimes', 'string', 'regex:/^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})?)?$/', 'date'],
+            'filter.changed_since' => ['sometimes', 'string', 'regex:/^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})?)?$/', 'date'],
             /** `date` (oldest first) or `-date` (newest first, default). Ties break on id. */
             'sort' => ['sometimes', Rule::in(['date', '-date'])],
             /** Comma-separated relations to embed: `bank_account`, `category`. Defaults to both; pass an empty value for neither. */

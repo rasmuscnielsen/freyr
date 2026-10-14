@@ -54,6 +54,8 @@ class PostingResource extends JsonResource
             ]),
             'created_at' => $this->created_at?->toJSON(),
             'updated_at' => $this->updated_at?->toJSON(),
+            /** Set only on deleted postings, which are listed under `filter[changed_since]`. */
+            'deleted_at' => $this->deleted_at?->toJSON(),
         ];
     }
 }

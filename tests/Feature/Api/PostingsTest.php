@@ -116,7 +116,7 @@ test('invalid posting filters are rejected', function (array $query, string $fie
     'reversed legacy range' => [['filter' => ['posted_between' => '2026-03-02,2026-03-01']], 'filter.posted_between'],
     'reversed amounts' => [['filter' => ['amount_min' => '10', 'amount_max' => '-10']], 'filter.amount_max'],
     'account id beyond bigint' => [['filter' => ['account' => '1,9223372036854775808']], 'filter.account'],
-    'non-ISO timestamp' => [['filter' => ['updated_since' => 'Sat, 02 May 2026 09:00:00 +0000']], 'filter.updated_since'],
+    'non-ISO timestamp' => [['filter' => ['changed_since' => 'Sat, 02 May 2026 09:00:00 +0000']], 'filter.changed_since'],
     'undecodable cursor' => [['cursor' => 'not-a-cursor'], 'cursor'],
     'cursor without date' => [['cursor' => base64_encode(json_encode(['id' => 1, '_pointsToNextItems' => true]))], 'cursor'],
     'cursor with bad date' => [['cursor' => base64_encode(json_encode(['date' => 'not-a-date', 'id' => 1, '_pointsToNextItems' => true]))], 'cursor'],
@@ -165,7 +165,7 @@ test('postings can be synced incrementally by update time', function () {
 
     Passport::actingAs($user, ['read']);
 
-    $ids = array_column($this->getJson('/api/postings?filter[updated_since]=2026-05-02T09:00:00Z')->assertOk()->json('data'), 'id');
+    $ids = array_column($this->getJson('/api/postings?filter[changed_since]=2026-05-02T09:00:00Z')->assertOk()->json('data'), 'id');
 
     expect($ids)->toEqualCanonicalizing([$edited->id, $created->id])->not->toContain($unchanged->id);
 });
@@ -196,6 +196,40 @@ test('text search treats commas literally', function () {
         ->assertJsonPath('data.*.id', [$match->id]);
 });
 
+test('deleted postings are only listed, marked, under changed_since', function () {
+    $user = User::factory()->create();
+    $account = BankAccount::factory()->for($user)->create();
+
+    Carbon::setTestNow('2026-05-01 10:00:00');
+    $kept = Posting::factory()->forAccount($account)->create(['amount' => -10]);
+    $deleted = Posting::factory()->forAccount($account)->create(['amount' => -99]);
+    $deletedEarlier = Posting::factory()->forAccount($account)->create();
+    $deletedEarlier->delete();
+
+    Carbon::setTestNow('2026-05-02 10:00:00');
+    $deleted->delete();
+
+    Passport::actingAs($user, ['read']);
+
+    $this->getJson('/api/postings')->assertJsonPath('data.*.id', [$kept->id]);
+    $this->getJson("/api/postings/{$deleted->id}")->assertNotFound();
+
+    $this->getJson('/api/postings?filter[changed_since]=2026-05-02T09:00:00Z&with_totals=1')
+        ->assertOk()
+        ->assertJsonPath('data.*.id', [$deleted->id])
+        ->assertJsonPath('data.0.deleted_at', '2026-05-02T10:00:00.000000Z')
+        ->assertJsonPath('meta.totals.count', 0);
+
+    $deletedAt = collect($this->getJson("/api/bank-accounts/{$account->id}/postings?filter[changed_since]=2026-05-01T00:00:00Z")->json('data'))
+        ->pluck('deleted_at', 'id');
+
+    expect($deletedAt->all())->toEqual([
+        $kept->id => null,
+        $deleted->id => '2026-05-02T10:00:00.000000Z',
+        $deletedEarlier->id => '2026-05-01T10:00:00.000000Z',
+    ]);
+});
+
 test('postings whose category is deleted show up in incremental sync', function (string $deleted) {
     $user = User::factory()->create();
     $account = BankAccount::factory()->for($user)->create();
@@ -209,7 +243,7 @@ test('postings whose category is deleted show up in incremental sync', function 
 
     Passport::actingAs($user, ['read']);
 
-    $this->getJson('/api/postings?filter[updated_since]=2026-05-02T09:00:00Z')
+    $this->getJson('/api/postings?filter[changed_since]=2026-05-02T09:00:00Z')
         ->assertOk()
         ->assertJsonPath('data.*.id', [$posting->id])
         ->assertJsonPath('data.0.subcategory', null);
