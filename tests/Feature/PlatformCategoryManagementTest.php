@@ -7,6 +7,7 @@ use App\Models\Posting;
 use App\Models\Subcategory;
 use App\Models\User;
 use App\Support\PlatformSettings;
+use Illuminate\Support\Carbon;
 
 function platformAdmin(): User
 {
@@ -234,9 +235,11 @@ test('deleting a subcategory uncategorizes its postings', function () {
     $category = Category::factory()->create(['type' => CategoryType::Expense->value]);
     $subcategory = Subcategory::factory()->forCategory($category)->create();
 
+    Carbon::setTestNow('2026-05-01 10:00:00');
     $postings = Posting::factory()->count(3)->create([
         'categorized_subcategory_id' => $subcategory->id,
     ]);
+    Carbon::setTestNow('2026-05-02 10:00:00');
 
     expect(Posting::query()->whereNotNull('categorized_subcategory_id')->count())->toBe(3);
 
@@ -247,7 +250,10 @@ test('deleting a subcategory uncategorizes its postings', function () {
     expect(Subcategory::query()->whereKey($subcategory->id)->exists())->toBeFalse();
 
     foreach ($postings as $posting) {
-        expect($posting->refresh()->categorized_subcategory_id)->toBeNull();
+        // Stamped so API `changed_since` sync sees the change.
+        expect($posting->refresh())
+            ->categorized_subcategory_id->toBeNull()
+            ->updated_at->toDateTimeString()->toBe('2026-05-02 10:00:00');
     }
 });
 
@@ -255,9 +261,11 @@ test('deleting a category cascades subcategories and uncategorizes postings', fu
     $category = Category::factory()->create(['type' => CategoryType::Expense->value]);
     $subcategory = Subcategory::factory()->forCategory($category)->create();
 
+    Carbon::setTestNow('2026-05-01 10:00:00');
     $postings = Posting::factory()->count(2)->create([
         'categorized_subcategory_id' => $subcategory->id,
     ]);
+    Carbon::setTestNow('2026-05-02 10:00:00');
 
     $this->actingAs(platformAdmin())
         ->delete(route('platform.categories.destroy', $category))
@@ -267,6 +275,9 @@ test('deleting a category cascades subcategories and uncategorizes postings', fu
         ->and(Subcategory::query()->whereKey($subcategory->id)->exists())->toBeFalse();
 
     foreach ($postings as $posting) {
-        expect($posting->refresh()->categorized_subcategory_id)->toBeNull();
+        // Stamped so API `changed_since` sync sees the change.
+        expect($posting->refresh())
+            ->categorized_subcategory_id->toBeNull()
+            ->updated_at->toDateTimeString()->toBe('2026-05-02 10:00:00');
     }
 });

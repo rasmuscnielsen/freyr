@@ -272,6 +272,14 @@ class BankAccountController extends Controller
             $bankAccount->bankConnectionAccounts()
                 ->update(['status' => BankConnectionAccount::STATUS_UNLINKED]);
 
+            // Postings elsewhere lose their counter entry when the cascade
+            // removes it; unlink them through Eloquent so `updated_at` moves
+            // for API sync instead of the FK nulling them silently.
+            Posting::withTrashed()
+                ->where('bank_account_id', '!=', $bankAccount->id)
+                ->whereIn('counter_entry_posting_id', Posting::withTrashed()->select('id')->whereBelongsTo($bankAccount))
+                ->update(['counter_entry_posting_id' => null]);
+
             $bankAccount->delete();
         });
 

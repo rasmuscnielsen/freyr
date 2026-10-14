@@ -136,12 +136,15 @@ test('manual postings can be deleted', function () {
     $account = manualPostingAccount($user);
     $kept = Posting::factory()->forAccount($account)->create(['date' => '2026-05-01']);
     $deleted = Posting::factory()->forAccount($account)->create(['date' => '2026-06-01']);
+    $kept->update(['counter_entry_posting_id' => $deleted->id]);
 
     $this->actingAs($user)
         ->delete(route('bank-accounts.postings.destroy', [$account, $deleted]))
         ->assertRedirect();
 
     expect(Posting::query()->pluck('id')->all())->toBe([$kept->id])
+        ->and($kept->refresh()->counter_entry_posting_id)->toBeNull()
+        ->and(Posting::onlyTrashed()->pluck('id')->all())->toBe([$deleted->id])
         ->and($account->refresh()->last_known_posting_date->toDateString())->toBe('2026-05-01');
 });
 
