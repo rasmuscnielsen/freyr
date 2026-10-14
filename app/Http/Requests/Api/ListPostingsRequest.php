@@ -5,6 +5,7 @@ namespace App\Http\Requests\Api;
 use App\Enums\CategoryType;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Pagination\Cursor;
+use Illuminate\Support\Arr;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Validator;
 
@@ -23,6 +24,25 @@ class ListPostingsRequest extends FormRequest
     public function authorize(): bool
     {
         return (bool) $this->user()?->tokenCan('read');
+    }
+
+    /**
+     * The spec types these as booleans, so generated clients send
+     * `true`/`false`; Laravel's `boolean` rule only accepts 1/0.
+     */
+    protected function prepareForValidation(): void
+    {
+        $query = $this->query->all();
+
+        foreach (['with_totals', 'filter.uncategorized', 'filter.extraordinary'] as $key) {
+            $value = Arr::get($query, $key);
+
+            if (is_string($value) && in_array(strtolower($value), ['true', 'false'], true)) {
+                Arr::set($query, $key, strtolower($value) === 'true' ? '1' : '0');
+            }
+        }
+
+        $this->query->replace($query);
     }
 
     /**
@@ -53,7 +73,8 @@ class ListPostingsRequest extends FormRequest
             /**
              * Only postings created, changed or deleted at or after this ISO
              * 8601 timestamp, e.g. `2026-05-02T09:00:00Z`. Deleted postings
-             * are included, marked by a non-null `deleted_at`.
+             * are included, marked by a non-null `deleted_at`. URL-encode a
+             * `+` offset (`%2B02:00`) or use `Z`.
              */
             'filter.changed_since' => ['sometimes', 'string', 'regex:/^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})?)?$/', 'date'],
             /** `date` (oldest first) or `-date` (newest first, default). Ties break on id. */

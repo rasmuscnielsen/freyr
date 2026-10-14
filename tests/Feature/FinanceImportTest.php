@@ -201,17 +201,21 @@ test('postings losing a removed default category are marked as updated', functio
         ->updated_at->toDateTimeString()->toBe('2026-05-02 10:00:00');
 });
 
-test('a re-import after deleting every posting restores them', function () {
+test('a re-import revives deleted postings in place and leaves other trashed postings alone', function () {
     $user = User::factory()->create();
     $path = base_path('tests/Fixtures/spiir-export');
 
-    $imported = app(Importer::class)->importExport($path, $user)['postings'];
+    app(Importer::class)->importExport($path, $user);
+    $ids = Posting::query()->orderBy('id')->pluck('id')->all();
     Posting::query()->get()->each->delete();
+    $unrelated = Posting::factory()->create(['legacy_id' => 'elsewhere']);
+    $unrelated->delete();
 
     expect(app(Importer::class)->canImport())->toBeTrue();
 
     app(Importer::class)->importExport($path, $user);
 
-    expect(Posting::query()->count())->toBe($imported)
-        ->and(Posting::onlyTrashed()->count())->toBe(0);
+    // Same ids, so sync clients see an update, not a duplicate.
+    expect(Posting::query()->orderBy('id')->pluck('id')->all())->toBe($ids)
+        ->and(Posting::onlyTrashed()->pluck('id')->all())->toBe([$unrelated->id]);
 });

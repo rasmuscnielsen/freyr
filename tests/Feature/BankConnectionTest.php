@@ -672,6 +672,33 @@ test('sync imports past transactions idempotently and skips future scheduled tra
         ->and($latestRun->duplicate_postings_count)->toBe(1);
 });
 
+test('a re-sent transaction the user deleted stays deleted without failing the sync', function () {
+    $user = User::factory()->create();
+    $connection = BankConnection::factory()->for($user)->create();
+    $localAccount = BankAccount::factory()->for($user)->create();
+    $remoteAccount = BankConnectionAccount::factory()
+        ->for($connection)
+        ->linkedTo($localAccount)
+        ->create();
+
+    app()->instance(Client::class, new FakeEnableBankingClient(
+        balances: enableBankingBalancesPayload(),
+        transactions: enableBankingTransactionsPayload(),
+    ));
+
+    (new SyncBankConnectionAccount($remoteAccount))->handle(app(ConnectionManager::class));
+    Posting::query()->firstOrFail()->delete();
+
+    (new SyncBankConnectionAccount($remoteAccount))->handle(app(ConnectionManager::class));
+
+    $latestRun = BankSyncRun::query()->latest('id')->firstOrFail();
+
+    expect($latestRun->status)->not->toBe('failed')
+        ->and($latestRun->duplicate_postings_count)->toBe(1)
+        ->and(Posting::query()->count())->toBe(0)
+        ->and(Posting::onlyTrashed()->count())->toBe(1);
+});
+
 test('first sync supplements longest history with recent booked transactions', function () {
     $user = User::factory()->create();
     $connection = BankConnection::factory()->for($user)->create();

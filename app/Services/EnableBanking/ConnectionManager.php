@@ -557,7 +557,8 @@ final class ConnectionManager
             }
 
             $attributes = $this->transactionMapper->postingAttributes($account, $transaction);
-            $query = Posting::query()
+            // Trashed postings still hold their unique external reference.
+            $query = Posting::withTrashed()
                 ->where('user_id', $account->bankConnection->user_id)
                 ->where('bank_account_id', $account->bank_account_id)
                 ->where('source', BankConnectionAccount::SOURCE_ENABLE_BANKING);
@@ -577,6 +578,13 @@ final class ConnectionManager
                     ->where('original_amount', $attributes['original_amount'])
                     ->where('original_currency', $attributes['original_currency'])
                 );
+            }
+
+            // The user deleted it; a re-send must neither revive nor re-insert it.
+            if ($posting instanceof Posting && $posting->trashed()) {
+                $counts['duplicate_postings_count']++;
+
+                continue;
             }
 
             if ($posting instanceof Posting) {

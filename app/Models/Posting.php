@@ -105,6 +105,13 @@ class Posting extends Model
 
     protected static function booted(): void
     {
+        // The FK's null-on-delete no longer fires for soft deletes; clear the
+        // link so no live posting points at a deleted counter entry. Done
+        // through Eloquent so `updated_at` moves for API sync.
+        static::softDeleted(function (Posting $posting): void {
+            static::query()->where('counter_entry_posting_id', $posting->id)->update(['counter_entry_posting_id' => null]);
+        });
+
         static::updating(function (Posting $posting): void {
             if (! $posting->isDirty('description')) {
                 return;

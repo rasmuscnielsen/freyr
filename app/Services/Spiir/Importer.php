@@ -123,10 +123,6 @@ final class Importer
         return DB::transaction(function () use ($path, $user, $reportingCurrency): array {
             $user ??= $this->resolveUser($path);
 
-            // Trashed postings from an earlier import still hold their unique
-            // legacy ids; the upsert would revive them as still-deleted rows.
-            Posting::onlyTrashed()->whereNotNull('legacy_id')->forceDelete();
-
             // The export's reporting currency replaces the user's initial
             // choice before any history is written — the only way the fixed
             // currency may still move. Rolls back with the import on failure.
@@ -401,6 +397,9 @@ final class Importer
                 'legacy_created_at' => $this->dateTime($row['Created'] ?? null),
                 'created_at' => $now,
                 'updated_at' => $now,
+                // A re-import revives a trashed posting in place, keeping its
+                // id so API sync clients see an update rather than a new row.
+                'deleted_at' => null,
             ];
         }
 
@@ -426,9 +425,9 @@ final class Importer
             }
 
             unset($rows[$parent['legacy_id']]);
-            // Forced: the parent is replaced by its children, and a trashed row
-            // would keep holding its unique legacy id.
-            Posting::query()->withTrashed()->where('legacy_id', $parent['legacy_id'])->forceDelete();
+            // Soft, so sync clients that already have the parent learn it is
+            // gone; it is out of $rows, so its legacy id is never upserted.
+            Posting::query()->where('legacy_id', $parent['legacy_id'])->delete();
         }
 
         $updateColumns = array_values(array_diff(array_keys(reset($rows) ?: []), ['legacy_id', 'created_at']));

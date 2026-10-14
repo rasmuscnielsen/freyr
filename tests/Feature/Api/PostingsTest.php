@@ -230,6 +230,41 @@ test('deleted postings are only listed, marked, under changed_since', function (
     ]);
 });
 
+test('boolean parameters accept true and false', function () {
+    $user = User::factory()->create();
+    $account = BankAccount::factory()->for($user)->create();
+    $extraordinary = Posting::factory()->forAccount($account)->create(['is_extraordinary' => true]);
+    Posting::factory()->forAccount($account)->create(['is_extraordinary' => false]);
+
+    Passport::actingAs($user, ['read']);
+
+    $this->getJson('/api/postings?filter[extraordinary]=true&with_totals=TRUE')
+        ->assertOk()
+        ->assertJsonPath('data.*.id', [$extraordinary->id])
+        ->assertJsonPath('meta.totals.count', 1);
+
+    $this->getJson('/api/postings?with_totals=false')->assertOk()->assertJsonMissingPath('meta.totals');
+});
+
+test('deleting a posting unlinks its counter entry for sync', function () {
+    $user = User::factory()->create();
+    $account = BankAccount::factory()->for($user)->create();
+    $transfer = Posting::factory()->forAccount($account)->create();
+
+    Carbon::setTestNow('2026-05-01 10:00:00');
+    $counterpart = Posting::factory()->forAccount($account)->create(['counter_entry_posting_id' => $transfer->id]);
+
+    Carbon::setTestNow('2026-05-02 10:00:00');
+    $transfer->delete();
+
+    Passport::actingAs($user, ['read']);
+
+    $this->getJson('/api/postings?filter[changed_since]=2026-05-02T09:00:00Z')
+        ->assertOk()
+        ->assertJsonCount(2, 'data')
+        ->assertJsonFragment(['id' => $counterpart->id, 'counter_entry_posting_id' => null]);
+});
+
 test('postings whose category is deleted show up in incremental sync', function (string $deleted) {
     $user = User::factory()->create();
     $account = BankAccount::factory()->for($user)->create();

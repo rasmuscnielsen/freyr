@@ -92,7 +92,7 @@ class PostingController extends Controller
 
         $totals = null;
         if ($request->boolean('with_totals')) {
-            $aggregate = $query->clone()->getEloquentBuilder()->toBase()->reorder()->whereNull('deleted_at')
+            $aggregate = $query->clone()->getEloquentBuilder()->toBase()->reorder()->whereNull((new Posting)->getQualifiedDeletedAtColumn())
                 ->selectRaw('count(*) as count, coalesce(sum(amount), 0) as amount_sum')
                 ->first();
             $totals = ['count' => (int) $aggregate->count, 'amount_sum' => (float) $aggregate->amount_sum];
