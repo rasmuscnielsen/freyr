@@ -1,0 +1,219 @@
+<?php
+
+use App\Models\BankAccount;
+use App\Models\Category;
+use App\Models\Posting;
+use App\Models\Subcategory;
+use App\Models\User;
+use Illuminate\Support\Carbon;
+use Laravel\Passport\Passport;
+
+/**
+ * Follows `meta.next_cursor` until exhausted and returns the visited ids.
+ *
+ * @param  array<string, mixed>  $query
+ * @return list<int>
+ */
+function iteratePostings(string $uri, array $query = [], ?Closure $afterFirstPage = null): array
+{
+    $ids = [];
+    $cursor = null;
+
+    do {
+        $response = test()->getJson($uri.'?'.http_build_query([...$query, 'cursor' => $cursor]))->assertOk();
+        $ids = [...$ids, ...array_column($response->json('data'), 'id')];
+        $cursor = $response->json('meta.next_cursor');
+
+        if ($afterFirstPage !== null) {
+            $afterFirstPage();
+            $afterFirstPage = null;
+        }
+    } while ($cursor !== null);
+
+    return $ids;
+}
+
+test('postings can be read by their owner', function () {
+    $user = User::factory()->create();
+    $account = BankAccount::factory()->for($user)->create(['name' => 'Checking']);
+    $category = Category::factory()->create(['name' => 'Housing']);
+    $subcategory = Subcategory::factory()->forCategory($category)->create(['name' => 'Rent']);
+    $posting = Posting::factory()
+        ->forAccount($account)
+        ->categorizedAs($subcategory)
+        ->create(['description' => 'Monthly rent', 'amount' => -12000]);
+    Posting::factory()->create(['description' => 'Other posting']);
+
+    Passport::actingAs($user, ['read']);
+
+    $this->getJson('/api/postings')
+        ->assertOk()
+        ->assertJsonPath('data.0.id', $posting->id)
+        ->assertJsonPath('data.0.bank_account.name', 'Checking')
+        ->assertJsonPath('data.0.category.name', 'Housing')
+        ->assertJsonCount(1, 'data');
+
+    $this->getJson("/api/postings/{$posting->id}")
+        ->assertOk()
+        ->assertJsonPath('data.description', 'Monthly rent');
+});
+
+test('postings cannot be read across users', function () {
+    Passport::actingAs(User::factory()->create(), ['read']);
+
+    $posting = Posting::factory()->create();
+
+    $this->getJson("/api/postings/{$posting->id}")->assertNotFound();
+});
+
+test('postings can be listed per bank account', function () {
+    $user = User::factory()->create();
+    $account = BankAccount::factory()->for($user)->create();
+    $otherAccount = BankAccount::factory()->for($user)->create();
+    $posting = Posting::factory()->forAccount($account)->create();
+    Posting::factory()->forAccount($otherAccount)->create();
+
+    Passport::actingAs($user, ['read']);
+
+    $this->getJson("/api/bank-accounts/{$account->id}/postings")
+        ->assertOk()
+        ->assertJsonCount(1, 'data')
+        ->assertJsonPath('data.0.id', $posting->id);
+
+    $this->getJson('/api/bank-accounts/'.BankAccount::factory()->create()->id.'/postings')->assertNotFound();
+});
+
+test('postings can be filtered by an inclusive booking date range', function () {
+    $user = User::factory()->create();
+    $account = BankAccount::factory()->for($user)->create();
+    $ids = collect(['2026-02-28', '2026-03-01', '2026-03-15', '2026-03-31', '2026-04-01'])
+        ->mapWithKeys(fn (string $date) => [$date => Posting::factory()->forAccount($account)->create(['date' => $date])->id]);
+
+    Passport::actingAs($user, ['read']);
+
+    $this->getJson("/api/bank-accounts/{$account->id}/postings?filter[date_from]=2026-03-01&filter[date_to]=2026-03-31&sort=date")
+        ->assertOk()
+        ->assertJsonPath('data.*.id', [$ids['2026-03-01'], $ids['2026-03-15'], $ids['2026-03-31']]);
+
+    // Open-ended bound.
+    $this->getJson('/api/postings?filter[date_from]=2026-03-31&sort=date')
+        ->assertJsonPath('data.*.id', [$ids['2026-03-31'], $ids['2026-04-01']]);
+});
+
+test('invalid posting filters are rejected', function (array $query, string $field) {
+    Passport::actingAs(User::factory()->create(), ['read']);
+
+    $this->getJson('/api/postings?'.http_build_query($query))
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors($field);
+})->with([
+    'malformed date' => [['filter' => ['date_from' => '03/01/2026']], 'filter.date_from'],
+    'impossible date' => [['filter' => ['date_to' => '2026-02-31']], 'filter.date_to'],
+    'reversed range' => [['filter' => ['date_from' => '2026-03-02', 'date_to' => '2026-03-01']], 'filter.date_to'],
+    'non-numeric amount' => [['filter' => ['amount_min' => 'lots']], 'filter.amount_min'],
+    'unknown sort' => [['sort' => 'amount'], 'sort'],
+    'unknown include' => [['include' => 'user'], 'include'],
+    'oversized page' => [['per_page' => 101], 'per_page'],
+]);
+
+test('cursor iteration visits every posting once even when postings arrive mid-iteration', function () {
+    $user = User::factory()->create();
+    $account = BankAccount::factory()->for($user)->create();
+    // Shared dates force the id tie-breaker to matter at page boundaries.
+    $existing = collect(['2026-01-01', '2026-01-02', '2026-01-02', '2026-01-02', '2026-01-03'])
+        ->map(fn (string $date) => Posting::factory()->forAccount($account)->create(['date' => $date]));
+
+    Passport::actingAs($user, ['read']);
+
+    $newestFirst = $existing->sortBy([['date', 'desc'], ['id', 'desc']])->pluck('id')->all();
+    $late = null;
+
+    $visited = iteratePostings('/api/postings', ['per_page' => 2], function () use ($account, &$late) {
+        $late = Posting::factory()->forAccount($account)->create(['date' => '2026-01-04']);
+    });
+
+    // The late, newest posting sorts before the cursor and is not visited;
+    // nothing shifts into a duplicate or a gap.
+    expect($visited)->toBe($newestFirst)->not->toContain($late->id);
+
+    $oldestFirst = $existing->push($late)->sortBy([['date', 'asc'], ['id', 'asc']])->pluck('id')->all();
+
+    expect(iteratePostings('/api/postings', ['per_page' => 2, 'sort' => 'date']))->toBe($oldestFirst);
+});
+
+test('postings can be synced incrementally by update time', function () {
+    $user = User::factory()->create();
+    $account = BankAccount::factory()->for($user)->create();
+
+    Carbon::setTestNow('2026-05-01 10:00:00');
+    $unchanged = Posting::factory()->forAccount($account)->create();
+    $edited = Posting::factory()->forAccount($account)->create();
+
+    Carbon::setTestNow('2026-05-02 10:00:00');
+    $edited->update(['comment' => 'Edited']);
+    $created = Posting::factory()->forAccount($account)->create();
+
+    Passport::actingAs($user, ['read']);
+
+    $ids = array_column($this->getJson('/api/postings?filter[updated_since]=2026-05-02T09:00:00Z')->assertOk()->json('data'), 'id');
+
+    expect($ids)->toEqualCanonicalizing([$edited->id, $created->id])->not->toContain($unchanged->id);
+});
+
+test('postings can be filtered by amount range and several accounts', function () {
+    $user = User::factory()->create();
+    $first = BankAccount::factory()->for($user)->create();
+    $second = BankAccount::factory()->for($user)->create();
+    $third = BankAccount::factory()->for($user)->create();
+
+    $inRange = Posting::factory()->forAccount($first)->create(['amount' => -100]);
+    $lowerEdge = Posting::factory()->forAccount($second)->create(['amount' => -500]);
+    Posting::factory()->forAccount($first)->create(['amount' => -500.01]);
+    Posting::factory()->forAccount($first)->create(['amount' => 0.01]);
+    Posting::factory()->forAccount($third)->create(['amount' => -100]);
+
+    Passport::actingAs($user, ['read']);
+
+    $ids = array_column($this->getJson("/api/postings?filter[account]={$first->id},{$second->id}&filter[amount_min]=-500&filter[amount_max]=0")
+        ->assertOk()->json('data'), 'id');
+
+    expect($ids)->toEqualCanonicalizing([$inRange->id, $lowerEdge->id]);
+});
+
+test('embedded relations can be chosen with include', function () {
+    $user = User::factory()->create();
+    $account = BankAccount::factory()->for($user)->create();
+    $subcategory = Subcategory::factory()->forCategory(Category::factory()->create())->create();
+    Posting::factory()->forAccount($account)->categorizedAs($subcategory)->create();
+
+    Passport::actingAs($user, ['read']);
+
+    $this->getJson('/api/postings?include=')
+        ->assertOk()
+        ->assertJsonMissingPath('data.0.bank_account')
+        ->assertJsonMissingPath('data.0.category');
+
+    $this->getJson('/api/postings?include=category')
+        ->assertJsonMissingPath('data.0.bank_account')
+        ->assertJsonPath('data.0.category.id', $subcategory->category_id);
+});
+
+test('totals cover the whole filtered set rather than the page', function () {
+    $user = User::factory()->create();
+    $account = BankAccount::factory()->for($user)->create();
+    Posting::factory()->forAccount($account)->create(['amount' => -10.25, 'date' => '2026-03-01']);
+    Posting::factory()->forAccount($account)->create(['amount' => 100, 'date' => '2026-03-02']);
+    Posting::factory()->forAccount($account)->create(['amount' => -30.5, 'date' => '2026-03-03']);
+    Posting::factory()->forAccount($account)->create(['amount' => -999, 'date' => '2026-04-01']);
+
+    Passport::actingAs($user, ['read']);
+
+    $this->getJson('/api/postings?filter[date_to]=2026-03-31&per_page=1&with_totals=1')
+        ->assertOk()
+        ->assertJsonCount(1, 'data')
+        ->assertJsonPath('meta.totals.count', 3)
+        ->assertJsonPath('meta.totals.amount_sum', 59.25)
+        ->assertJsonPath('meta.per_page', 1);
+
+    $this->getJson('/api/postings')->assertJsonMissingPath('meta.totals');
+});

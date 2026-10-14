@@ -3,6 +3,8 @@
 namespace App\Queries;
 
 use App\Models\Posting;
+use Carbon\CarbonImmutable;
+use Carbon\Exceptions\InvalidFormatException;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
 use Illuminate\Support\Arr;
@@ -57,19 +59,56 @@ final class PostingFilters
                 }),
                 AllowedFilter::callback('posted_between', function (Builder $query, mixed $value): void {
                     $values = is_array($value) ? $value : explode(',', (string) $value);
-                    $from = $values[0] ?? null;
-                    $to = $values[1] ?? null;
 
-                    if (filled($from)) {
-                        $query->where('date', '>=', $from);
+                    self::whereDateBound($query, '>=', $values[0] ?? null);
+                    self::whereDateBound($query, '<=', $values[1] ?? null);
+                }),
+                AllowedFilter::callback('date_from', fn (Builder $query, mixed $value) => self::whereDateBound($query, '>=', $value)),
+                AllowedFilter::callback('date_to', fn (Builder $query, mixed $value) => self::whereDateBound($query, '<=', $value)),
+                AllowedFilter::callback('amount_min', fn (Builder $query, mixed $value) => self::whereAmountBound($query, '>=', $value)),
+                AllowedFilter::callback('amount_max', fn (Builder $query, mixed $value) => self::whereAmountBound($query, '<=', $value)),
+                AllowedFilter::callback('updated_since', function (Builder $query, mixed $value): void {
+                    if (! is_string($value) || $value === '') {
+                        return;
                     }
 
-                    if (filled($to)) {
-                        $query->where('date', '<=', $to);
+                    try {
+                        $since = CarbonImmutable::parse($value);
+                    } catch (InvalidFormatException) {
+                        return;
                     }
+
+                    $query->where('updated_at', '>=', $since->utc());
                 }),
             )
             ->allowedSorts('date', 'amount', 'description', 'id')
             ->defaultSort('-date', '-id');
+    }
+
+    /**
+     * Bounds on the booking `date`. Malformed values are ignored rather than
+     * reaching the database; the API rejects them up front in validation.
+     *
+     * @param  Builder<Posting>  $query
+     */
+    private static function whereDateBound(Builder $query, string $operator, mixed $value): void
+    {
+        if (is_string($value) && preg_match('/^(\d{4})-(\d{2})-(\d{2})$/', $value, $parts) === 1 && checkdate((int) $parts[2], (int) $parts[3], (int) $parts[1])) {
+            // The upper bound compares against the next day: SQLite stores
+            // cast dates with a time part, so `<= 'Y-m-d'` would drop that day.
+            $operator === '<='
+                ? $query->where('date', '<', CarbonImmutable::parse($value)->addDay()->toDateString())
+                : $query->where('date', $operator, $value);
+        }
+    }
+
+    /**
+     * @param  Builder<Posting>  $query
+     */
+    private static function whereAmountBound(Builder $query, string $operator, mixed $value): void
+    {
+        if (is_numeric($value)) {
+            $query->where('amount', $operator, $value);
+        }
     }
 }
