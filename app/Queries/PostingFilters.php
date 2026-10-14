@@ -42,6 +42,7 @@ final class PostingFilters
                 }),
                 AllowedFilter::exact('extraordinary', 'is_extraordinary'),
                 AllowedFilter::callback('text', function (Builder $query, mixed $value): void {
+                    // Comma splitting is off for scalar filters (`ACME, Inc.`).
                     // `filter[text][]=…` arrives as an array (hand-edited or
                     // shared URLs); join it rather than letting the cast 500.
                     $needle = trim(is_array($value) ? implode(' ', Arr::flatten($value)) : (string) $value);
@@ -56,17 +57,17 @@ final class PostingFilters
                             ->orWhereLike('original_description', "%{$needle}%")
                             ->orWhereLike('comment', "%{$needle}%");
                     });
-                }),
+                })->delimiter(''),
                 AllowedFilter::callback('posted_between', function (Builder $query, mixed $value): void {
                     $values = is_array($value) ? $value : explode(',', (string) $value);
 
                     self::whereDateBound($query, '>=', $values[0] ?? null);
                     self::whereDateBound($query, '<=', $values[1] ?? null);
                 }),
-                AllowedFilter::callback('date_from', fn (Builder $query, mixed $value) => self::whereDateBound($query, '>=', $value)),
-                AllowedFilter::callback('date_to', fn (Builder $query, mixed $value) => self::whereDateBound($query, '<=', $value)),
-                AllowedFilter::callback('amount_min', fn (Builder $query, mixed $value) => self::whereAmountBound($query, '>=', $value)),
-                AllowedFilter::callback('amount_max', fn (Builder $query, mixed $value) => self::whereAmountBound($query, '<=', $value)),
+                AllowedFilter::callback('date_from', fn (Builder $query, mixed $value) => self::whereDateBound($query, '>=', $value))->delimiter(''),
+                AllowedFilter::callback('date_to', fn (Builder $query, mixed $value) => self::whereDateBound($query, '<=', $value))->delimiter(''),
+                AllowedFilter::callback('amount_min', fn (Builder $query, mixed $value) => self::whereAmountBound($query, '>=', $value))->delimiter(''),
+                AllowedFilter::callback('amount_max', fn (Builder $query, mixed $value) => self::whereAmountBound($query, '<=', $value))->delimiter(''),
                 AllowedFilter::callback('updated_since', function (Builder $query, mixed $value): void {
                     if (! is_string($value) || $value === '') {
                         return;
@@ -79,7 +80,7 @@ final class PostingFilters
                     }
 
                     $query->where('updated_at', '>=', $since->utc());
-                }),
+                })->delimiter(''),
             )
             ->allowedSorts('date', 'amount', 'description', 'id')
             ->defaultSort('-date', '-id');

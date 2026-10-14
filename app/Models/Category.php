@@ -13,6 +13,13 @@ class Category extends Model
     /** @use HasFactory<CategoryFactory> */
     use HasFactory;
 
+    protected static function booted(): void
+    {
+        // Subcategories cascade at the database level, nulling posting FKs
+        // without model events; see Subcategory::booted().
+        static::deleting(fn (Category $category) => Posting::touchForSubcategories($category->subcategories()->pluck('id')->all()));
+    }
+
     /**
      * @var list<string>
      */

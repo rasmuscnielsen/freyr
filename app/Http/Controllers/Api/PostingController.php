@@ -21,9 +21,14 @@ class PostingController extends Controller
      *
      * Cursor-paginated: follow `meta.next_cursor` (or `links.next`) until it
      * is null to iterate every matching posting. Ordering is by booking
-     * `date` with `id` as tie-breaker, so postings synced mid-iteration are
-     * neither skipped nor repeated. For incremental sync, pass the time the
-     * previous sync started as `filter[updated_since]`.
+     * `date` with `id` as tie-breaker, and pages are read live rather than
+     * from a snapshot: postings added or removed mid-iteration never shift
+     * other postings into a gap or a duplicate, but a posting whose booking
+     * date is edited mid-iteration can be seen twice or missed.
+     *
+     * For incremental sync, pass the time the previous sync started as
+     * `filter[updated_since]`; that also picks up postings edited during the
+     * previous iteration. Deleted postings are not reported.
      */
     public function index(ListPostingsRequest $request): AnonymousResourceCollection
     {

@@ -114,6 +114,25 @@ class Posting extends Model
      * @param  Builder<Posting>  $query
      * @return Builder<Posting>
      */
+    /**
+     * Bump `updated_at` on postings referencing the given subcategories,
+     * ahead of a delete that nulls those references in the database.
+     *
+     * @param  list<int>  $subcategoryIds
+     */
+    public static function touchForSubcategories(array $subcategoryIds): void
+    {
+        if ($subcategoryIds === []) {
+            return;
+        }
+
+        static::query()
+            ->where(fn (Builder $query) => $query
+                ->whereIn('categorized_subcategory_id', $subcategoryIds)
+                ->orWhereIn('subcategory_id', $subcategoryIds))
+            ->update(['updated_at' => now()]);
+    }
+
     public function scopeForUser(Builder $query, User $user): Builder
     {
         return $query->where('user_id', $user->id);

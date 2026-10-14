@@ -111,6 +111,15 @@ test('invalid posting filters are rejected', function (array $query, string $fie
     'impossible date' => [['filter' => ['date_to' => '2026-02-31']], 'filter.date_to'],
     'reversed range' => [['filter' => ['date_from' => '2026-03-02', 'date_to' => '2026-03-01']], 'filter.date_to'],
     'non-numeric amount' => [['filter' => ['amount_min' => 'lots']], 'filter.amount_min'],
+    'impossible legacy range' => [['filter' => ['posted_between' => '2026-02-31,']], 'filter.posted_between'],
+    'reversed legacy range' => [['filter' => ['posted_between' => '2026-03-02,2026-03-01']], 'filter.posted_between'],
+    'reversed amounts' => [['filter' => ['amount_min' => '10', 'amount_max' => '-10']], 'filter.amount_max'],
+    'account id beyond bigint' => [['filter' => ['account' => '1,9223372036854775808']], 'filter.account'],
+    'non-ISO timestamp' => [['filter' => ['updated_since' => 'Sat, 02 May 2026 09:00:00 +0000']], 'filter.updated_since'],
+    'undecodable cursor' => [['cursor' => 'not-a-cursor'], 'cursor'],
+    'cursor without date' => [['cursor' => base64_encode(json_encode(['id' => 1, '_pointsToNextItems' => true]))], 'cursor'],
+    'cursor with bad date' => [['cursor' => base64_encode(json_encode(['date' => 'not-a-date', 'id' => 1, '_pointsToNextItems' => true]))], 'cursor'],
+    'cursor id beyond bigint' => [['cursor' => base64_encode(json_encode(['date' => '2026-01-01', 'id' => '9223372036854775808', '_pointsToNextItems' => true]))], 'cursor'],
     'unknown sort' => [['sort' => 'amount'], 'sort'],
     'unknown include' => [['include' => 'user'], 'include'],
     'oversized page' => [['per_page' => 101], 'per_page'],
@@ -159,6 +168,51 @@ test('postings can be synced incrementally by update time', function () {
 
     expect($ids)->toEqualCanonicalizing([$edited->id, $created->id])->not->toContain($unchanged->id);
 });
+
+test('postings can be filtered by an upper amount bound alone', function () {
+    $user = User::factory()->create();
+    $account = BankAccount::factory()->for($user)->create();
+    $expense = Posting::factory()->forAccount($account)->create(['amount' => -10]);
+    Posting::factory()->forAccount($account)->create(['amount' => -9.99]);
+
+    Passport::actingAs($user, ['read']);
+
+    $this->getJson('/api/postings?filter[amount_max]=-10')
+        ->assertOk()
+        ->assertJsonPath('data.*.id', [$expense->id]);
+});
+
+test('text search treats commas literally', function () {
+    $user = User::factory()->create();
+    $account = BankAccount::factory()->for($user)->create();
+    $match = Posting::factory()->forAccount($account)->create(['description' => 'ACME, Inc. invoice']);
+    Posting::factory()->forAccount($account)->create(['description' => 'ACME Inc. invoice']);
+
+    Passport::actingAs($user, ['read']);
+
+    $this->getJson('/api/postings?'.http_build_query(['filter' => ['text' => 'ACME, Inc.']]))
+        ->assertOk()
+        ->assertJsonPath('data.*.id', [$match->id]);
+});
+
+test('postings whose category is deleted show up in incremental sync', function (string $deleted) {
+    $user = User::factory()->create();
+    $account = BankAccount::factory()->for($user)->create();
+    $subcategory = Subcategory::factory()->forCategory(Category::factory()->create())->create();
+
+    Carbon::setTestNow('2026-05-01 10:00:00');
+    $posting = Posting::factory()->forAccount($account)->categorizedAs($subcategory)->create();
+
+    Carbon::setTestNow('2026-05-02 10:00:00');
+    ($deleted === 'category' ? $subcategory->category : $subcategory)->delete();
+
+    Passport::actingAs($user, ['read']);
+
+    $this->getJson('/api/postings?filter[updated_since]=2026-05-02T09:00:00Z')
+        ->assertOk()
+        ->assertJsonPath('data.*.id', [$posting->id])
+        ->assertJsonPath('data.0.subcategory', null);
+})->with(['subcategory', 'category']);
 
 test('postings can be filtered by amount range and several accounts', function () {
     $user = User::factory()->create();
