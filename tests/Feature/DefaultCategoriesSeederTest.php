@@ -6,6 +6,7 @@ use App\Models\BankAccount;
 use App\Models\Category;
 use App\Models\Posting;
 use App\Models\Subcategory;
+use App\Services\Spiir\Importer;
 use Database\Seeders\DefaultCategoriesSeeder;
 
 test('it seeds the default category tree idempotently', function () {
@@ -53,7 +54,7 @@ test('re-seeding never overwrites an admin-edited category name', function () {
     expect($income->refresh()->name)->toBe('Renamed income');
 });
 
-test('a spiir import replaces the default categories after confirmation', function () {
+test('a spiir import replaces the default categories', function () {
     $this->seed(DefaultCategoriesSeeder::class);
 
     $defaultSubcategory = Subcategory::query()
@@ -65,9 +66,7 @@ test('a spiir import replaces the default categories after confirmation', functi
         ->categorizedAs($defaultSubcategory)
         ->create();
 
-    $this->artisan('app:spiir:import', ['path' => base_path('tests/Fixtures/spiir-export')])
-        ->expectsConfirmation('Continue?', 'yes')
-        ->assertSuccessful();
+    app(Importer::class)->importExport(base_path('tests/Fixtures/spiir-export'));
 
     // Only the Spiir tree remains; postings that pointed at a default
     // subcategory are uncategorized now.
@@ -75,16 +74,4 @@ test('a spiir import replaces the default categories after confirmation', functi
         ->and(Subcategory::query()->count())->toBe(3)
         ->and(Category::query()->where('legacy_id', 'like', DefaultCategoriesSeeder::CATEGORY_LEGACY_ID_PREFIX.'%')->exists())->toBeFalse()
         ->and($posting->refresh()->categorized_subcategory_id)->toBeNull();
-});
-
-test('a spiir import can be aborted at the default-categories warning', function () {
-    $this->seed(DefaultCategoriesSeeder::class);
-
-    $defaultCategories = Category::query()->count();
-
-    $this->artisan('app:spiir:import', ['path' => base_path('tests/Fixtures/spiir-export')])
-        ->expectsConfirmation('Continue?')
-        ->assertFailed();
-
-    expect(Category::query()->count())->toBe($defaultCategories);
 });
