@@ -4,14 +4,6 @@ All notable changes to Freyr are documented in this file. The format is based
 on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
-
-### Removed
-
-- The `php artisan app:spiir:import` command. Spiir exports are imported
-  through the browser (setup wizard or **Platform → Settings**), which only
-  runs while no postings exist.
-
 ## [0.1.0] - 2026-07-04
 
 First public release.
