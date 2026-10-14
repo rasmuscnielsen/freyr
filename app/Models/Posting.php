@@ -10,7 +10,6 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
-use Illuminate\Support\Facades\DB;
 
 class Posting extends Model
 {
@@ -105,13 +104,6 @@ class Posting extends Model
 
     protected static function booted(): void
     {
-        // The FK's null-on-delete no longer fires for soft deletes; clear the
-        // link so no live posting points at a deleted counter entry. Done
-        // through Eloquent so `updated_at` moves for API sync.
-        static::softDeleted(function (Posting $posting): void {
-            static::query()->where('counter_entry_posting_id', $posting->id)->update(['counter_entry_posting_id' => null]);
-        });
-
         static::updating(function (Posting $posting): void {
             if (! $posting->isDirty('description')) {
                 return;
@@ -126,49 +118,6 @@ class Posting extends Model
      * @param  Builder<Posting>  $query
      * @return Builder<Posting>
      */
-    /**
-     * Ids of postings referencing the given subcategories, captured ahead of
-     * a delete that nulls those references in the database (see
-     * touchByIds()).
-     *
-     * @param  list<int>  $subcategoryIds
-     * @return list<int>
-     */
-    public static function idsReferencingSubcategories(array $subcategoryIds): array
-    {
-        if ($subcategoryIds === []) {
-            return [];
-        }
-
-        return static::query()
-            ->where(fn (Builder $query) => $query
-                ->whereIn('categorized_subcategory_id', $subcategoryIds)
-                ->orWhereIn('subcategory_id', $subcategoryIds))
-            ->pluck('id')
-            ->all();
-    }
-
-    /**
-     * Bump `updated_at` after a database-level change (FK null on delete)
-     * so API `changed_since` sync sees it. Deferred until the surrounding
-     * transaction commits: a timestamp written earlier could predate the
-     * start of a sync that still read the old row.
-     *
-     * @param  list<int>  $ids
-     */
-    public static function touchByIds(array $ids): void
-    {
-        if ($ids === []) {
-            return;
-        }
-
-        DB::afterCommit(function () use ($ids): void {
-            foreach (array_chunk($ids, 1000) as $chunk) {
-                static::query()->whereKey($chunk)->update(['updated_at' => now()]);
-            }
-        });
-    }
-
     public function scopeForUser(Builder $query, User $user): Builder
     {
         return $query->where('user_id', $user->id);

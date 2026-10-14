@@ -2,6 +2,8 @@
 
 namespace App\Services\Spiir;
 
+use App\Actions\DeleteCategory;
+use App\Actions\DeletePosting;
 use App\Actions\RecalculateAccountBalance;
 use App\Enums\CategoryType;
 use App\Models\BankAccount;
@@ -98,12 +100,11 @@ final class Importer
      */
     private function removeDefaultCategories(): void
     {
-        // Deleted one by one so the model events bump the `updated_at` of
-        // postings that lose their category (see Category::booted()).
+        // Through the action so postings losing their category are stamped.
         Category::query()
             ->where('legacy_id', 'like', DefaultCategoriesSeeder::CATEGORY_LEGACY_ID_PREFIX.'%')
             ->get()
-            ->each->delete();
+            ->each(fn (Category $category) => app(DeleteCategory::class)->handle($category));
     }
 
     public function canImport(): bool
@@ -427,8 +428,9 @@ final class Importer
             unset($rows[$parent['legacy_id']]);
             // Soft, so sync clients that already have the parent learn it is
             // gone; it is out of $rows, so its legacy id is never upserted.
-            // Per model, so the softDeleted hook unlinks counter entries.
-            Posting::query()->where('legacy_id', $parent['legacy_id'])->get()->each->delete();
+            // Through the action so counter entries pointing at it are unlinked.
+            Posting::query()->where('legacy_id', $parent['legacy_id'])->get()
+                ->each(fn (Posting $posting) => app(DeletePosting::class)->handle($posting));
         }
 
         $updateColumns = array_values(array_diff(array_keys(reset($rows) ?: []), ['legacy_id', 'created_at']));

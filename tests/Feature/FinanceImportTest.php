@@ -1,5 +1,6 @@
 <?php
 
+use App\Actions\DeletePosting;
 use App\Enums\CategoryType;
 use App\Models\BankAccount;
 use App\Models\Category;
@@ -223,7 +224,7 @@ test('a re-import revives deleted postings in place and leaves other trashed pos
 test('a re-import never links a posting to a deleted counter entry', function () {
     $user = User::factory()->create();
     app(Importer::class)->importExport(base_path('tests/Fixtures/spiir-export'), $user);
-    Posting::query()->where('legacy_id', 'post-4')->firstOrFail()->delete();
+    app(DeletePosting::class)->handle(Posting::query()->where('legacy_id', 'post-4')->firstOrFail());
 
     // An export without the deleted counter entry leaves it trashed.
     $path = sys_get_temp_dir().'/spiir-export-'.uniqid();

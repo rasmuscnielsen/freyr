@@ -13,19 +13,6 @@ class Category extends Model
     /** @use HasFactory<CategoryFactory> */
     use HasFactory;
 
-    /** @var list<int> */
-    private array $referencingPostingIds = [];
-
-    protected static function booted(): void
-    {
-        // Deleting nulls posting FKs in the database without touching the
-        // rows; bump their `updated_at` afterwards for `changed_since` sync.
-        static::deleting(function (Category $model): void {
-            $model->referencingPostingIds = Posting::idsReferencingSubcategories($model->subcategories()->pluck('id')->all());
-        });
-        static::deleted(fn (Category $model) => Posting::touchByIds($model->referencingPostingIds));
-    }
-
     /**
      * @var list<string>
      */

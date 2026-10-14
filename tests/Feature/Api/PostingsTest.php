@@ -1,5 +1,7 @@
 <?php
 
+use App\Actions\DeleteCategory;
+use App\Actions\DeletePosting;
 use App\Models\BankAccount;
 use App\Models\Category;
 use App\Models\Posting;
@@ -255,7 +257,7 @@ test('deleting a posting unlinks its counter entry for sync', function () {
     $counterpart = Posting::factory()->forAccount($account)->create(['counter_entry_posting_id' => $transfer->id]);
 
     Carbon::setTestNow('2026-05-02 10:00:00');
-    $transfer->delete();
+    app(DeletePosting::class)->handle($transfer);
 
     Passport::actingAs($user, ['read']);
 
@@ -274,7 +276,7 @@ test('postings whose category is deleted show up in incremental sync', function 
     $posting = Posting::factory()->forAccount($account)->categorizedAs($subcategory)->create();
 
     Carbon::setTestNow('2026-05-02 10:00:00');
-    ($deleted === 'category' ? $subcategory->category : $subcategory)->delete();
+    app(DeleteCategory::class)->handle($deleted === 'category' ? $subcategory->category : $subcategory);
 
     Passport::actingAs($user, ['read']);
 
@@ -292,7 +294,7 @@ test('postings losing their category are stamped when the delete commits, not be
     // the stamp must not predate that sync's start.
     DB::transaction(function () use ($subcategory) {
         Carbon::setTestNow('2026-05-02 10:00:00');
-        $subcategory->delete();
+        app(DeleteCategory::class)->handle($subcategory);
         Carbon::setTestNow('2026-05-02 10:00:05');
     });
 

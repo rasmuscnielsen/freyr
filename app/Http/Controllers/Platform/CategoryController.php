@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Platform;
 
+use App\Actions\DeleteCategory;
 use App\Enums\CategoryType;
 use App\Enums\ExpenseGroup;
 use App\Http\Controllers\Controller;
@@ -82,9 +83,9 @@ class CategoryController extends Controller
         return back();
     }
 
-    public function destroy(Category $category): RedirectResponse
+    public function destroy(Category $category, DeleteCategory $deleteCategory): RedirectResponse
     {
-        $category->delete();
+        $deleteCategory->handle($category);
 
         return back();
     }
