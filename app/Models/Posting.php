@@ -9,11 +9,15 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Posting extends Model
 {
     /** @use HasFactory<PostingFactory> */
     use HasFactory;
+
+    // Soft so API sync clients can be told about deletions (`deleted_at`).
+    use SoftDeletes;
 
     /**
      * @var list<string>

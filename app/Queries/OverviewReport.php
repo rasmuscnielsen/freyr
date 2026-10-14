@@ -407,6 +407,7 @@ final class OverviewReport
             ->leftJoin('subcategories', 'subcategories.id', '=', 'postings.categorized_subcategory_id')
             ->leftJoin('categories', 'categories.id', '=', 'subcategories.category_id')
             ->where('postings.user_id', $this->user->id)
+            ->whereNull('postings.deleted_at')
             ->whereBetween('postings.date', [$this->start->toDateString(), $this->through->toDateString()]);
     }
 

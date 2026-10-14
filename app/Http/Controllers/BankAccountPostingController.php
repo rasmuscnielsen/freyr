@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Actions\DeletePosting;
 use App\Actions\RecalculateAccountBalance;
 use App\Http\Requests\StorePostingRequest;
 use App\Http\Requests\UpdatePostingRequest;
@@ -80,14 +81,14 @@ class BankAccountPostingController extends Controller
         return back();
     }
 
-    public function destroy(Request $request, BankAccount $bankAccount, Posting $posting): RedirectResponse
+    public function destroy(Request $request, BankAccount $bankAccount, Posting $posting, DeletePosting $deletePosting): RedirectResponse
     {
         abort_unless($request->user()?->is($bankAccount->user), 403);
         abort_if($bankAccount->hasBankConnection(), 403);
 
         $delta = bcmul((string) ($posting->original_amount ?? '0'), '-1', 10);
 
-        $posting->delete();
+        $deletePosting->handle($posting);
 
         $this->balanceRecalculator->handle($bankAccount, $delta);
 

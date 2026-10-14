@@ -1,5 +1,6 @@
 <?php
 
+use App\Actions\DeletePosting;
 use App\Enums\CategoryType;
 use App\Models\BankAccount;
 use App\Models\Category;
@@ -7,6 +8,8 @@ use App\Models\Posting;
 use App\Models\Subcategory;
 use App\Models\User;
 use App\Services\Spiir\Importer;
+use Database\Seeders\DefaultCategoriesSeeder;
+use Illuminate\Support\Carbon;
 
 test('it imports a spiir export idempotently', function () {
     $path = base_path('tests/Fixtures/spiir-export');
@@ -181,4 +184,58 @@ test('spiir placeholder external IDs remain missing after repeated imports', fun
         }
         rmdir($path);
     }
+});
+
+test('postings losing a removed default category are marked as updated', function () {
+    $user = User::factory()->create();
+    $this->seed(DefaultCategoriesSeeder::class);
+    $subcategory = Subcategory::query()->where('legacy_id', 'like', DefaultCategoriesSeeder::SUBCATEGORY_LEGACY_ID_PREFIX.'%')->firstOrFail();
+
+    Carbon::setTestNow('2026-05-01 10:00:00');
+    $manual = Posting::factory()->forAccount(BankAccount::factory()->for($user)->create())->categorizedAs($subcategory)->create();
+
+    Carbon::setTestNow('2026-05-02 10:00:00');
+    app(Importer::class)->importExport(base_path('tests/Fixtures/spiir-export'), $user);
+
+    expect($manual->fresh())
+        ->categorized_subcategory_id->toBeNull()
+        ->updated_at->toDateTimeString()->toBe('2026-05-02 10:00:00');
+});
+
+test('a re-import revives deleted postings in place and leaves other trashed postings alone', function () {
+    $user = User::factory()->create();
+    $path = base_path('tests/Fixtures/spiir-export');
+
+    app(Importer::class)->importExport($path, $user);
+    $ids = Posting::query()->orderBy('id')->pluck('id')->all();
+    Posting::query()->get()->each->delete();
+    $unrelated = Posting::factory()->create(['legacy_id' => 'elsewhere']);
+    $unrelated->delete();
+
+    expect(app(Importer::class)->canImport())->toBeTrue();
+
+    app(Importer::class)->importExport($path, $user);
+
+    // Same ids, so sync clients see an update, not a duplicate.
+    expect(Posting::query()->orderBy('id')->pluck('id')->all())->toBe($ids)
+        ->and(Posting::onlyTrashed()->pluck('id')->all())->toBe([$unrelated->id]);
+});
+
+test('a re-import never links a posting to a deleted counter entry', function () {
+    $user = User::factory()->create();
+    app(Importer::class)->importExport(base_path('tests/Fixtures/spiir-export'), $user);
+    app(DeletePosting::class)->handle(Posting::query()->where('legacy_id', 'post-4')->firstOrFail());
+
+    // An export without the deleted counter entry leaves it trashed.
+    $path = sys_get_temp_dir().'/spiir-export-'.uniqid();
+    mkdir($path);
+    foreach (glob(base_path('tests/Fixtures/spiir-export/*')) as $fixture) {
+        copy($fixture, $path.'/'.basename($fixture));
+    }
+    $postings = file($path.'/Posting.csv');
+    file_put_contents($path.'/Posting.csv', implode('', array_filter($postings, fn (string $line) => ! str_starts_with($line, 'post-4;'))));
+
+    app(Importer::class)->importExport($path, $user);
+
+    expect(Posting::query()->where('legacy_id', 'post-3')->firstOrFail()->counter_entry_posting_id)->toBeNull();
 });

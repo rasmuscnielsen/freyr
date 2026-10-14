@@ -36,6 +36,10 @@ test('the overview report aggregates monthly buckets over the requested window',
         // Outside the requested window.
         Posting::factory()->forAccount($account)->categorizedAs($salary)->income()
             ->create(['date' => '2024-01-05', 'amount' => 99999, 'original_amount' => 99999]);
+        // Deleted postings no longer count.
+        Posting::factory()->forAccount($account)->categorizedAs($rent)
+            ->create(['date' => '2026-01-11', 'amount' => -400, 'original_amount' => -400])
+            ->delete();
         // Another user's postings never leak in.
         Posting::factory()->create(['date' => '2026-01-06', 'amount' => 7777, 'original_amount' => 7777]);
 

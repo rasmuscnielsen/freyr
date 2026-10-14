@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Platform;
 
+use App\Actions\DeleteCategory;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Platform\StoreSubcategoryRequest;
 use App\Http\Requests\Platform\UpdateSubcategoryRequest;
@@ -40,9 +41,9 @@ class SubcategoryController extends Controller
         return back();
     }
 
-    public function destroy(Subcategory $subcategory): RedirectResponse
+    public function destroy(Subcategory $subcategory, DeleteCategory $deleteCategory): RedirectResponse
     {
-        $subcategory->delete();
+        $deleteCategory->handle($subcategory);
 
         return back();
     }

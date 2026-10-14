@@ -9,6 +9,7 @@ use App\Models\Posting;
 use App\Models\User;
 use App\Services\EnableBanking\Client;
 use App\Services\Frankfurter\ExchangeRateStore;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Queue;
 use Inertia\Testing\AssertableInertia as Assert;
@@ -66,6 +67,23 @@ test('bank accounts can be listed created updated and deleted', function () {
         ->assertRedirect();
 
     expect(BankAccount::query()->count())->toBe(0);
+});
+
+test('deleting an account unlinks counter entries in other accounts for sync', function () {
+    $user = User::factory()->create();
+    $deleted = BankAccount::factory()->for($user)->create();
+    $kept = BankAccount::factory()->for($user)->create();
+    $transferOut = Posting::factory()->forAccount($deleted)->create();
+
+    Carbon::setTestNow('2026-05-01 10:00:00');
+    $transferIn = Posting::factory()->forAccount($kept)->create(['counter_entry_posting_id' => $transferOut->id]);
+
+    Carbon::setTestNow('2026-05-02 10:00:00');
+    $this->actingAs($user)->delete(route('bank-accounts.destroy', $deleted))->assertRedirect();
+
+    expect($transferIn->refresh())
+        ->counter_entry_posting_id->toBeNull()
+        ->updated_at->toDateTimeString()->toBe('2026-05-02 10:00:00');
 });
 
 test('creating a manual account only needs a name and a currency', function () {

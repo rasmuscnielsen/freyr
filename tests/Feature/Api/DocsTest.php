@@ -26,5 +26,6 @@ test('platform admins can view the api docs and the generated spec', function ()
         ->get('/docs/api.json')
         ->assertOk()
         ->assertJsonPath('paths./reports/overview.get.summary', 'Overview report')
-        ->assertJsonPath('paths./reports/overview/categories.get.summary', 'Overview categories');
+        ->assertJsonPath('paths./reports/overview/categories.get.summary', 'Overview categories')
+        ->assertJsonPath('paths./bank-accounts/{bankAccount}/postings.get.summary', 'List postings for a bank account');
 });

@@ -2,6 +2,8 @@
 
 namespace App\Services\Spiir;
 
+use App\Actions\DeleteCategory;
+use App\Actions\DeletePosting;
 use App\Actions\RecalculateAccountBalance;
 use App\Enums\CategoryType;
 use App\Models\BankAccount;
@@ -98,9 +100,11 @@ final class Importer
      */
     private function removeDefaultCategories(): void
     {
+        // Through the action so postings losing their category are stamped.
         Category::query()
             ->where('legacy_id', 'like', DefaultCategoriesSeeder::CATEGORY_LEGACY_ID_PREFIX.'%')
-            ->delete();
+            ->get()
+            ->each(fn (Category $category) => app(DeleteCategory::class)->handle($category));
     }
 
     public function canImport(): bool
@@ -394,6 +398,9 @@ final class Importer
                 'legacy_created_at' => $this->dateTime($row['Created'] ?? null),
                 'created_at' => $now,
                 'updated_at' => $now,
+                // A re-import revives a trashed posting in place, keeping its
+                // id so API sync clients see an update rather than a new row.
+                'deleted_at' => null,
             ];
         }
 
@@ -419,7 +426,11 @@ final class Importer
             }
 
             unset($rows[$parent['legacy_id']]);
-            Posting::query()->where('legacy_id', $parent['legacy_id'])->delete();
+            // Soft, so sync clients that already have the parent learn it is
+            // gone; it is out of $rows, so its legacy id is never upserted.
+            // Through the action so counter entries pointing at it are unlinked.
+            Posting::query()->where('legacy_id', $parent['legacy_id'])->get()
+                ->each(fn (Posting $posting) => app(DeletePosting::class)->handle($posting));
         }
 
         $updateColumns = array_values(array_diff(array_keys(reset($rows) ?: []), ['legacy_id', 'created_at']));
@@ -462,6 +473,7 @@ final class Importer
             FROM postings AS counter_entry
             WHERE postings.counter_entry_posting_id IS NULL
               AND postings.counter_entry_legacy_id = counter_entry.legacy_id
+              AND counter_entry.deleted_at IS NULL
         SQL);
     }
 
