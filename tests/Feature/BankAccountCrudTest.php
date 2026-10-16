@@ -23,7 +23,6 @@ function bankAccountPayload(array $overrides = []): array
         'bank_name' => 'SampleBank',
         'currency' => 'DKK',
         'account_type' => 'Consumption',
-        'last_known_posting_date' => '2026-06-05',
         'is_active' => true,
         'is_favorite' => false,
         ...$overrides,
@@ -44,23 +43,30 @@ test('bank accounts can be listed created updated and deleted', function () {
             ->where('availableBanks.1.name', 'Example Bank'));
 
     $this->actingAs($user)
-        ->post(route('bank-accounts.store'), bankAccountPayload())
+        ->post(route('bank-accounts.store'), bankAccountPayload([
+            'last_known_posting_date' => '2099-01-01',
+        ]))
         ->assertRedirect();
 
     $account = BankAccount::query()->firstOrFail();
 
     expect($account->name)->toBe('Sample Account')
-        ->and($account->legacy_id)->toStartWith('manual-');
+        ->and($account->legacy_id)->toStartWith('manual-')
+        ->and($account->last_known_posting_date)->toBeNull();
+
+    $account->update(['last_known_posting_date' => '2026-06-05']);
 
     $this->actingAs($user)
         ->patch(route('bank-accounts.update', $account), bankAccountPayload([
             'name' => 'Sample Everyday',
             'is_favorite' => true,
+            'last_known_posting_date' => '2099-01-01',
         ]))
         ->assertRedirect();
 
     expect($account->refresh()->name)->toBe('Sample Everyday')
-        ->and($account->is_favorite)->toBeTrue();
+        ->and($account->is_favorite)->toBeTrue()
+        ->and($account->last_known_posting_date->toDateString())->toBe('2026-06-05');
 
     $this->actingAs($user)
         ->delete(route('bank-accounts.destroy', $account))

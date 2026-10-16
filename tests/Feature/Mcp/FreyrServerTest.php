@@ -376,6 +376,11 @@ test('manual creation and deletion tools are write-scoped catalog tools', functi
     Passport::actingAs($user, ['mcp:use', 'write']);
     FreyrServer::tools()->assertNotRegistered($tool);
     expect($catalog->search($name, 1)['tools'][0]['name'])->toBe($name);
+
+    if ($name === 'create-bank-account') {
+        expect($catalog->search($name, 1)['tools'][0]['inputSchema']['properties'])
+            ->not->toHaveKey('last_known_posting_date');
+    }
 })->with([
     ['create-bank-account', CreateBankAccount::class],
     ['create-posting', CreatePosting::class],
@@ -391,6 +396,7 @@ test('create-bank-account creates only an owned manual account with UI defaults'
     $result = mcpCall('create-bank-account', [
         'name' => 'Cash', 'currency' => 'DKK',
         'user_id' => $other->id, 'current_balance' => '999', 'legacy_id' => 'injected',
+        'last_known_posting_date' => '2099-01-01',
     ]);
 
     expect($result['isError'])->toBeFalse();
@@ -401,7 +407,7 @@ test('create-bank-account creates only an owned manual account with UI defaults'
         ->and($account->current_balance)->toBe('0.00')
         ->and($result['structuredContent']['account'])->toMatchArray([
             'name' => 'Cash', 'currency' => 'DKK', 'has_bank_connection' => false,
-            'is_active' => true, 'is_favorite' => false,
+            'is_active' => true, 'is_favorite' => false, 'last_known_posting_date' => null,
         ]);
     Queue::assertNotPushed(ConvertReportingAmounts::class);
 });
@@ -473,13 +479,22 @@ test('create and delete postings preserve account-currency balances and reportin
                 'id' => $subcategory->id, 'name' => $subcategory->name, 'type' => $subcategory->category->type->value,
             ],
         ])
-        ->and($account->refresh()->current_balance)->toBe('187.65');
+        ->and($account->refresh()->current_balance)->toBe('187.65')
+        ->and($account->last_known_posting_date->toDateString())->toBe('2026-07-02');
 
     if ($currency === 'DKK') {
         Queue::assertNotPushed(ConvertReportingAmounts::class);
     } else {
         Queue::assertPushed(ConvertReportingAmounts::class, fn ($job) => $job->userId === $user->id);
     }
+
+    expect(mcpCall('edit-posting', ['id' => $posting->id, 'date' => '2026-07-10'])['isError'])->toBeFalse()
+        ->and(mcpCall('list-bank-accounts')['structuredContent']['accounts'][0]['last_known_posting_date'])->toBe('2026-07-10')
+        ->and($account->refresh()->current_balance)->toBe('187.65');
+
+    $this->getJson("/api/bank-accounts/{$account->id}")
+        ->assertOk()
+        ->assertJsonPath('data.last_known_posting_date', '2026-07-10');
 
     $kept = Posting::factory()->forAccount($account)->create([
         'date' => '2026-07-01', 'original_amount' => '30.10', 'counter_entry_posting_id' => $posting->id,
@@ -494,9 +509,11 @@ test('create and delete postings preserve account-currency balances and reportin
         ->and(mcpCall('get-posting', ['id' => $posting->id])['isError'])->toBeTrue()
         ->and(mcpCall('delete-posting', ['id' => $posting->id])['isError'])->toBeTrue();
 
-    if ($openingBalance !== null) {
-        expect($account->last_known_posting_date->toDateString())->toBe('2026-07-01');
-    }
+    expect($account->last_known_posting_date->toDateString())->toBe('2026-07-01');
+
+    $this->getJson('/api/bank-accounts')
+        ->assertOk()
+        ->assertJsonPath('data.0.last_known_posting_date', '2026-07-01');
 })->with([
     'same currency anchored' => ['DKK', '200.00'],
     'foreign currency anchored' => ['EUR', '200.00'],

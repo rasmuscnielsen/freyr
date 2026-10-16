@@ -33,7 +33,6 @@ class CreateBankAccount extends FreyrTool
             'bank_key' => $schema->string()->nullable()->description('Optional bank identifier (max 255 chars).'),
             'bank_name' => $schema->string()->nullable()->description('Optional bank name (max 255 chars).'),
             'account_type' => $schema->string()->nullable()->description('Optional account type (max 255 chars).'),
-            'last_known_posting_date' => $schema->string()->nullable()->description('Last known posting date (YYYY-MM-DD).'),
             'is_active' => $schema->boolean()->description('Whether the account is active; defaults to true.'),
             'is_favorite' => $schema->boolean()->description('Whether the account is a favorite; defaults to false.'),
         ];
