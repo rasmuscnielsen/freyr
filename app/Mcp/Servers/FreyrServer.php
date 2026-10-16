@@ -3,6 +3,9 @@
 namespace App\Mcp\Servers;
 
 use App\Mcp\Tools\CategorizePostings;
+use App\Mcp\Tools\CreateBankAccount;
+use App\Mcp\Tools\CreatePosting;
+use App\Mcp\Tools\DeletePosting;
 use App\Mcp\Tools\EditPosting;
 use App\Mcp\Tools\GetPosting;
 use App\Mcp\Tools\ListBankAccounts;
@@ -28,6 +31,9 @@ class FreyrServer extends Server
         SimilarPostings::class,
         CategorizePostings::class,
         EditPosting::class,
+        CreateBankAccount::class,
+        CreatePosting::class,
+        DeletePosting::class,
     ];
 
     protected string $name = 'Freyr';
@@ -44,8 +50,10 @@ class FreyrServer extends Server
 
         Use `list-postings` to browse and filter transactions. Additional
         tools (posting detail, categories, bank accounts, similar postings,
-        categorizing and editing postings) are discoverable via `search_tools`
-        and callable via `execute_tools`. The flagship workflow is
+        categorizing and editing postings, creating manual bank accounts,
+        and creating or deleting postings in manual accounts) are discoverable
+        via `search_tools` and callable via `execute_tools`. Bank-synced
+        accounts do not allow posting creation or deletion. The flagship workflow is
         categorization: list uncategorized postings, inspect the category
         tree, then categorize in bulk. When the platform's similar-postings
         feature is on, an uncategorized posting's `suggested_subcategory` is
