@@ -1,6 +1,10 @@
 <?php
 
+use App\Jobs\ConvertReportingAmounts;
 use App\Mcp\Servers\FreyrServer;
+use App\Mcp\Tools\CreateBankAccount;
+use App\Mcp\Tools\CreatePosting;
+use App\Mcp\Tools\DeletePosting;
 use App\Mcp\Tools\ListCategories;
 use App\Mcp\Tools\ListPostings;
 use App\Models\BankAccount;
@@ -10,6 +14,7 @@ use App\Models\Category;
 use App\Models\Posting;
 use App\Models\Subcategory;
 use App\Models\User;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Testing\Fluent\AssertableJson;
 use Laravel\Mcp\Server\Tools\ToolSearch;
 use Laravel\Mcp\Transport\JsonRpcRequest;
@@ -357,3 +362,205 @@ test('tools are not registered without an authenticated user or sole user', func
     FreyrServer::tool(ListPostings::class)->assertNotRegistered();
     expect(mcpCall('get-posting', ['id' => 1])['isError'])->toBeTrue();
 });
+
+test('manual creation and deletion tools are write-scoped catalog tools', function (string $name, string $tool) {
+    $user = User::factory()->create();
+    $catalog = new ToolSearch(FreyrServer::CATALOG_TOOLS);
+
+    foreach ([['mcp:use'], ['mcp:use', 'read'], ['write']] as $scopes) {
+        Passport::actingAs($user, $scopes);
+        expect(array_column($catalog->search($name, 20)['tools'], 'name'))->not->toContain($name)
+            ->and(mcpCall($name)['content'][0]['text'])->toContain('not available');
+    }
+
+    Passport::actingAs($user, ['mcp:use', 'write']);
+    FreyrServer::tools()->assertNotRegistered($tool);
+    expect($catalog->search($name, 1)['tools'][0]['name'])->toBe($name);
+
+    if ($name === 'create-bank-account') {
+        expect($catalog->search($name, 1)['tools'][0]['inputSchema']['properties'])
+            ->not->toHaveKey('last_known_posting_date');
+    }
+})->with([
+    ['create-bank-account', CreateBankAccount::class],
+    ['create-posting', CreatePosting::class],
+    ['delete-posting', DeletePosting::class],
+]);
+
+test('create-bank-account creates only an owned manual account with UI defaults', function () {
+    Queue::fake();
+    $user = User::factory()->create();
+    $other = User::factory()->create();
+    Passport::actingAs($user, ['mcp:use', 'write']);
+
+    $result = mcpCall('create-bank-account', [
+        'name' => 'Cash', 'currency' => 'DKK',
+        'user_id' => $other->id, 'current_balance' => '999', 'legacy_id' => 'injected',
+        'last_known_posting_date' => '2099-01-01',
+    ]);
+
+    expect($result['isError'])->toBeFalse();
+    $account = BankAccount::query()->findOrFail($result['structuredContent']['account']['id']);
+    expect($account->user_id)->toBe($user->id)
+        ->and($account->legacy_id)->toStartWith('manual-')
+        ->and($account->opening_balance)->toBe('0.00')
+        ->and($account->current_balance)->toBe('0.00')
+        ->and($result['structuredContent']['account'])->toMatchArray([
+            'name' => 'Cash', 'currency' => 'DKK', 'has_bank_connection' => false,
+            'is_active' => true, 'is_favorite' => false, 'last_known_posting_date' => null,
+        ]);
+    Queue::assertNotPushed(ConvertReportingAmounts::class);
+});
+
+test('create-bank-account preserves opening balances and queues foreign valuations', function () {
+    Queue::fake();
+    $user = User::factory()->create(['reporting_currency' => 'DKK']);
+    Passport::actingAs($user, ['mcp:use', 'write']);
+
+    $result = mcpCall('create-bank-account', [
+        'name' => 'Travel', 'currency' => 'EUR', 'opening_balance' => '-123.45',
+        'bank_name' => 'Cash wallet', 'is_active' => false, 'is_favorite' => true,
+    ]);
+
+    expect($result['isError'])->toBeFalse();
+    $account = BankAccount::query()->findOrFail($result['structuredContent']['account']['id']);
+    expect($account->opening_balance)->toBe('-123.45')
+        ->and($account->current_balance)->toBe('-123.45')
+        ->and($result['structuredContent']['account'])->toMatchArray([
+            'bank_name' => 'Cash wallet', 'is_active' => false, 'is_favorite' => true,
+        ]);
+    Queue::assertPushed(ConvertReportingAmounts::class, fn ($job) => $job->userId === $user->id);
+});
+
+test('create-bank-account uses UI validation without creating an account', function (array $attributes) {
+    Passport::actingAs(User::factory()->create(), ['mcp:use', 'write']);
+
+    $result = mcpCall('create-bank-account', ['name' => 'Cash', 'currency' => 'DKK', ...$attributes]);
+
+    expect($result['isError'])->toBeTrue()
+        ->and(BankAccount::query()->count())->toBe(0);
+})->with([
+    'missing name' => [['name' => '']],
+    'invalid currency' => [['currency' => 'EURO']],
+    'fractional precision' => [['opening_balance' => '1.234']],
+    'balance overflow' => [['opening_balance' => '10000000000000.00']],
+]);
+
+test('create and delete postings preserve account-currency balances and reporting amounts', function (string $currency, ?string $openingBalance) {
+    Queue::fake();
+    $user = User::factory()->create(['reporting_currency' => 'DKK']);
+    $account = BankAccount::factory()->for($user)->create([
+        'currency' => $currency, 'opening_balance' => $openingBalance, 'current_balance' => '200.00',
+    ]);
+    $subcategory = Subcategory::factory()->create();
+    Passport::actingAs($user, ['mcp:use', 'read', 'write']);
+
+    $result = mcpCall('create-posting', [
+        'bank_account_id' => $account->id, 'date' => '2026-07-02',
+        'description' => 'Lunch', 'amount' => '-12.35',
+        'categorized_subcategory_id' => $subcategory->id, 'comment' => 'Travel lunch',
+        'is_extraordinary' => true, 'user_id' => 999, 'source' => 'bank',
+    ]);
+
+    expect($result['isError'])->toBeFalse();
+    $posting = Posting::query()->findOrFail($result['structuredContent']['posting']['id']);
+    expect($posting->user_id)->toBe($user->id)
+        ->and($posting->bank_account_id)->toBe($account->id)
+        ->and($posting->original_amount)->toBe('-12.35')
+        ->and($posting->original_currency)->toBe($currency)
+        ->and($posting->currency)->toBe('DKK')
+        ->and($posting->amount)->toBe($currency === 'DKK' ? '-12.35' : null)
+        ->and($posting->source)->toBe('manual')
+        ->and($posting->balance)->toBeNull()
+        ->and($posting->categorized_by)->toBe('mcp')
+        ->and($result['structuredContent']['posting'])->toMatchArray([
+            'date' => '2026-07-02', 'description' => 'Lunch', 'comment' => 'Travel lunch',
+            'is_extraordinary' => true, 'subcategory' => [
+                'id' => $subcategory->id, 'name' => $subcategory->name, 'type' => $subcategory->category->type->value,
+            ],
+        ])
+        ->and($account->refresh()->current_balance)->toBe('187.65')
+        ->and($account->last_known_posting_date->toDateString())->toBe('2026-07-02');
+
+    if ($currency === 'DKK') {
+        Queue::assertNotPushed(ConvertReportingAmounts::class);
+    } else {
+        Queue::assertPushed(ConvertReportingAmounts::class, fn ($job) => $job->userId === $user->id);
+    }
+
+    expect(mcpCall('edit-posting', ['id' => $posting->id, 'date' => '2026-07-10'])['isError'])->toBeFalse()
+        ->and(mcpCall('list-bank-accounts')['structuredContent']['accounts'][0]['last_known_posting_date'])->toBe('2026-07-10')
+        ->and($account->refresh()->current_balance)->toBe('187.65');
+
+    $this->getJson("/api/bank-accounts/{$account->id}")
+        ->assertOk()
+        ->assertJsonPath('data.last_known_posting_date', '2026-07-10');
+
+    $kept = Posting::factory()->forAccount($account)->create([
+        'date' => '2026-07-01', 'original_amount' => '30.10', 'counter_entry_posting_id' => $posting->id,
+    ]);
+    // Only anchored balances include the new fixture movement automatically.
+    $result = mcpCall('delete-posting', ['id' => $posting->id]);
+    expect($result['isError'])->toBeFalse()
+        ->and($result['structuredContent']['deleted_id'])->toBe($posting->id)
+        ->and($posting->fresh()->trashed())->toBeTrue()
+        ->and($kept->refresh()->counter_entry_posting_id)->toBeNull()
+        ->and($account->refresh()->current_balance)->toBe($openingBalance === null ? '200.00' : '230.10')
+        ->and(mcpCall('get-posting', ['id' => $posting->id])['isError'])->toBeTrue()
+        ->and(mcpCall('delete-posting', ['id' => $posting->id])['isError'])->toBeTrue();
+
+    expect($account->last_known_posting_date->toDateString())->toBe('2026-07-01');
+
+    $this->getJson('/api/bank-accounts')
+        ->assertOk()
+        ->assertJsonPath('data.0.last_known_posting_date', '2026-07-01');
+})->with([
+    'same currency anchored' => ['DKK', '200.00'],
+    'foreign currency anchored' => ['EUR', '200.00'],
+    'foreign currency snapshot' => ['EUR', null],
+]);
+
+test('manual posting tools refuse foreign, missing and bank-synced targets without mutations', function (string $target) {
+    $user = User::factory()->create();
+    $account = match ($target) {
+        'synced' => connectedAccountFor($user),
+        'foreign' => BankAccount::factory()->create(),
+        default => BankAccount::factory()->for($user)->create(),
+    };
+    $posting = Posting::factory()->forAccount($account)->create();
+    $before = $account->refresh()->getAttributes();
+    Passport::actingAs($user, ['mcp:use', 'write']);
+
+    $create = mcpCall('create-posting', [
+        'bank_account_id' => $target === 'missing' ? 999999 : $account->id,
+        'date' => '2026-07-01', 'description' => 'Forbidden', 'amount' => '42.10',
+    ]);
+    $delete = mcpCall('delete-posting', ['id' => $target === 'missing' ? 999999 : $posting->id]);
+
+    expect($create['isError'])->toBeTrue()
+        ->and($delete['isError'])->toBeTrue()
+        ->and(Posting::query()->count())->toBe(1)
+        ->and(Posting::onlyTrashed()->count())->toBe(0)
+        ->and($account->refresh()->getAttributes())->toBe($before);
+})->with(['foreign', 'missing', 'synced']);
+
+test('create-posting rejects invalid UI fields without changing the balance', function (array $attributes) {
+    $user = User::factory()->create();
+    $account = BankAccount::factory()->for($user)->create(['opening_balance' => '100.00', 'current_balance' => '100.00']);
+    Passport::actingAs($user, ['mcp:use', 'write']);
+
+    $result = mcpCall('create-posting', [
+        'bank_account_id' => $account->id, 'date' => '2026-07-01',
+        'description' => 'Lunch', 'amount' => '-12.35', ...$attributes,
+    ]);
+
+    expect($result['isError'])->toBeTrue()
+        ->and(Posting::query()->count())->toBe(0)
+        ->and($account->refresh()->current_balance)->toBe('100.00');
+})->with([
+    'bad date' => [['date' => 'not-a-date']],
+    'missing description' => [['description' => '']],
+    'excess precision' => [['amount' => '1.234']],
+    'unknown category' => [['categorized_subcategory_id' => 999999]],
+    'long comment' => [['comment' => str_repeat('x', 2001)]],
+]);

@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Actions\CreateManualPosting;
 use App\Actions\DeletePosting;
 use App\Actions\RecalculateAccountBalance;
 use App\Http\Requests\StorePostingRequest;
@@ -21,27 +22,9 @@ class BankAccountPostingController extends Controller
 {
     public function __construct(private RecalculateAccountBalance $balanceRecalculator) {}
 
-    public function store(StorePostingRequest $request, BankAccount $bankAccount): RedirectResponse
+    public function store(StorePostingRequest $request, BankAccount $bankAccount, CreateManualPosting $createPosting): RedirectResponse
     {
-        $validated = $request->validated();
-        $accountAmount = MoneyMath::round((string) $validated['amount']);
-
-        // The entered amount is the account-currency movement; the reporting
-        // pair follows the owner's reporting currency.
-        $posting = new Posting([
-            ...$validated,
-            'user_id' => $bankAccount->user_id,
-            'original_amount' => $accountAmount,
-            'original_currency' => $bankAccount->currency,
-        ]);
-        $posting->applyReportingAmount($bankAccount->user->reporting_currency ?? $bankAccount->currency);
-        $bankAccount->postings()->save($posting);
-
-        $this->balanceRecalculator->handle($bankAccount, $accountAmount);
-
-        if ($posting->amount === null && $posting->original_amount !== null) {
-            ConvertReportingAmounts::dispatch($bankAccount->user_id)->afterCommit();
-        }
+        $createPosting->handle($bankAccount, $request->validated());
 
         return back();
     }

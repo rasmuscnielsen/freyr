@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Actions\CreateManualBankAccount;
 use App\Actions\RecalculateAccountBalance;
 use App\Http\Requests\StoreBankAccountRequest;
 use App\Http\Requests\UpdateBankAccountRequest;
@@ -23,7 +24,6 @@ use Illuminate\Support\Arr;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -202,19 +202,9 @@ class BankAccountController extends Controller
         ]);
     }
 
-    public function store(StoreBankAccountRequest $request): RedirectResponse
+    public function store(StoreBankAccountRequest $request, CreateManualBankAccount $createAccount): RedirectResponse
     {
-        $validated = $request->validated();
-        $openingBalance = MoneyMath::round((string) ($validated['opening_balance'] ?? '0.00'));
-
-        $account = $request->user()->bankAccounts()->create([
-            ...$validated,
-            'legacy_id' => BankAccount::MANUAL_LEGACY_ID_PREFIX.Str::uuid()->toString(),
-            'opening_balance' => $openingBalance,
-            'current_balance' => $openingBalance,
-        ]);
-
-        $this->dispatchConversionForForeignAccount($account, $request->user());
+        $createAccount->handle($request->user(), $request->validated());
 
         return back();
     }

@@ -28,7 +28,6 @@ class StoreBankAccountRequest extends FormRequest
             'currency' => ['required', 'string', 'size:3'],
             'opening_balance' => ['sometimes', 'numeric', 'decimal:0,2', 'between:-9999999999999.99,9999999999999.99'],
             'account_type' => ['nullable', 'string', 'max:255'],
-            'last_known_posting_date' => ['nullable', 'date'],
             'is_active' => ['sometimes', 'boolean'],
             'is_favorite' => ['sometimes', 'boolean'],
         ];

@@ -193,7 +193,8 @@ test('manual postings move an unanchored account balance', function () {
 
     $posting = Posting::query()->firstOrFail();
 
-    expect((float) $account->refresh()->current_balance)->toBe(400.00);
+    expect((float) $account->refresh()->current_balance)->toBe(400.00)
+        ->and($account->last_known_posting_date->toDateString())->toBe('2026-07-01');
 
     $this->actingAs($user)->patch(
         route('bank-accounts.postings.update', [$account, $posting]),
@@ -202,9 +203,31 @@ test('manual postings move an unanchored account balance', function () {
 
     expect((float) $account->refresh()->current_balance)->toBe(350.00);
 
+    $this->actingAs($user)->patch(
+        route('bank-accounts.postings.update', [$account, $posting]),
+        ['date' => '2026-07-10'],
+    )->assertRedirect();
+
+    expect((float) $account->refresh()->current_balance)->toBe(350.00)
+        ->and($account->last_known_posting_date->toDateString())->toBe('2026-07-10');
+
+    $this->actingAs($user)->post(route('bank-accounts.postings.store', $account), manualPostingPayload([
+        'date' => '2026-06-01',
+        'amount' => '0.00',
+    ]))->assertRedirect();
+
+    expect($account->refresh()->last_known_posting_date->toDateString())->toBe('2026-07-10');
+
     $this->actingAs($user)->delete(route('bank-accounts.postings.destroy', [$account, $posting]));
 
-    expect((float) $account->refresh()->current_balance)->toBe(500.00);
+    expect((float) $account->refresh()->current_balance)->toBe(500.00)
+        ->and($account->last_known_posting_date->toDateString())->toBe('2026-06-01');
+
+    $remaining = $account->postings()->sole();
+    $this->actingAs($user)->delete(route('bank-accounts.postings.destroy', [$account, $remaining]))->assertRedirect();
+
+    expect((float) $account->refresh()->current_balance)->toBe(500.00)
+        ->and($account->last_known_posting_date)->toBeNull();
 });
 
 test('postings cannot be managed manually on accounts with a bank connection', function () {

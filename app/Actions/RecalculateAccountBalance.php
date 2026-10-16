@@ -30,9 +30,13 @@ final class RecalculateAccountBalance
                 return;
             }
 
+            $account->last_known_posting_date = $account->postings()->max('date');
+
             if ($account->opening_balance === null) {
                 if ($account->current_balance !== null) {
                     if (bccomp($delta, '0', 10) === 0) {
+                        $account->save();
+
                         return;
                     }
 
@@ -46,7 +50,6 @@ final class RecalculateAccountBalance
 
                 $account->update([
                     'current_balance' => $this->movementTotal($account, '0'),
-                    'last_known_posting_date' => $account->postings()->max('date'),
                     'last_updated_at' => now(),
                 ]);
 
@@ -55,7 +58,6 @@ final class RecalculateAccountBalance
 
             $account->update([
                 'current_balance' => $this->movementTotal($account, (string) $account->opening_balance),
-                'last_known_posting_date' => $account->postings()->max('date'),
                 'last_updated_at' => now(),
             ]);
         });
