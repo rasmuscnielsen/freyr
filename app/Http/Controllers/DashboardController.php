@@ -119,7 +119,7 @@ class DashboardController extends Controller
                 ],
                 array_slice($category['subcategories'], 0, 5),
             );
-            unset($category['subcategories']);
+            unset($category['subcategories'], $category['net_total']);
 
             return $category;
         }, $report->categories($focus));
