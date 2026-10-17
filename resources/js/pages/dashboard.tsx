@@ -233,17 +233,16 @@ function formatSignedMoney(
 }
 
 /**
- * Formats a signed bank movement the way postings read: money out carries a
- * true minus sign, positive amounts (income, refunds) stay unsigned.
+ * Formats a signed bank movement the way the postings page does: the locale's
+ * own minus sign for money out, no sign on positive amounts (income, refunds).
  */
 function formatMovement(
     value: number,
     currency: string | null,
     locale?: string,
 ): string {
-    return value < 0
-        ? `− ${formatMoney(Math.abs(value), currency, locale)}`
-        : formatMoney(value, currency, locale);
+    // Sub-unit amounts round to zero; never print them as "-0".
+    return formatMoney(Math.round(value) === 0 ? 0 : value, currency, locale);
 }
 
 /**
@@ -1074,11 +1073,9 @@ function FlowStat({
     direction: 'in' | 'out';
 }) {
     const display =
-        direction === 'out' && value !== 0
-            ? formatSignedMoney(-value, currency, locale)
-            : value < 0
-              ? formatSignedMoney(value, currency, locale)
-              : formatMoney(value, currency, locale);
+        direction === 'out'
+            ? formatMovement(-value, currency, locale)
+            : formatMovement(value, currency, locale);
 
     return (
         <span className="flex items-center gap-2">
