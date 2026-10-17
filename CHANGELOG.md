@@ -4,14 +4,6 @@ All notable changes to Freyr are documented in this file. The format is based
 on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
-
-### Added
-
-- `/api/reports/overview/categories` now returns signed nets (`net_total`,
-  `subcategories[].net_amount`, `series[].net`) alongside the existing unsigned
-  magnitudes, so API consumers can aggregate refunds correctly.
-
 ## [0.1.0] - 2026-07-04
 
 First public release.

@@ -84,12 +84,16 @@ type FlowPoint = {
 type TopSubcategory = {
     name: string;
     amount: number;
+    // Signed bank movement (expenses negative), averaged like `amount`.
+    net: number;
 };
 
 type TopPosting = {
     description: string;
     date: string;
     amount: number;
+    // The posting's own sign: spend negative, refunds and income positive.
+    signed_amount: number;
 };
 
 type BreakdownCategory = {
@@ -98,6 +102,9 @@ type BreakdownCategory = {
     type: 'income' | 'expense';
     bucket: 'income' | BucketKey;
     total: number;
+    // Signed bank movement for the category (expenses negative). Unlike
+    // `total`, a net refund keeps its direction.
+    net: number;
     missing: number;
     topSubcategories: TopSubcategory[];
     topPostings: TopPosting[];
@@ -223,6 +230,29 @@ function formatSignedMoney(
     const sign = rounded < 0 ? '−' : '+';
 
     return `${sign} ${formatMoney(Math.abs(rounded), currency, locale)}`;
+}
+
+/**
+ * Formats a signed bank movement the way postings read: money out carries a
+ * true minus sign, positive amounts (income, refunds) stay unsigned.
+ */
+function formatMovement(
+    value: number,
+    currency: string | null,
+    locale?: string,
+): string {
+    return value < 0
+        ? `− ${formatMoney(Math.abs(value), currency, locale)}`
+        : formatMoney(value, currency, locale);
+}
+
+/**
+ * The part of a row's net that flows in its own direction (spend for an
+ * expense row, earnings for an income row). Negative for a net refund or
+ * reversal, which has no bar and doesn't count toward the bar scale.
+ */
+function directionalFlow(category: BreakdownCategory): number {
+    return category.type === 'expense' ? -category.net : category.net;
 }
 
 function formatAxis(value: number, locale?: string): string {
@@ -401,7 +431,7 @@ function BreakdownDetail({
             <div className="mb-2 flex items-center justify-between gap-6 font-medium">
                 <span>{category.name}</span>
                 <span className="tabular-nums">
-                    {formatMoney(category.total, currency, locale)}
+                    {formatMovement(category.net, currency, locale)}
                 </span>
             </div>
             {category.missing > 0 && (
@@ -420,8 +450,8 @@ function BreakdownDetail({
                         >
                             <span>{subcategory.name}</span>
                             <span className="font-medium text-foreground tabular-nums">
-                                {formatMoney(
-                                    subcategory.amount,
+                                {formatMovement(
+                                    subcategory.net,
                                     currency,
                                     locale,
                                 )}
@@ -445,8 +475,8 @@ function BreakdownDetail({
                                     {posting.description}
                                 </span>
                                 <span className="font-medium text-foreground tabular-nums">
-                                    {formatMoney(
-                                        posting.amount,
+                                    {formatMovement(
+                                        posting.signed_amount,
                                         currency,
                                         locale,
                                     )}
@@ -1083,11 +1113,12 @@ function BreakdownGroup({
     // Bars scale to the group's largest category. The longest bar fills nearly
     // the whole track, leaving room for its trailing amount to sit flush.
     const maxTotal = categories.reduce(
-        (max, category) => Math.max(max, category.total),
+        (max, category) => Math.max(max, directionalFlow(category)),
         0,
     );
+    // Signed sum, so a net refund reduces the group like it does the summary.
     const groupTotal = categories.reduce(
-        (sum, category) => sum + category.total,
+        (sum, category) => sum + category.net,
         0,
     );
 
@@ -1099,7 +1130,7 @@ function BreakdownGroup({
                 </h3>
                 {categories.length > 0 && (
                     <span className="text-sm font-medium tabular-nums">
-                        {formatMoney(groupTotal, currency, locale)}
+                        {formatMovement(groupTotal, currency, locale)}
                         {categories.some(
                             (category) => category.missing > 0,
                         ) && (
@@ -1123,7 +1154,9 @@ function BreakdownGroup({
                             category={category}
                             pct={
                                 maxTotal > 0
-                                    ? (category.total / maxTotal) * 100
+                                    ? (Math.max(directionalFlow(category), 0) /
+                                          maxTotal) *
+                                      100
                                     : 0
                             }
                             onSelect={onSelect}
@@ -1158,6 +1191,9 @@ function BreakdownRow({
 }) {
     const barColor =
         BUCKET_COLORS[category.bucket] ?? 'var(--color-chart-uncategorized)';
+    // A net refund (or income reversal) moves money against its row's
+    // direction, so there is no spend to draw: it gets a dashed outline.
+    const reversed = directionalFlow(category) < 0;
     // Where the pointer entered the row, so the detail card opens near the
     // cursor instead of pinned to the row's left edge covering the bars.
     const [anchorX, setAnchorX] = useState(0);
@@ -1265,11 +1301,19 @@ function BreakdownRow({
                                             .left,
                                 )
                             }
-                            className="h-5 min-w-0 shrink rounded-full transition-[width,opacity] duration-300 hover:opacity-90"
-                            style={{
-                                width: `${Math.max(pct, 2)}%`,
-                                backgroundColor: barColor,
-                            }}
+                            className={cn(
+                                'h-5 min-w-0 shrink rounded-full transition-[width,opacity] duration-300 hover:opacity-90',
+                                reversed &&
+                                    'border border-dashed border-muted-foreground/60',
+                            )}
+                            style={
+                                reversed
+                                    ? { width: '4%' }
+                                    : {
+                                          width: `${Math.max(pct, 2)}%`,
+                                          backgroundColor: barColor,
+                                      }
+                            }
                         />
                     </HoverCardTrigger>
                     <HoverCardContent
@@ -1286,7 +1330,15 @@ function BreakdownRow({
                     </HoverCardContent>
                 </HoverCard>
                 <span className="shrink-0 text-sm text-muted-foreground tabular-nums">
-                    {formatMoney(category.total, currency, locale)}
+                    {formatMovement(category.net, currency, locale)}
+                    {reversed && (
+                        <span>
+                            {' '}
+                            {category.type === 'expense'
+                                ? 'net refund'
+                                : 'net reversal'}
+                        </span>
+                    )}
                     {category.missing > 0 && (
                         <span> +{category.missing} missing</span>
                     )}

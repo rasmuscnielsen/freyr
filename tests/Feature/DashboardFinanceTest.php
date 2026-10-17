@@ -622,3 +622,40 @@ test('all expense groups and unassigned expenses agree between PHP buckets and S
             ->where('series.0.other', 880)
             ->where('series.0.result', -1450));
 });
+
+test('breakdown carries signed movements and ranks a net-refund category below real spend', function () {
+    CarbonImmutable::setTestNow('2026-02-15 12:00:00');
+
+    try {
+        ['user' => $user, 'account' => $account, 'salary' => $salary, 'rent' => $rent] = seedBudget();
+        $returns = Subcategory::factory()->forCategory(Category::factory()->create(['name' => 'Electronics']))
+            ->create(['name' => 'Returns', 'expense_group' => 'Lifestyle']);
+
+        Posting::factory()->forAccount($account)->categorizedAs($salary)->income()
+            ->create(['date' => '2026-01-05', 'amount' => 12000, 'original_amount' => 12000]);
+        Posting::factory()->forAccount($account)->categorizedAs($rent)
+            ->create(['date' => '2026-01-10', 'amount' => -600, 'original_amount' => -600]);
+        // Net refund of 6000 − 1200 = 4800: larger than rent in magnitude.
+        Posting::factory()->forAccount($account)->categorizedAs($returns)
+            ->create(['date' => '2026-01-11', 'amount' => -1200, 'original_amount' => -1200]);
+        Posting::factory()->forAccount($account)->categorizedAs($returns)
+            ->create(['date' => '2026-01-12', 'amount' => 6000, 'original_amount' => 6000]);
+
+        $response = $this->actingAs($user)
+            ->get(route('dashboard', ['months' => 12]), breakdownPartialHeaders())
+            ->assertOk();
+
+        $categories = collect($response->json('props.breakdown.categories'))->where('type', 'expense')->values();
+
+        // Spend first (rent), then the net refund despite its larger magnitude.
+        expect($categories->pluck('name')->all())->toBe(['Housing', 'Electronics']);
+        expect($categories[0]['net'])->toEqual(-50)            // −600 / 12 months
+            ->and($categories[1]['net'])->toEqual(400)         // +4800 / 12 months
+            ->and($categories[1]['total'])->toEqual(400)
+            ->and($categories[1]['topSubcategories'][0]['net'])->toEqual(400)
+            ->and(collect($categories[1]['topPostings'])->pluck('signed_amount')->all())->toEqual([6000, -1200])
+            ->and($categories->sum('net'))->toEqual(350);
+    } finally {
+        CarbonImmutable::setTestNow();
+    }
+});

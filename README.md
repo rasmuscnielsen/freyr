@@ -260,18 +260,18 @@ uncategorized postings split by sign into those two). Amounts are in the
 reporting currency; postings without a converted amount are counted in
 `missing` and excluded from every figure.
 
-| Field                                                     | Meaning                                                                                                                                                         |
-| --------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `total`, `subcategories[].amount`, `series[].total`       | **Unsigned magnitude** (`abs` of the net). For ranking and charts only — a net refund reads the same as net spend, and magnitudes do not add up.                |
-| `net_total`, `subcategories[].net_amount`, `series[].net` | **Net, flow-positive in the row's `type`.** Expense rows: spend minus refunds. Income rows: income minus reversals. Negative means a net refund / net reversal. |
+| Field                                                     | Meaning                                                                                                                                          |
+| --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `total`, `subcategories[].amount`, `series[].total`       | **Unsigned magnitude** (`abs` of the net). For ranking and charts only — a net refund reads the same as net spend, and magnitudes do not add up. |
+| `net_total`, `subcategories[].net_amount`, `series[].net` | **Signed net bank movement**, the same sign as a posting's own amount: spend negative, refunds and income positive.                              |
 
-Spend 100 and refund 20 gives net 80; spend 20 and refund 100 gives net −80
+Spend 100 and refund 20 gives net −80; spend 20 and refund 100 gives net +80
 (both have magnitude 80). Nets reconcile: subcategory `net_amount`s sum to the
-category `net_total`, and `series[].net` sums to it over the window. To get a
-signed bank movement, negate expense nets (`type == "expense" ? -net : net`).
-Aggregate across categories with nets only, and sum expense and income rows
-separately. `bucket` is a display colour hint chosen by largest magnitude, not
-an accounting key. `top_postings[].amount` stays an unsigned magnitude.
+category `net_total`, and `series[].net` sums to it over the window. Nets from
+every row (income and expense) sum to the net cash flow. `bucket` is a display
+colour hint chosen by largest magnitude, not an accounting key.
+`top_postings[]` carries both an unsigned `amount` and the posting's own
+`signed_amount`.
 
 **Migrating a spreadsheet/API consumer** that sums `total`/`amount` (or fetches
 signed postings as a workaround): switch to `net_total` / `net_amount` /

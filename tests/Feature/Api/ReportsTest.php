@@ -208,10 +208,10 @@ test('category nets keep the refund direction that the magnitude fields discard'
     $post = fn (Subcategory $subcategory, string $date, ?float $amount) => Posting::factory()->forAccount($account)
         ->categorizedAs($subcategory)->create(['date' => $date, 'amount' => $amount, 'original_amount' => $amount ?? -1]);
 
-    // Rent: spend 100, refund 20 → net spend 80 (the magnitude is 80 too).
+    // Rent: spend 100, refund 20 → net movement −80 (magnitude 80).
     $post($rent, '2025-01-05', -100);
     $post($rent, '2025-01-20', 20);
-    // Repairs: spend 20, refund 100 → net refund; magnitude hides the sign.
+    // Repairs: spend 20, refund 100 → net movement +80; magnitude hides the sign.
     $post($repairs, '2025-01-06', -20);
     $post($repairs, '2025-02-06', 100);
     // Gifts: refund and spend cancel exactly; plus a posting without FX.
@@ -220,7 +220,7 @@ test('category nets keep the refund direction that the magnitude fields discard'
     $post($gifts, '2025-01-09', null);
     // A whole category that is a net refund.
     $post($returns, '2025-01-10', 70);
-    // Income reversal: 1000 salary, 1200 clawed back.
+    // Income reversal: 1000 salary, 1200 clawed back → −200.
     $post($salary, '2025-01-11', 1000);
     $post($salary, '2025-02-11', -1200);
 
@@ -236,23 +236,23 @@ test('category nets keep the refund direction that the magnitude fields discard'
         ->and($housingRow['missing'])->toEqual(1);
 
     $subs = collect($housingRow['subcategories'])->keyBy('name');
-    expect($subs['Rent']['amount'])->toEqual(80.0)->and($subs['Rent']['net_amount'])->toEqual(80.0)
-        ->and($subs['Repairs']['amount'])->toEqual(80.0)->and($subs['Repairs']['net_amount'])->toEqual(-80.0)
+    expect($subs['Rent']['amount'])->toEqual(80.0)->and($subs['Rent']['net_amount'])->toEqual(-80.0)
+        ->and($subs['Repairs']['amount'])->toEqual(80.0)->and($subs['Repairs']['net_amount'])->toEqual(80.0)
         ->and($subs['Gifts']['net_amount'])->toEqual(0.0)
         // Subcategory nets reconcile to the category net.
         ->and(collect($housingRow['subcategories'])->sum('net_amount'))->toBe($housingRow['net_total'])
         // Period nets reconcile to the category net.
         ->and(collect($housingRow['series'])->sum('net'))->toBe($housingRow['net_total'])
         ->and($housingRow['series'][1]['period'])->toEqual('2025-02')
-        ->and($housingRow['series'][1]['net'])->toEqual(-100.0)
+        ->and($housingRow['series'][1]['net'])->toEqual(100.0)
         ->and($housingRow['series'][1]['total'])->toEqual(100.0);
 
-    // Whole-category net refund: magnitude 70, net −70, still on the expense side.
+    // Whole-category net refund: magnitude 70, net +70, still on the expense side.
     expect($data['Shopping']['type'])->toEqual('expense')
         ->and($data['Shopping']['total'])->toEqual(70.0)
-        ->and($data['Shopping']['net_total'])->toEqual(-70.0);
+        ->and($data['Shopping']['net_total'])->toEqual(70.0);
 
-    // Income reversal: income-positive, so a net clawback is negative.
+    // Income reversal: a net clawback stays negative.
     expect($data['Income']['total'])->toEqual(200.0)
         ->and($data['Income']['net_total'])->toEqual(-200.0)
         ->and($data['Income']['subcategories'][0]['net_amount'])->toEqual(-200.0)
@@ -274,8 +274,8 @@ test('uncategorized flows split by sign into income and expense nets, with no ne
     $data = collect($response->json('data'))->keyBy('type');
 
     expect($data)->toHaveCount(2)
-        ->and($data['expense']['net_total'])->toEqual(40.0)
-        ->and($data['expense']['subcategories'][0]['net_amount'])->toEqual(40.0)
+        ->and($data['expense']['net_total'])->toEqual(-40.0)
+        ->and($data['expense']['subcategories'][0]['net_amount'])->toEqual(-40.0)
         ->and($data['income']['net_total'])->toEqual(25.0);
 });
 
