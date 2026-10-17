@@ -385,8 +385,8 @@ function flowTooltip(
                             </span>
                             <span className="text-right text-muted-foreground tabular-nums">
                                 {outgoing
-                                    ? formatMoney(
-                                          Math.abs(Number(item.value)),
+                                    ? formatMovement(
+                                          -Math.abs(Number(item.value)),
                                           currency,
                                           locale,
                                       )
@@ -1331,14 +1331,6 @@ function BreakdownRow({
                 </HoverCard>
                 <span className="shrink-0 text-sm text-muted-foreground tabular-nums">
                     {formatMovement(category.net, currency, locale)}
-                    {reversed && (
-                        <span>
-                            {' '}
-                            {category.type === 'expense'
-                                ? 'net refund'
-                                : 'net reversal'}
-                        </span>
-                    )}
                     {category.missing > 0 && (
                         <span> +{category.missing} missing</span>
                     )}
@@ -1411,7 +1403,7 @@ function AllocationBar({
                         style={{
                             width: `${(segment.value / out) * 100}%`,
                         }}
-                        title={`${segment.label} · ${formatMoney(segment.value / units, currency, locale)}`}
+                        title={`${segment.label} · ${formatMovement(-segment.value / units, currency, locale)}`}
                     />
                 ))}
             </div>
@@ -1440,8 +1432,8 @@ function AllocationBar({
                                 %
                             </span>
                             <span className="text-muted-foreground tabular-nums">
-                                {formatMoney(
-                                    segment.value / units,
+                                {formatMovement(
+                                    -segment.value / units,
                                     currency,
                                     locale,
                                 )}
