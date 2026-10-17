@@ -108,21 +108,41 @@ class DashboardController extends Controller
     {
         $divisor = $focus === null ? $report->units() : 1.0;
 
-        return array_map(function (array $category) use ($divisor): array {
+        $categories = array_map(function (array $category) use ($divisor): array {
             $category['total'] = round($category['total'] / $divisor, 2);
+            // Signed bank movement (expenses negative) — what the breakdown shows.
+            $category['net'] = round($category['net_total'] / $divisor, 2) + 0.0;
             $category['topSubcategories'] = array_map(
                 fn (array $subcategory): array => [
                     'name' => $subcategory['name'],
                     // Averaged over the same divisor as the category total so
                     // the tooltip's subcategory amounts sum toward it.
                     'amount' => round($subcategory['amount'] / $divisor, 2),
+                    'net' => round($subcategory['net_amount'] / $divisor, 2) + 0.0,
                 ],
                 array_slice($category['subcategories'], 0, 5),
             );
-            unset($category['subcategories']);
+            unset($category['subcategories'], $category['net_total']);
 
             return $category;
         }, $report->categories($focus));
+
+        // Rank by money actually spent or earned: a net refund (or reversal)
+        // sinks below the real flows instead of ranking by magnitude.
+        usort($categories, fn (array $a, array $b): int => $this->flow($b) <=> $this->flow($a));
+
+        return $categories;
+    }
+
+    /**
+     * The amount a category contributes to its own direction: spend for
+     * expenses, income for income. Negative when it is a net refund or reversal.
+     *
+     * @param  array<string, mixed>  $category
+     */
+    private function flow(array $category): float
+    {
+        return $category['type'] === 'expense' ? -$category['net'] : $category['net'];
     }
 
     /**

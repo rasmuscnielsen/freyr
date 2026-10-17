@@ -25,8 +25,16 @@ use Illuminate\Support\Facades\DB;
  * Postings without a resolved reporting amount count as `missing` so
  * partial periods stay honest.
  *
+ * The category breakdown keeps two representations side by side. `total`,
+ * `amount` and the series `total` are unsigned magnitudes for ranking and
+ * charts. `net_total`, `net_amount` and the series `net` are the
+ * machine-readable figures: the signed sum of the postings' bank movements,
+ * the same sign as a posting's own amount — spend is negative, refunds and
+ * income are positive — so nets add up (subcategories to their category,
+ * periods to the window, categories to the summary result).
+ *
  * @phpstan-type OverviewPoint array{period: string, label: string, complete: bool, income: float, bills: float, living_costs: float, lifestyle: float, other: float, investments: float, savings: float, uncategorized: float, result: float, missing: int}
- * @phpstan-type OverviewCategory array{id: int|null, name: string, type: string, bucket: string|null, total: float, missing: int, subcategories: array<int, array{id: int|null, name: string, amount: float}>, topPostings: array<int, array{description: string|null, date: string, amount: float}>, series?: array<int, array{period: string, total: float}>}
+ * @phpstan-type OverviewCategory array{id: int|null, name: string, type: string, bucket: string|null, total: float, missing: int, net_total: float, subcategories: array<int, array{id: int|null, name: string, amount: float, net_amount: float}>, topPostings: array<int, array{description: string|null, date: string, amount: float, signed_amount: float}>, series?: array<int, array{period: string, total: float, net: float}>}
  */
 final class OverviewReport
 {
@@ -217,6 +225,7 @@ final class OverviewReport
                                 'id' => $items->first()?->subcategory_id,
                                 'name' => $items->first()?->subcategory_name ?? 'Uncategorized',
                                 'amount' => round(abs((float) $items->sum(fn (object $row): float => (float) $row->amount)), 2),
+                                'net_amount' => self::net((float) $items->sum(fn (object $row): float => (float) $row->amount)),
                             ])
                             ->sortByDesc('amount')
                             ->values();
@@ -228,6 +237,7 @@ final class OverviewReport
                                 'description' => $row->description,
                                 'date' => CarbonImmutable::parse($row->date)->toDateString(),
                                 'amount' => round(abs((float) $row->amount), 2),
+                                'signed_amount' => round((float) $row->amount, 2) + 0.0,
                             ])
                             ->values();
 
@@ -237,6 +247,7 @@ final class OverviewReport
                             'type' => $type,
                             'bucket' => $dominantBucket,
                             'total' => round(abs($total), 2),
+                            'net_total' => self::net($total),
                             'missing' => $rows->whereNull('amount')->count(),
                             'subcategories' => $subcategories->all(),
                             'topPostings' => $topPostings->all(),
@@ -256,7 +267,7 @@ final class OverviewReport
      * into one series. Only periods with postings appear, in chronological
      * order.
      *
-     * @return array<string, array<int, array{period: string, total: float}>>
+     * @return array<string, array<int, array{period: string, total: float, net: float}>>
      */
     public function categorySeries(): array
     {
@@ -267,14 +278,28 @@ final class OverviewReport
                 .':'.($entry['row']->category_id ?? 'uncategorized'))
             ->map(fn (Collection $entries): array => $entries
                 ->groupBy(fn (array $entry): string => $entry['key'])
-                ->map(fn (Collection $periodEntries, string $period): array => [
-                    'period' => $period,
-                    'total' => round(abs((float) $periodEntries->sum(fn (array $entry): float => (float) $entry['row']->amount)), 2),
-                ])
+                ->map(function (Collection $periodEntries, string $period): array {
+                    $sum = (float) $periodEntries->sum(fn (array $entry): float => (float) $entry['row']->amount);
+
+                    return [
+                        'period' => $period,
+                        'total' => round(abs($sum), 2),
+                        'net' => self::net($sum),
+                    ];
+                })
                 ->sortKeys()
                 ->values()
                 ->all())
             ->all();
+    }
+
+    /**
+     * The signed net of a sum of bank movements, rounded to cents.
+     */
+    private static function net(float $signedSum): float
+    {
+        // `+ 0.0` normalises negative zero so zero nets never serialise as -0.0.
+        return round($signedSum, 2) + 0.0;
     }
 
     /**

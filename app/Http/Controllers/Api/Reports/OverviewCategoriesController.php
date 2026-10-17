@@ -19,8 +19,18 @@ class OverviewCategoriesController extends Controller
      * Per-category totals for the window (type, bucket, missing amounts,
      * subcategory rollups). With `interval` given, each category also
      * reports its totals per period.
+     *
+     * `total`, subcategory `amount` and series `total` are unsigned
+     * magnitudes for ranking and charts: a net refund reads the same as
+     * net spend. For aggregation use `net_total`, subcategory `net_amount`
+     * and series `net` instead: the signed sum of bank movements, with the
+     * same sign as a posting's own amount (spend negative; refunds and
+     * income positive), so nets add up across subcategories, periods and
+     * categories. A category row's `type` is `income` or `expense`;
+     * uncategorized flows are split by sign into those two. Each top
+     * posting's `signed_amount` carries its own sign alongside `amount`.
      */
-    #[Response(200, type: 'array{data: list<array{id: int|null, name: string, type: string, bucket: string|null, total: float, missing: int, subcategories: list<array{id: int|null, name: string, amount: float}>, top_postings: list<array{description: string|null, date: string, amount: float}>, series?: list<array{period: string, total: float}>}>}')]
+    #[Response(200, type: 'array{data: list<array{id: int|null, name: string, type: string, bucket: string|null, total: float, missing: int, net_total: float, subcategories: list<array{id: int|null, name: string, amount: float, net_amount: float}>, top_postings: list<array{description: string|null, date: string, amount: float, signed_amount: float}>, series?: list<array{period: string, total: float, net: float}>}>}')]
     public function __invoke(ReportWindowRequest $request): AnonymousResourceCollection
     {
         abort_unless($request->user()?->tokenCan('read'), 403);

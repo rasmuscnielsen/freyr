@@ -193,3 +193,106 @@ test('report windows default to the full data range', function () {
         CarbonImmutable::setTestNow();
     }
 });
+
+test('category nets keep the refund direction that the magnitude fields discard', function () {
+    $user = User::factory()->create();
+    $account = BankAccount::factory()->for($user)->create();
+    $housing = Category::factory()->create(['name' => 'Housing']);
+    $rent = Subcategory::factory()->forCategory($housing)->create(['name' => 'Rent', 'expense_group' => 'Bills']);
+    $repairs = Subcategory::factory()->forCategory($housing)->create(['name' => 'Repairs', 'expense_group' => 'Bills']);
+    $gifts = Subcategory::factory()->forCategory($housing)->create(['name' => 'Gifts', 'expense_group' => 'Bills']);
+    $shopping = Category::factory()->create(['name' => 'Shopping']);
+    $returns = Subcategory::factory()->forCategory($shopping)->create(['name' => 'Returns', 'expense_group' => 'Lifestyle']);
+    $salary = Subcategory::factory()->forCategory(Category::factory()->income()->create(['name' => 'Income']))->create(['name' => 'Salary']);
+
+    $post = fn (Subcategory $subcategory, string $date, ?float $amount) => Posting::factory()->forAccount($account)
+        ->categorizedAs($subcategory)->create(['date' => $date, 'amount' => $amount, 'original_amount' => $amount ?? -1]);
+
+    // Rent: spend 100, refund 20 → net movement −80 (magnitude 80).
+    $post($rent, '2025-01-05', -100);
+    $post($rent, '2025-01-20', 20);
+    // Repairs: spend 20, refund 100 → net movement +80; magnitude hides the sign.
+    $post($repairs, '2025-01-06', -20);
+    $post($repairs, '2025-02-06', 100);
+    // Gifts: refund and spend cancel exactly; plus a posting without FX.
+    $post($gifts, '2025-01-07', -50);
+    $post($gifts, '2025-01-08', 50);
+    $post($gifts, '2025-01-09', null);
+    // A whole category that is a net refund.
+    $post($returns, '2025-01-10', 70);
+    // Income reversal: 1000 salary, 1200 clawed back → −200.
+    $post($salary, '2025-01-11', 1000);
+    $post($salary, '2025-02-11', -1200);
+
+    Passport::actingAs($user, ['read']);
+
+    $data = collect($this->getJson('/api/reports/overview/categories?from=2025&to=2025&interval=month')
+        ->assertOk()->json('data'))->keyBy('name');
+
+    $housingRow = $data['Housing'];
+    // Unsigned presentation fields are unchanged: |80| + |−80| + |0| = 160 ≠ |0|.
+    expect($housingRow['total'])->toEqual(0.0)
+        ->and($housingRow['net_total'])->toEqual(0.0)
+        ->and($housingRow['missing'])->toEqual(1);
+
+    $subs = collect($housingRow['subcategories'])->keyBy('name');
+    expect($subs['Rent']['amount'])->toEqual(80.0)->and($subs['Rent']['net_amount'])->toEqual(-80.0)
+        ->and($subs['Repairs']['amount'])->toEqual(80.0)->and($subs['Repairs']['net_amount'])->toEqual(80.0)
+        ->and($subs['Gifts']['net_amount'])->toEqual(0.0)
+        // Subcategory nets reconcile to the category net.
+        ->and(collect($housingRow['subcategories'])->sum('net_amount'))->toBe($housingRow['net_total'])
+        // Period nets reconcile to the category net.
+        ->and(collect($housingRow['series'])->sum('net'))->toBe($housingRow['net_total'])
+        ->and($housingRow['series'][1]['period'])->toEqual('2025-02')
+        ->and($housingRow['series'][1]['net'])->toEqual(100.0)
+        ->and($housingRow['series'][1]['total'])->toEqual(100.0);
+
+    // Whole-category net refund: magnitude 70, net +70, still on the expense side.
+    expect($data['Shopping']['type'])->toEqual('expense')
+        ->and($data['Shopping']['total'])->toEqual(70.0)
+        ->and($data['Shopping']['net_total'])->toEqual(70.0);
+
+    // Income reversal: a net clawback stays negative.
+    expect($data['Income']['total'])->toEqual(200.0)
+        ->and($data['Income']['net_total'])->toEqual(-200.0)
+        ->and($data['Income']['subcategories'][0]['net_amount'])->toEqual(-200.0)
+        ->and(collect($data['Income']['series'])->pluck('net')->all())->toEqual([1000, -1200]);
+});
+
+test('uncategorized flows split by sign into income and expense nets, with no negative zero', function () {
+    $user = User::factory()->create();
+    $account = BankAccount::factory()->for($user)->create();
+
+    Posting::factory()->forAccount($account)->uncategorized()
+        ->create(['date' => '2025-01-05', 'amount' => -40, 'original_amount' => -40]);
+    Posting::factory()->forAccount($account)->uncategorized()
+        ->create(['date' => '2025-01-06', 'amount' => 25, 'original_amount' => 25]);
+
+    Passport::actingAs($user, ['read']);
+
+    $response = $this->getJson('/api/reports/overview/categories?from=2025&to=2025&interval=month')->assertOk();
+    $data = collect($response->json('data'))->keyBy('type');
+
+    expect($data)->toHaveCount(2)
+        ->and($data['expense']['net_total'])->toEqual(-40.0)
+        ->and($data['expense']['subcategories'][0]['net_amount'])->toEqual(-40.0)
+        ->and($data['income']['net_total'])->toEqual(25.0);
+});
+
+test('a zero net never serialises as negative zero', function () {
+    $user = User::factory()->create();
+    $account = BankAccount::factory()->for($user)->create();
+    $rent = Subcategory::factory()->forCategory(Category::factory()->create())->create(['expense_group' => 'Bills']);
+
+    foreach ([-50, 50] as $amount) {
+        Posting::factory()->forAccount($account)->categorizedAs($rent)
+            ->create(['date' => '2025-01-05', 'amount' => $amount, 'original_amount' => $amount]);
+    }
+
+    Passport::actingAs($user, ['read']);
+
+    $content = $this->getJson('/api/reports/overview/categories?from=2025&to=2025&interval=month')
+        ->assertOk()->getContent();
+
+    expect($content)->toContain('"net_total":0')->not->toContain('"net_total":-0');
+});
