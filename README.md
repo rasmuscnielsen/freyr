@@ -106,16 +106,16 @@ so a self-hosted Freyr costs you nothing in API fees.
    environment variables as a fallback (see `config/services.php` under
    `enable_banking`):
 
-    | Variable                          | Description                                                                            | Default                         |
-    | --------------------------------- | -------------------------------------------------------------------------------------- | ------------------------------- |
-    | `ENABLE_BANKING_APP_ID`           | Your Enable Banking application ID.                                                    | —                               |
-    | `ENABLE_BANKING_PRIVATE_KEY`      | Path to the private key `.pem` file. Defaults to `storage/{APP_ID}.pem` if left unset. | `storage_path("{APP_ID}.pem")`  |
-    | `ENABLE_BANKING_BASE_URL`         | Enable Banking API base URL.                                                           | `https://api.enablebanking.com` |
-    | `ENABLE_BANKING_ACCESS_DAYS`      | How many days a bank authorization stays valid before it must be renewed.              | `90`                            |
-    | `ENABLE_BANKING_TRANSACTION_DAYS` | How far back (in days) to fetch transactions on a sync.                                | `30`                            |
-    | `ENABLE_BANKING_ASPSP_COUNTRY`    | Default bank country code.                                                             | `DK`                            |
-    | `ENABLE_BANKING_PSU_TYPE`         | Payment service user type.                                                             | `personal`                      |
-    | `ENABLE_BANKING_LANGUAGE`         | Language for the bank authorization flow.                                              | `en`                            |
+   | Variable                          | Description                                                                                   | Default                          |
+   | --------------------------------- | --------------------------------------------------------------------------------------------- | -------------------------------- |
+   | `ENABLE_BANKING_APP_ID`           | Your Enable Banking application ID.                                                           | —                                |
+   | `ENABLE_BANKING_PRIVATE_KEY`      | Path to the private key `.pem` file. Defaults to `storage/{APP_ID}.pem` if left unset.        | `storage_path("{APP_ID}.pem")`   |
+   | `ENABLE_BANKING_BASE_URL`         | Enable Banking API base URL.                                                                  | `https://api.enablebanking.com`  |
+   | `ENABLE_BANKING_ACCESS_DAYS`      | How many days a bank authorization stays valid before it must be renewed.                     | `90`                             |
+   | `ENABLE_BANKING_TRANSACTION_DAYS` | How far back (in days) to fetch transactions on a sync.                                        | `30`                             |
+   | `ENABLE_BANKING_ASPSP_COUNTRY`    | Default bank country code.                                                                    | `DK`                             |
+   | `ENABLE_BANKING_PSU_TYPE`         | Payment service user type.                                                                    | `personal`                       |
+   | `ENABLE_BANKING_LANGUAGE`         | Language for the bank authorization flow.                                                     | `en`                             |
 
 Once configured, connect a bank from the **Bank connections** page in the app.
 The account balances and transactions are then imported by Freyr.
@@ -210,10 +210,9 @@ is a first-class flow. The recommended order:
    `Posting.csv`) straight from your browser — it is also available later
    under **Platform → Settings** while no postings exist.
 
-    The importer creates your user, accounts, categories, and postings from the
-    export. Your Spiir category tree **replaces** the seeded default categories
-    (the upload form warns before doing this).
-
+   The importer creates your user, accounts, categories, and postings from the
+   export. Your Spiir category tree **replaces** the seeded default categories
+   (the upload form warns before doing this).
 3. **Connect your bank** from the Bank connections page and link each remote
    account to the matching imported account. When you link an account that
    already has imported history, Freyr only syncs transactions **newer** than
@@ -241,44 +240,14 @@ curl https://your-freyr-host/api/postings \
 
 **Endpoints** (all require authentication):
 
-| Method | Endpoint                           | Description                              |
-| ------ | ---------------------------------- | ---------------------------------------- |
-| `GET`  | `/api/bank-accounts`               | List your bank accounts.                 |
-| `GET`  | `/api/bank-accounts/{id}`          | Show a single bank account.              |
-| `GET`  | `/api/postings`                    | List your postings (transactions).       |
-| `GET`  | `/api/postings/{id}`               | Show a single posting.                   |
-| `GET`  | `/api/categories`                  | List categories and their subcategories. |
-| `GET`  | `/api/categories/{id}`             | Show a single category.                  |
-| `GET`  | `/api/reports/overview`            | Windowed bucket summary and series.      |
-| `GET`  | `/api/reports/overview/categories` | Per-category breakdown (see below).      |
-
-### Category breakdown: magnitudes vs. nets
-
-`GET /api/reports/overview/categories?from=2026-01&to=2026-10&interval=month`
-returns one row per category and flow (`type` is `income` or `expense`;
-uncategorized postings split by sign into those two). Amounts are in the
-reporting currency; postings without a converted amount are counted in
-`missing` and excluded from every figure.
-
-| Field                                                     | Meaning                                                                                                                                          |
-| --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `total`, `subcategories[].amount`, `series[].total`       | **Unsigned magnitude** (`abs` of the net). For ranking and charts only — a net refund reads the same as net spend, and magnitudes do not add up. |
-| `net_total`, `subcategories[].net_amount`, `series[].net` | **Signed net bank movement**, the same sign as a posting's own amount: spend negative, refunds and income positive.                              |
-
-Spend 100 and refund 20 gives net −80; spend 20 and refund 100 gives net +80
-(both have magnitude 80). Nets reconcile: subcategory `net_amount`s sum to the
-category `net_total`, and `series[].net` sums to it over the window. Nets from
-every row (income and expense) sum to the net cash flow. `bucket` is a display
-colour hint chosen by largest magnitude, not an accounting key.
-`top_postings[]` carries both an unsigned `amount` and the posting's own
-`signed_amount`.
-
-**Migrating a spreadsheet/API consumer** that sums `total`/`amount` (or fetches
-signed postings as a workaround): switch to `net_total` / `net_amount` /
-`series[].net`. YTD is one call with `from=YYYY-01&to=YYYY-MM`; MTD is the
-matching period in `series` (with `interval=month`) or a second call with
-`from=YYYY-MM`. Row/layout mapping stays on the consumer side. The old fields
-are unchanged.
+| Method | Endpoint                  | Description                              |
+| ------ | ------------------------- | ---------------------------------------- |
+| `GET`  | `/api/bank-accounts`      | List your bank accounts.                 |
+| `GET`  | `/api/bank-accounts/{id}` | Show a single bank account.              |
+| `GET`  | `/api/postings`           | List your postings (transactions).       |
+| `GET`  | `/api/postings/{id}`      | Show a single posting.                   |
+| `GET`  | `/api/categories`         | List categories and their subcategories. |
+| `GET`  | `/api/categories/{id}`    | Show a single category.                  |
 
 ## MCP server
 
