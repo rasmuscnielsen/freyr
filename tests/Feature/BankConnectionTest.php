@@ -997,6 +997,65 @@ test('a failed sync stores a safe message while retaining encrypted diagnostic d
         ->and($run->raw_error['message'])->toContain('secret-transfer-data');
 });
 
+test('a provider request error does not require renewal of unexpired consent', function (int $status, string $error) {
+    $user = User::factory()->create();
+    $connection = BankConnection::factory()->for($user)->create([
+        'access_valid_until' => now()->addDays(86),
+    ]);
+    $bankAccount = BankAccount::factory()->for($user)->create();
+    $remoteAccount = BankConnectionAccount::factory()->for($connection)->linkedTo($bankAccount)->create();
+    app()->instance(Client::class, new FakeEnableBankingClient(
+        balances: enableBankingBalancesPayload(),
+        onTransactions: function () use ($status, $error): void {
+            throw new RequestException(new Response(new GuzzleResponse($status, [], json_encode([
+                'error' => $error,
+                'message' => 'Provider diagnostic detail',
+            ]))));
+        },
+    ));
+
+    (new SyncBankConnectionAccount($remoteAccount))->handle(app(ConnectionManager::class));
+
+    expect($connection->refresh()->needsRenewal())->toBeFalse();
+    expect($remoteAccount->refresh()->status)->toBe(BankConnectionAccount::STATUS_LINKED);
+    $run = BankSyncRun::query()->latest('id')->firstOrFail();
+    expect($run->error_code)->toBe($error)
+        ->and($run->raw_error['http_status'])->toBe($status)
+        ->and($run->raw_error['response_body'])->toContain('Provider diagnostic detail');
+})->with([
+    'invalid period' => [400, 'WRONG_TRANSACTIONS_PERIOD'],
+    'bank error' => [400, 'ASPSP_ERROR'],
+    'application authentication' => [401, 'UNAUTHORIZED_ACCESS'],
+    'application permissions' => [403, 'ACCESS_DENIED'],
+    'missing account' => [404, 'ACCOUNT_DOES_NOT_EXIST'],
+]);
+
+test('an unusable provider session requires renewal even before its expected expiry', function (string $error) {
+    $user = User::factory()->create();
+    $connection = BankConnection::factory()->for($user)->create([
+        'access_valid_until' => now()->addDays(86),
+    ]);
+    $bankAccount = BankAccount::factory()->for($user)->create();
+    $remoteAccount = BankConnectionAccount::factory()->for($connection)->linkedTo($bankAccount)->create();
+    $client = new FakeEnableBankingClient(
+        onTransactions: function () use ($error): void {
+            throw new RequestException(new Response(new GuzzleResponse(401, [], json_encode(['error' => $error]))));
+        },
+    );
+    app()->instance(Client::class, $client);
+
+    (new SyncBankConnectionAccount($remoteAccount))->handle(app(ConnectionManager::class));
+
+    expect($connection->refresh()->needsRenewal())->toBeTrue();
+    expect($remoteAccount->refresh()->status)->toBe(BankConnectionAccount::STATUS_RENEWAL_REQUIRED);
+    expect(BankSyncRun::query()->latest('id')->firstOrFail()->error_code)->toBe($error);
+})->with([
+    'EXPIRED_SESSION',
+    'CLOSED_SESSION',
+    'REVOKED_SESSION',
+    'SESSION_DOES_NOT_EXIST',
+]);
+
 test('a failed bank import rolls back postings written earlier in the same sync', function () {
     $user = User::factory()->create();
     $connection = BankConnection::factory()->for($user)->create();

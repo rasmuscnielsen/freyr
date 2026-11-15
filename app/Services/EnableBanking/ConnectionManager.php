@@ -677,14 +677,16 @@ final class ConnectionManager
 
     private function recordFailedSync(BankSyncRun $run, BankConnectionAccount $account, Throwable $exception): void
     {
-        $connectionStatus = ($exception instanceof RequestException && in_array($exception->response->status(), [400, 401, 403, 404], true))
-            || $exception->getCode() === 401
-            ? BankConnection::STATUS_RENEWAL_REQUIRED
-            : BankConnection::STATUS_FAILED;
         $errorCode = $exception instanceof RequestException
             ? (string) ($exception->response->json('error') ?? $exception->response->json('code') ?? $exception->response->status())
             : (string) $exception->getCode();
         $errorCode = preg_match('/\A[A-Z0-9_]{1,64}\z/', $errorCode) ? $errorCode : 'external_error';
+        $requiresRenewal = $exception instanceof RequestException
+            ? in_array($errorCode, ['EXPIRED_SESSION', 'CLOSED_SESSION', 'REVOKED_SESSION', 'SESSION_DOES_NOT_EXIST'], true)
+            : $account->bankConnection->needsRenewal();
+        $connectionStatus = $requiresRenewal
+            ? BankConnection::STATUS_RENEWAL_REQUIRED
+            : BankConnection::STATUS_FAILED;
         $message = $connectionStatus === BankConnection::STATUS_RENEWAL_REQUIRED
             ? 'The bank connection needs renewal.'
             : BankSyncRun::GENERIC_ERROR_MESSAGE;
@@ -729,6 +731,10 @@ final class ConnectionManager
                 'raw_error' => [
                     'class' => $exception::class,
                     'message' => $exception->getMessage(),
+                    ...($exception instanceof RequestException ? [
+                        'http_status' => $exception->response->status(),
+                        'response_body' => $exception->response->body(),
+                    ] : []),
                 ],
             ]);
         });
