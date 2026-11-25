@@ -16,8 +16,6 @@ enum PlatformSettingKey: string
 
     case SimilarityEnabled = 'similarity.enabled';
 
-    case SimilaritySince = 'similarity.since';
-
     case SimilarityAutoCategorize = 'similarity.auto_categorize';
 
     /**
@@ -54,7 +52,6 @@ enum PlatformSettingKey: string
             self::EnableBankingPrivateKey => config('services.enable_banking.private_key'),
             self::OpenAiApiKey => config('ai.providers.openai.key'),
             self::SimilarityEnabled, self::SimilarityAutoCategorize => false,
-            self::SimilaritySince => 'all',
             default => null,
         };
     }

@@ -5,7 +5,6 @@ namespace App\Support;
 use App\Enums\PlatformSettingKey;
 use App\Models\PlatformSetting;
 use App\Models\User;
-use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Crypt;
 
@@ -202,29 +201,6 @@ final class PlatformSettings
     public function similarityAvailable(): bool
     {
         return $this->similarityEnabled() && $this->embeddingApiKey() !== null;
-    }
-
-    /**
-     * How far back postings should be analyzed: '1y', '2y', '5y' or 'all'.
-     */
-    public function similaritySince(): string
-    {
-        $since = (string) $this->get(PlatformSettingKey::SimilaritySince);
-
-        return in_array($since, ['1y', '2y', '5y', 'all'], strict: true) ? $since : 'all';
-    }
-
-    /**
-     * The earliest posting date embeddings cover, or null for all time.
-     */
-    public function similaritySinceDate(): ?CarbonImmutable
-    {
-        return match ($this->similaritySince()) {
-            '1y' => now()->subYear()->toImmutable(),
-            '2y' => now()->subYears(2)->toImmutable(),
-            '5y' => now()->subYears(5)->toImmutable(),
-            default => null,
-        };
     }
 
     /**

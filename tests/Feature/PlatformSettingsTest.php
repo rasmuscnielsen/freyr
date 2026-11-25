@@ -3,7 +3,6 @@
 use App\Enums\PlatformSettingKey;
 use App\Models\PlatformSetting;
 use App\Support\PlatformSettings;
-use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Crypt;
 
 test('it stores and reads a boolean setting', function () {
@@ -121,19 +120,4 @@ test('similarity availability needs both the enabled flag and a resolvable key',
     $settings->set(PlatformSettingKey::SimilarityEnabled, false);
     expect($settings->similarityAvailable())->toBeFalse()
         ->and($settings->openAiConfigured())->toBeTrue();
-});
-
-test('the similarity lookback validates stored values and maps to a date', function () {
-    $settings = app(PlatformSettings::class);
-
-    expect($settings->similaritySince())->toBe('all')
-        ->and($settings->similaritySinceDate())->toBeNull();
-
-    $settings->set(PlatformSettingKey::SimilaritySince, 'nonsense');
-    expect($settings->similaritySince())->toBe('all');
-
-    $settings->set(PlatformSettingKey::SimilaritySince, '1y');
-    expect($settings->similaritySince())->toBe('1y')
-        ->and($settings->similaritySinceDate())->toBeInstanceOf(CarbonImmutable::class)
-        ->and($settings->similaritySinceDate()->isSameDay(now()->subYear()))->toBeTrue();
 });

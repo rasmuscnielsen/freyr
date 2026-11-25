@@ -9,8 +9,7 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 
 /**
- * Sweeps postings that still need an embedding (within the configured
- * lookback), then refreshes similarity-driven category suggestions. Both
+ * Sweeps postings that still need an embedding, then refreshes similarity-driven category suggestions. Both
  * stages are no-ops when similarity features are off, so dispatching is
  * always safe — this also powers the hourly catch-up sweep.
  */

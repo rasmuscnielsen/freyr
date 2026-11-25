@@ -257,7 +257,6 @@ test('the similarity step stores the key, enables the feature and completes onbo
         ->post(route('onboarding.similarity.store'), [
             'api_key' => 'sk-test-1234567890',
             'enabled' => '1',
-            'since' => '2y',
             'auto_categorize' => '1',
         ])
         ->assertRedirect(route('dashboard'));
@@ -265,7 +264,6 @@ test('the similarity step stores the key, enables the feature and completes onbo
     $settings = app(PlatformSettings::class);
     expect($settings->openAiApiKey())->toBe('sk-test-1234567890')
         ->and($settings->similarityEnabled())->toBeTrue()
-        ->and($settings->similaritySince())->toBe('2y')
         ->and($settings->similarityAutoCategorize())->toBeTrue()
         ->and($settings->similarityAvailable())->toBeTrue()
         ->and($settings->onboardingCompleted())->toBeTrue();
@@ -281,7 +279,6 @@ test('the similarity step can be skipped and still completes onboarding', functi
     $this->actingAs($admin)
         ->post(route('onboarding.similarity.store'), [
             'enabled' => '0',
-            'since' => 'all',
             'auto_categorize' => '0',
         ])
         ->assertRedirect(route('dashboard'));
@@ -305,7 +302,6 @@ test('enabling similarity in onboarding requires an api key', function () {
         ->from(route('onboarding.similarity'))
         ->post(route('onboarding.similarity.store'), [
             'enabled' => '1',
-            'since' => 'all',
             'auto_categorize' => '0',
         ])
         ->assertSessionHasErrors('api_key');

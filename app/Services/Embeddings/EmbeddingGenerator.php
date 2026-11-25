@@ -17,6 +17,12 @@ final class EmbeddingGenerator
      */
     private const PROVIDER = 'freyr_statements';
 
+    /**
+     * Bank descriptions such as "NETTO 4021 KØBENHAVN" are rarely more than
+     * 20 tokens.
+     */
+    private const TYPICAL_TOKENS_PER_POSTING = 20;
+
     public function __construct(private PlatformSettings $settings) {}
 
     /**
@@ -33,8 +39,7 @@ final class EmbeddingGenerator
     }
 
     /**
-     * Embed postings that have no embedding yet, honoring the configured
-     * lookback window. Returns 0 when similarity features are off or no
+     * Embed postings that have no embedding yet. Returns 0 when similarity features are off or no
      * API key is configured — the platform works without them.
      */
     public function generateMissing(int $limit = 100, ?int $batchSize = null): int
@@ -56,27 +61,43 @@ final class EmbeddingGenerator
     }
 
     /**
-     * Whether any postings are still waiting for an embedding inside the
-     * configured lookback window.
+     * Whether any postings are still waiting for an embedding.
      */
     public function hasMissing(): bool
     {
         return $this->missingQuery()->exists();
     }
 
+    /**
+     * A deliberately generous cost estimate in USD, using about three
+     * characters per token (bank descriptions tokenize worse than prose):
+     * what the postings still waiting for an embedding would cost, and a
+     * reference price for 10,000 typical postings so the figure means
+     * something before any postings exist.
+     *
+     * @return array{pendingPostings: int, pendingUsd: float, usdPer10k: float}
+     */
+    public function costEstimate(): array
+    {
+        $usdPerToken = (float) config('services.statement_embeddings.usd_per_million_tokens') / 1_000_000;
+
+        $pending = $this->missingQuery()
+            ->toBase()
+            ->selectRaw('count(*) as postings, coalesce(sum(length(description)), 0) as characters')
+            ->first();
+
+        return [
+            'pendingPostings' => (int) $pending->postings,
+            'pendingUsd' => ceil((int) $pending->characters / 3) * $usdPerToken,
+            'usdPer10k' => 10_000 * self::TYPICAL_TOKENS_PER_POSTING * $usdPerToken,
+        ];
+    }
+
     private function missingQuery(): Builder
     {
-        $query = Posting::query()
+        return Posting::query()
             ->whereNull('description_embedded_at')
             ->where('description', '!=', '');
-
-        $since = $this->settings->similaritySinceDate();
-
-        if ($since !== null) {
-            $query->where('date', '>=', $since);
-        }
-
-        return $query;
     }
 
     /**

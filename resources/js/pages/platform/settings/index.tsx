@@ -1,5 +1,5 @@
 import { Form, Head, router, useForm } from '@inertiajs/react';
-import { CircleCheckIcon, TriangleAlertIcon } from 'lucide-react';
+import { CircleCheckIcon, KeyRoundIcon, TriangleAlertIcon } from 'lucide-react';
 import { useState } from 'react';
 import {
     EnableBankingFields,
@@ -8,8 +8,9 @@ import {
 import Heading from '@/components/heading';
 import {
     OpenAiApiKeyField,
-    SimilaritySinceSelect,
+    SimilarityHighlights,
 } from '@/components/openai-similarity';
+import type { SimilarityCostEstimate } from '@/components/openai-similarity';
 import SpiirImportForm from '@/components/spiir-import-form';
 import { Button } from '@/components/ui/button';
 import {
@@ -24,7 +25,6 @@ import { Label } from '@/components/ui/label';
 import { Spinner } from '@/components/ui/spinner';
 import { Switch } from '@/components/ui/switch';
 import type { SpiirImportStatus } from '@/hooks/use-spiir-import-status';
-import { cn } from '@/lib/utils';
 import { edit as settingsEdit } from '@/routes/platform/settings';
 import {
     destroy as destroyEnableBanking,
@@ -52,8 +52,8 @@ type Props = {
     };
     similarity: {
         enabled: boolean;
-        since: string;
         autoCategorize: boolean;
+        cost: SimilarityCostEstimate;
     };
     spiir: {
         canImport: boolean;
@@ -73,7 +73,6 @@ export default function PlatformSettingsIndex({
     const registration = useForm({ enabled: registrationEnabled });
     const similarity = useForm({
         enabled: similarityProps.enabled,
-        since: similarityProps.since,
         auto_categorize: similarityProps.autoCategorize,
     });
     const [credentialsDialogOpen, setCredentialsDialogOpen] = useState(false);
@@ -89,7 +88,6 @@ export default function PlatformSettingsIndex({
 
     const saveSimilarity = (changes: {
         enabled?: boolean;
-        since?: string;
         auto_categorize?: boolean;
     }) => {
         const next = { ...similarity.data, ...changes };
@@ -254,49 +252,41 @@ export default function PlatformSettingsIndex({
                 <Heading
                     variant="small"
                     title="Similar postings"
-                    description="Use an OpenAI API key to understand posting descriptions — powering similar-postings lookup and category suggestions"
+                    description="Optional. Uses your own OpenAI API key."
                 />
 
-                {openAi.configured ? (
-                    <div className="flex items-center justify-between gap-4">
-                        <div className="flex items-center gap-3">
+                <SimilarityHighlights cost={similarityProps.cost} />
+
+                <div className="flex items-center justify-between gap-4">
+                    <div className="flex items-center gap-3">
+                        {openAi.configured ? (
                             <CircleCheckIcon className="size-4 text-green-600 dark:text-green-500" />
-                            <div>
-                                <p className="text-sm font-medium">
-                                    OpenAI configured
-                                </p>
-                                <p className="text-sm text-muted-foreground">
-                                    {openAi.source === 'environment'
-                                        ? 'API key set via environment variables'
-                                        : 'API key stored'}
-                                </p>
-                            </div>
+                        ) : (
+                            <KeyRoundIcon className="size-4 text-muted-foreground" />
+                        )}
+                        <div>
+                            <p className="text-sm font-medium">
+                                {openAi.configured
+                                    ? 'OpenAI connected'
+                                    : 'OpenAI not connected'}
+                            </p>
+                            <p className="text-sm text-muted-foreground">
+                                {openAi.source === 'environment'
+                                    ? 'Key from environment variables'
+                                    : openAi.configured
+                                      ? 'Key saved'
+                                      : 'Add a key to turn this on'}
+                            </p>
                         </div>
-                        <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => setOpenAiDialogOpen(true)}
-                        >
-                            Update API key
-                        </Button>
                     </div>
-                ) : (
-                    <div className="space-y-4">
-                        <p className="text-sm text-muted-foreground">
-                            Not configured — similar postings and category
-                            suggestions stay off until an OpenAI API key is
-                            added. Posting descriptions are sent to OpenAI for
-                            analysis.
-                        </p>
-                        <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => setOpenAiDialogOpen(true)}
-                        >
-                            Set up OpenAI
-                        </Button>
-                    </div>
-                )}
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setOpenAiDialogOpen(true)}
+                    >
+                        {openAi.configured ? 'Change key' : 'Add key'}
+                    </Button>
+                </div>
 
                 <div className="space-y-3">
                     <div className="flex items-center gap-3">
@@ -316,42 +306,14 @@ export default function PlatformSettingsIndex({
                         {similarity.processing && <Spinner />}
                     </div>
                     <p className="text-sm text-muted-foreground">
-                        Show similar postings when you open a posting, and
-                        suggest categories based on them. You can disable this
-                        without removing the API key.
+                        Show similar postings and suggest categories.
                     </p>
                     {similarity.data.enabled && !openAi.configured && (
                         <p className="flex items-center gap-1.5 text-sm text-amber-600 dark:text-amber-500">
                             <TriangleAlertIcon className="size-4" />
-                            Enabled, but no API key is configured — nothing is
-                            analyzed yet.
+                            No API key, so nothing is analyzed.
                         </p>
                     )}
-
-                    <div
-                        className={cn(
-                            'grid gap-2',
-                            !similarity.data.enabled && 'opacity-60',
-                        )}
-                    >
-                        <Label htmlFor="similarity-since">
-                            Analyze postings from
-                        </Label>
-                        <SimilaritySinceSelect
-                            id="similarity-since"
-                            name={undefined}
-                            value={similarity.data.since}
-                            onValueChange={(since) => saveSimilarity({ since })}
-                            disabled={
-                                !similarity.data.enabled ||
-                                similarity.processing
-                            }
-                        />
-                        <p className="text-sm text-muted-foreground">
-                            Only postings inside this window get analyzed for
-                            similarity.
-                        </p>
-                    </div>
 
                     <div className="flex items-center gap-3">
                         <Switch
@@ -366,13 +328,12 @@ export default function PlatformSettingsIndex({
                             }
                         />
                         <Label htmlFor="similarity-auto-categorize">
-                            Automatically categorize
+                            Apply categories automatically
                         </Label>
                     </div>
                     <p className="text-sm text-muted-foreground">
-                        Opt-in: when a nearly identical posting already has a
-                        category, apply it immediately instead of only
-                        suggesting it. Suggestions stay available either way.
+                        Only when a near-identical posting is already
+                        categorized.
                     </p>
                 </div>
 
@@ -384,9 +345,7 @@ export default function PlatformSettingsIndex({
                         <DialogHeader>
                             <DialogTitle>OpenAI API key</DialogTitle>
                             <DialogDescription>
-                                Instance-wide key used to analyze posting
-                                descriptions for similar postings and category
-                                suggestions.
+                                Shared by everyone on this instance.
                             </DialogDescription>
                         </DialogHeader>
 

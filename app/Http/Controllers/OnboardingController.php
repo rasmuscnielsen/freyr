@@ -9,6 +9,7 @@ use App\Http\Requests\Platform\StoreEnableBankingCredentialsRequest;
 use App\Http\Requests\RegionSetupRequest;
 use App\Jobs\GeneratePostingEmbeddings;
 use App\Models\User;
+use App\Services\Embeddings\EmbeddingGenerator;
 use App\Services\Spiir\Importer;
 use App\Support\PlatformSettings;
 use Illuminate\Http\RedirectResponse;
@@ -116,7 +117,7 @@ class OnboardingController extends Controller
         ]);
     }
 
-    public function similarity(PlatformSettings $settings): Response
+    public function similarity(PlatformSettings $settings, EmbeddingGenerator $embeddings): Response
     {
         return Inertia::render('onboarding/similarity', [
             'openAi' => [
@@ -125,22 +126,20 @@ class OnboardingController extends Controller
                     ? 'database'
                     : ($settings->openAiConfigured() ? 'environment' : null),
             ],
-            'enabled' => $settings->similarityEnabled(),
-            'since' => $settings->similaritySince(),
             'autoCategorize' => $settings->similarityAutoCategorize(),
+            'cost' => $embeddings->costEstimate(),
         ]);
     }
 
     /**
-     * The final wizard step: optionally store an OpenAI key, pick how far
-     * back to analyze postings, then mark onboarding complete either way.
+     * The final wizard step: optionally store an OpenAI key and enable
+     * similarity, then mark onboarding complete either way.
      */
     public function storeSimilarity(Request $request, PlatformSettings $settings): RedirectResponse
     {
         $data = $request->validate([
             'api_key' => ['nullable', 'string', 'min:10', 'max:255'],
             'enabled' => ['required', 'boolean'],
-            'since' => ['required', 'string', 'in:1y,2y,5y,all'],
             'auto_categorize' => ['required', 'boolean'],
         ]);
 
@@ -155,7 +154,6 @@ class OnboardingController extends Controller
         }
 
         $settings->set(PlatformSettingKey::SimilarityEnabled, (bool) $data['enabled']);
-        $settings->set(PlatformSettingKey::SimilaritySince, $data['since']);
         $settings->set(PlatformSettingKey::SimilarityAutoCategorize, (bool) $data['auto_categorize']);
         $settings->markOnboardingCompleted();
 

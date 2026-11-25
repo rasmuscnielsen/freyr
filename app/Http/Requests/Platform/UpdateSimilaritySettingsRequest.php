@@ -23,7 +23,6 @@ class UpdateSimilaritySettingsRequest extends FormRequest
     {
         return [
             'enabled' => ['sometimes', 'boolean'],
-            'since' => ['sometimes', 'string', 'in:1y,2y,5y,all'],
             'auto_categorize' => ['sometimes', 'boolean'],
         ];
     }

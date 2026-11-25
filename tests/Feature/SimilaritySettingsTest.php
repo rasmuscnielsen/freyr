@@ -24,13 +24,11 @@ test('similarity settings can be patched without an api key until enabling', fun
 
     $this->actingAs($admin)
         ->patch(route('platform.settings.similarity.update'), [
-            'since' => '5y',
             'auto_categorize' => '1',
         ])
         ->assertRedirect();
 
-    expect($settings->similaritySince())->toBe('5y')
-        ->and($settings->similarityAutoCategorize())->toBeTrue()
+    expect($settings->similarityAutoCategorize())->toBeTrue()
         ->and($settings->similarityEnabled())->toBeFalse();
 });
 
@@ -57,7 +55,6 @@ test('enabling similarity kicks off the embeddings job', function () {
     $this->actingAs($admin)
         ->patch(route('platform.settings.similarity.update'), [
             'enabled' => '1',
-            'since' => '2y',
         ])
         ->assertRedirect();
 
