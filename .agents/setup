@@ -22,10 +22,14 @@ install_system_packages() {
         fi
     done
     if ((${#missing[@]})); then
-        if [[ ! -f /etc/apt/sources.list.d/freyr-php.list ]]; then
+        # Match the Sury repository to the running Debian release: its PHP
+        # packages link against release-specific libraries (libicu, libzip).
+        local codename source
+        codename="$(. /etc/os-release && echo "$VERSION_CODENAME")"
+        source="deb [signed-by=/usr/share/keyrings/freyr-php.gpg] https://packages.sury.org/php/ $codename main"
+        if [[ "$(cat /etc/apt/sources.list.d/freyr-php.list 2>/dev/null)" != "$source" ]]; then
             curl -fsSL https://packages.sury.org/php/apt.gpg | sudo tee /usr/share/keyrings/freyr-php.gpg >/dev/null
-            echo 'deb [signed-by=/usr/share/keyrings/freyr-php.gpg] https://packages.sury.org/php/ bookworm main' |
-                sudo tee /etc/apt/sources.list.d/freyr-php.list >/dev/null
+            echo "$source" | sudo tee /etc/apt/sources.list.d/freyr-php.list >/dev/null
         fi
         sudo apt-get update -qq
         sudo apt-get install -y --no-install-recommends "${missing[@]}"
