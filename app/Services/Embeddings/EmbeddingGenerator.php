@@ -10,8 +10,6 @@ use Illuminate\Http\Client\RequestException;
 use Illuminate\Support\Collection;
 use Laravel\Ai\Ai;
 use Laravel\Ai\Embeddings;
-use Laravel\Ai\Exceptions\InsufficientCreditsException;
-use Laravel\Ai\Exceptions\RateLimitedException;
 use Throwable;
 
 final class EmbeddingGenerator
@@ -24,10 +22,6 @@ final class EmbeddingGenerator
     private const PROVIDER = 'freyr_statements';
 
     private const KEY_CHECK_PROVIDER = 'freyr_key_check';
-
-    private const NO_CREDIT = 'This OpenAI account has no credit. Add billing on platform.openai.com and try again.';
-
-    private const UNREACHABLE = "Couldn't reach OpenAI to check the key. Try again in a moment.";
 
     /**
      * Bank descriptions such as "NETTO 4021 KØBENHAVN" are rarely more than
@@ -95,7 +89,7 @@ final class EmbeddingGenerator
 
     /**
      * Try an OpenAI key with a one-word embedding request before it is
-     * saved. Returns what the user should do about it, or null when the key
+     * saved. Returns the error to show, or null when the key
      * works or embeddings use another provider (the key is then unused).
      */
     public function openAiKeyProblem(string $apiKey): ?string
@@ -112,27 +106,32 @@ final class EmbeddingGenerator
                     provider: $this->provider(self::KEY_CHECK_PROVIDER, 'openai', $apiKey),
                     model: config('services.statement_embeddings.model'),
                 );
-        } catch (InsufficientCreditsException) {
-            return self::NO_CREDIT;
-        } catch (RateLimitedException $e) {
+        } catch (Throwable $e) {
+            // The SDK wraps some HTTP errors (429, 402, 503) in its own
+            // exceptions; the response is on the wrapped one.
+            $request = $e instanceof RequestException ? $e : $e->getPrevious();
+
+            if (! $request instanceof RequestException) {
+                return self::keyProblem($e->getMessage());
+            }
+
+            $response = $request->response;
+
             // OpenAI answers 429 both for a busy key, which works, and for
             // an account without credit.
-            $code = $e->getPrevious() instanceof RequestException
-                ? $e->getPrevious()->response->json('error.code')
-                : null;
+            if ($response->status() === 429 && $response->json('error.code') !== 'insufficient_quota') {
+                return null;
+            }
 
-            return $code === 'insufficient_quota' ? self::NO_CREDIT : null;
-        } catch (RequestException $e) {
-            return match ($e->response->status()) {
-                401 => "This key doesn't work. Check that you copied all of it.",
-                403 => "This key can't create embeddings. Check its permissions on platform.openai.com.",
-                default => self::UNREACHABLE,
-            };
-        } catch (Throwable) {
-            return self::UNREACHABLE;
+            return self::keyProblem($response->json('error.message') ?: 'HTTP '.$response->status());
         }
 
         return null;
+    }
+
+    private static function keyProblem(string $openAiError): string
+    {
+        return "We couldn't verify this key. Please check the key and try again. OpenAI error: {$openAiError}";
     }
 
     /**

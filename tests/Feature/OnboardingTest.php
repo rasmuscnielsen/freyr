@@ -296,7 +296,7 @@ test('the similarity step can be skipped and still completes onboarding', functi
 test('the similarity step keeps onboarding open when the key does not work', function () {
     Queue::fake();
     config()->set('ai.providers.openai.key', null);
-    fakeOpenAiEmbeddings(401, 'invalid_api_key');
+    fakeOpenAiEmbeddings(401, 'invalid_api_key', 'Incorrect API key provided.');
 
     $this->actingAs(User::factory()->platformAdmin()->create())
         ->from(route('onboarding.similarity'))
@@ -306,7 +306,7 @@ test('the similarity step keeps onboarding open when the key does not work', fun
             'auto_categorize' => '0',
         ])
         ->assertRedirect(route('onboarding.similarity'))
-        ->assertSessionHasErrors(['api_key' => "This key doesn't work. Check that you copied all of it."]);
+        ->assertSessionHasErrors(['api_key' => "We couldn't verify this key. Please check the key and try again. OpenAI error: Incorrect API key provided."]);
 
     $settings = app(PlatformSettings::class);
     expect($settings->openAiConfigured())->toBeFalse()

@@ -78,10 +78,10 @@ function providePersonalAccessClient(): void
  * Answer OpenAI embedding requests, such as the check that runs before an
  * API key is saved, with a working response or the given error status.
  */
-function fakeOpenAiEmbeddings(int $status = 200, ?string $errorCode = null): void
+function fakeOpenAiEmbeddings(int $status = 200, ?string $errorCode = null, ?string $errorMessage = null): void
 {
     Http::fake(['*/embeddings' => $status === 200
         ? Http::response(['data' => [['embedding' => array_fill(0, 1536, 0.01)]], 'usage' => ['prompt_tokens' => 1]])
-        : Http::response(['error' => ['code' => $errorCode, 'message' => 'Fake error']], $status),
+        : Http::response(['error' => ['code' => $errorCode, 'message' => $errorMessage]], $status),
     ]);
 }

@@ -7,6 +7,7 @@ use App\Models\Posting;
 use App\Models\User;
 use App\Support\PlatformSettings;
 use Illuminate\Support\Facades\Crypt;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 
 function similarityAdmin(): User
@@ -106,24 +107,33 @@ test('storing an openai key while similarity is enabled kicks off the job', func
     Queue::assertPushed(GeneratePostingEmbeddings::class);
 });
 
-test('an openai key that does not work is not saved', function (int $status, ?string $errorCode, string $message) {
+test('an openai key that does not work is not saved', function (int $status, ?string $errorCode, ?string $errorMessage, string $shown) {
     config()->set('ai.providers.openai.key', null);
-    fakeOpenAiEmbeddings($status, $errorCode);
+    fakeOpenAiEmbeddings($status, $errorCode, $errorMessage);
 
-    $admin = similarityAdmin();
-
-    $this->actingAs($admin)
+    $this->actingAs(similarityAdmin())
         ->from(route('platform.settings.edit'))
         ->put(route('platform.settings.openai.update'), ['api_key' => 'sk-bad-key-12345'])
-        ->assertSessionHasErrors(['api_key' => $message]);
+        ->assertSessionHasErrors(['api_key' => "We couldn't verify this key. Please check the key and try again. OpenAI error: {$shown}"]);
 
     expect(app(PlatformSettings::class)->openAiConfigured())->toBeFalse();
 })->with([
-    'invalid key' => [401, 'invalid_api_key', "This key doesn't work. Check that you copied all of it."],
-    'no credit' => [429, 'insufficient_quota', 'This OpenAI account has no credit. Add billing on platform.openai.com and try again.'],
-    'missing permission' => [403, null, "This key can't create embeddings. Check its permissions on platform.openai.com."],
-    'openai down' => [500, null, "Couldn't reach OpenAI to check the key. Try again in a moment."],
+    'invalid key' => [401, 'invalid_api_key', 'Incorrect API key provided.', 'Incorrect API key provided.'],
+    'no credit' => [429, 'insufficient_quota', 'You exceeded your current quota.', 'You exceeded your current quota.'],
+    'no error message' => [500, null, null, 'HTTP 500'],
 ]);
+
+test('an openai key cannot be saved when openai is unreachable', function () {
+    config()->set('ai.providers.openai.key', null);
+    Http::fake(['*/embeddings' => Http::failedConnection('Could not resolve host: api.openai.com')]);
+
+    $this->actingAs(similarityAdmin())
+        ->from(route('platform.settings.edit'))
+        ->put(route('platform.settings.openai.update'), ['api_key' => 'sk-bad-key-12345'])
+        ->assertSessionHasErrors(['api_key' => "We couldn't verify this key. Please check the key and try again. OpenAI error: Could not resolve host: api.openai.com"]);
+
+    expect(app(PlatformSettings::class)->openAiConfigured())->toBeFalse();
+});
 
 test('a rate limited openai key is saved, since it works', function () {
     fakeOpenAiEmbeddings(429, 'rate_limit_exceeded');
