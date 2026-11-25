@@ -135,10 +135,10 @@ class OnboardingController extends Controller
      * The final wizard step: optionally store an OpenAI key and enable
      * similarity, then mark onboarding complete either way.
      */
-    public function storeSimilarity(Request $request, PlatformSettings $settings): RedirectResponse
+    public function storeSimilarity(Request $request, PlatformSettings $settings, EmbeddingGenerator $embeddings): RedirectResponse
     {
         $data = $request->validate([
-            'api_key' => ['nullable', 'string', 'min:10', 'max:255'],
+            'api_key' => ['bail', 'nullable', 'string', 'min:10', 'max:255', $embeddings->workingOpenAiKeyRule()],
             'enabled' => ['required', 'boolean'],
             'auto_categorize' => ['required', 'boolean'],
         ]);

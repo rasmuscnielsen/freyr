@@ -4,9 +4,15 @@ namespace App\Services\Embeddings;
 
 use App\Models\Posting;
 use App\Support\PlatformSettings;
+use Closure;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Http\Client\RequestException;
 use Illuminate\Support\Collection;
+use Laravel\Ai\Ai;
 use Laravel\Ai\Embeddings;
+use Laravel\Ai\Exceptions\InsufficientCreditsException;
+use Laravel\Ai\Exceptions\RateLimitedException;
+use Throwable;
 
 final class EmbeddingGenerator
 {
@@ -16,6 +22,12 @@ final class EmbeddingGenerator
      * other AI features may rely on.
      */
     private const PROVIDER = 'freyr_statements';
+
+    private const KEY_CHECK_PROVIDER = 'freyr_key_check';
+
+    private const NO_CREDIT = 'This OpenAI account has no credit. Add billing on platform.openai.com and try again.';
+
+    private const UNREACHABLE = "Couldn't reach OpenAI to check the key. Try again in a moment.";
 
     /**
      * Bank descriptions such as "NETTO 4021 KØBENHAVN" are rarely more than
@@ -69,6 +81,61 @@ final class EmbeddingGenerator
     }
 
     /**
+     * A validation rule that fails with openAiKeyProblem()'s message, for the
+     * forms that save a key.
+     */
+    public function workingOpenAiKeyRule(): Closure
+    {
+        return function (string $attribute, mixed $value, Closure $fail): void {
+            if (($problem = $this->openAiKeyProblem(trim((string) $value))) !== null) {
+                $fail($problem);
+            }
+        };
+    }
+
+    /**
+     * Try an OpenAI key with a one-word embedding request before it is
+     * saved. Returns what the user should do about it, or null when the key
+     * works or embeddings use another provider (the key is then unused).
+     */
+    public function openAiKeyProblem(string $apiKey): ?string
+    {
+        if (config('services.statement_embeddings.provider', 'openai') !== 'openai') {
+            return null;
+        }
+
+        try {
+            Embeddings::for(['Freyr'])
+                ->dimensions($this->dimensions())
+                ->timeout(15)
+                ->generate(
+                    provider: $this->provider(self::KEY_CHECK_PROVIDER, 'openai', $apiKey),
+                    model: config('services.statement_embeddings.model'),
+                );
+        } catch (InsufficientCreditsException) {
+            return self::NO_CREDIT;
+        } catch (RateLimitedException $e) {
+            // OpenAI answers 429 both for a busy key, which works, and for
+            // an account without credit.
+            $code = $e->getPrevious() instanceof RequestException
+                ? $e->getPrevious()->response->json('error.code')
+                : null;
+
+            return $code === 'insufficient_quota' ? self::NO_CREDIT : null;
+        } catch (RequestException $e) {
+            return match ($e->response->status()) {
+                401 => "This key doesn't work. Check that you copied all of it.",
+                403 => "This key can't create embeddings. Check its permissions on platform.openai.com.",
+                default => self::UNREACHABLE,
+            };
+        } catch (Throwable) {
+            return self::UNREACHABLE;
+        }
+
+        return null;
+    }
+
+    /**
      * A deliberately generous cost estimate in USD, using about three
      * characters per token (bank descriptions tokenize worse than prose):
      * what the postings still waiting for an embedding would cost, and a
@@ -113,7 +180,11 @@ final class EmbeddingGenerator
             ->dimensions($this->dimensions())
             ->cache()
             ->generate(
-                provider: $this->provider(),
+                provider: $this->provider(
+                    self::PROVIDER,
+                    config('services.statement_embeddings.provider', 'openai'),
+                    $this->settings->embeddingApiKey(),
+                ),
                 model: config('services.statement_embeddings.model'),
             );
 
@@ -130,16 +201,20 @@ final class EmbeddingGenerator
     }
 
     /**
-     * Inject the resolved API key into a dedicated provider instance and
-     * return its name.
+     * Inject the API key into a dedicated provider and return its name. The
+     * AI manager caches provider instances for the life of the process, so
+     * the cached one is dropped; otherwise a queue worker would keep using
+     * a replaced key.
      */
-    private function provider(): string
+    private function provider(string $name, string $driver, ?string $apiKey): string
     {
-        config()->set('ai.providers.'.self::PROVIDER, [
-            'driver' => config('services.statement_embeddings.provider', 'openai'),
-            'key' => $this->settings->embeddingApiKey(),
+        config()->set('ai.providers.'.$name, [
+            'driver' => $driver,
+            'key' => $apiKey,
         ]);
 
-        return self::PROVIDER;
+        Ai::forgetInstance($name);
+
+        return $name;
     }
 }
