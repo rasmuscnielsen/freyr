@@ -250,6 +250,7 @@ test('failed spiir jobs cache only a safe error message', function () {
 
 test('the similarity step stores the key, enables the feature and completes onboarding', function () {
     Queue::fake();
+    fakeOpenAiEmbeddings();
 
     $admin = User::factory()->platformAdmin()->create();
 
@@ -257,7 +258,6 @@ test('the similarity step stores the key, enables the feature and completes onbo
         ->post(route('onboarding.similarity.store'), [
             'api_key' => 'sk-test-1234567890',
             'enabled' => '1',
-            'since' => '2y',
             'auto_categorize' => '1',
         ])
         ->assertRedirect(route('dashboard'));
@@ -265,7 +265,6 @@ test('the similarity step stores the key, enables the feature and completes onbo
     $settings = app(PlatformSettings::class);
     expect($settings->openAiApiKey())->toBe('sk-test-1234567890')
         ->and($settings->similarityEnabled())->toBeTrue()
-        ->and($settings->similaritySince())->toBe('2y')
         ->and($settings->similarityAutoCategorize())->toBeTrue()
         ->and($settings->similarityAvailable())->toBeTrue()
         ->and($settings->onboardingCompleted())->toBeTrue();
@@ -281,7 +280,6 @@ test('the similarity step can be skipped and still completes onboarding', functi
     $this->actingAs($admin)
         ->post(route('onboarding.similarity.store'), [
             'enabled' => '0',
-            'since' => 'all',
             'auto_categorize' => '0',
         ])
         ->assertRedirect(route('dashboard'));
@@ -291,6 +289,29 @@ test('the similarity step can be skipped and still completes onboarding', functi
         ->and($settings->similarityEnabled())->toBeFalse()
         ->and($settings->similarityAvailable())->toBeFalse()
         ->and($settings->onboardingCompleted())->toBeTrue();
+
+    Queue::assertNotPushed(GeneratePostingEmbeddings::class);
+});
+
+test('the similarity step keeps onboarding open when the key does not work', function () {
+    Queue::fake();
+    config()->set('ai.providers.openai.key', null);
+    fakeOpenAiEmbeddings(401, 'invalid_api_key', 'Incorrect API key provided.');
+
+    $this->actingAs(User::factory()->platformAdmin()->create())
+        ->from(route('onboarding.similarity'))
+        ->post(route('onboarding.similarity.store'), [
+            'api_key' => 'sk-bad-key-12345',
+            'enabled' => '1',
+            'auto_categorize' => '0',
+        ])
+        ->assertRedirect(route('onboarding.similarity'))
+        ->assertSessionHasErrors(['api_key' => "We couldn't verify this key. Please check the key and try again. OpenAI error: Incorrect API key provided."]);
+
+    $settings = app(PlatformSettings::class);
+    expect($settings->openAiConfigured())->toBeFalse()
+        ->and($settings->similarityEnabled())->toBeFalse()
+        ->and($settings->onboardingCompleted())->toBeFalse();
 
     Queue::assertNotPushed(GeneratePostingEmbeddings::class);
 });
@@ -305,7 +326,6 @@ test('enabling similarity in onboarding requires an api key', function () {
         ->from(route('onboarding.similarity'))
         ->post(route('onboarding.similarity.store'), [
             'enabled' => '1',
-            'since' => 'all',
             'auto_categorize' => '0',
         ])
         ->assertSessionHasErrors('api_key');

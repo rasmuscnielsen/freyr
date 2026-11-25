@@ -7,6 +7,7 @@ use App\Models\Posting;
 use App\Models\User;
 use App\Support\PlatformSettings;
 use Illuminate\Support\Facades\Crypt;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 
 function similarityAdmin(): User
@@ -24,13 +25,11 @@ test('similarity settings can be patched without an api key until enabling', fun
 
     $this->actingAs($admin)
         ->patch(route('platform.settings.similarity.update'), [
-            'since' => '5y',
             'auto_categorize' => '1',
         ])
         ->assertRedirect();
 
-    expect($settings->similaritySince())->toBe('5y')
-        ->and($settings->similarityAutoCategorize())->toBeTrue()
+    expect($settings->similarityAutoCategorize())->toBeTrue()
         ->and($settings->similarityEnabled())->toBeFalse();
 });
 
@@ -57,7 +56,6 @@ test('enabling similarity kicks off the embeddings job', function () {
     $this->actingAs($admin)
         ->patch(route('platform.settings.similarity.update'), [
             'enabled' => '1',
-            'since' => '2y',
         ])
         ->assertRedirect();
 
@@ -68,6 +66,7 @@ test('enabling similarity kicks off the embeddings job', function () {
 });
 
 test('the openai key can be stored and removed', function () {
+    fakeOpenAiEmbeddings();
     $admin = similarityAdmin();
     $settings = app(PlatformSettings::class);
 
@@ -93,6 +92,7 @@ test('the openai key can be stored and removed', function () {
 
 test('storing an openai key while similarity is enabled kicks off the job', function () {
     Queue::fake();
+    fakeOpenAiEmbeddings();
 
     $admin = similarityAdmin();
     $settings = app(PlatformSettings::class);
@@ -105,6 +105,44 @@ test('storing an openai key while similarity is enabled kicks off the job', func
         ->assertRedirect();
 
     Queue::assertPushed(GeneratePostingEmbeddings::class);
+});
+
+test('an openai key that does not work is not saved', function (int $status, ?string $errorCode, ?string $errorMessage, string $shown) {
+    config()->set('ai.providers.openai.key', null);
+    fakeOpenAiEmbeddings($status, $errorCode, $errorMessage);
+
+    $this->actingAs(similarityAdmin())
+        ->from(route('platform.settings.edit'))
+        ->put(route('platform.settings.openai.update'), ['api_key' => 'sk-bad-key-12345'])
+        ->assertSessionHasErrors(['api_key' => "We couldn't verify this key. Please check the key and try again. OpenAI error: {$shown}"]);
+
+    expect(app(PlatformSettings::class)->openAiConfigured())->toBeFalse();
+})->with([
+    'invalid key' => [401, 'invalid_api_key', 'Incorrect API key provided.', 'Incorrect API key provided.'],
+    'no credit' => [429, 'insufficient_quota', 'You exceeded your current quota.', 'You exceeded your current quota.'],
+    'no error message' => [500, null, null, 'HTTP 500'],
+]);
+
+test('an openai key cannot be saved when openai is unreachable', function () {
+    config()->set('ai.providers.openai.key', null);
+    Http::fake(['*/embeddings' => Http::failedConnection('Could not resolve host: api.openai.com')]);
+
+    $this->actingAs(similarityAdmin())
+        ->from(route('platform.settings.edit'))
+        ->put(route('platform.settings.openai.update'), ['api_key' => 'sk-bad-key-12345'])
+        ->assertSessionHasErrors(['api_key' => "We couldn't verify this key. Please check the key and try again. OpenAI error: Could not resolve host: api.openai.com"]);
+
+    expect(app(PlatformSettings::class)->openAiConfigured())->toBeFalse();
+});
+
+test('a rate limited openai key is saved, since it works', function () {
+    fakeOpenAiEmbeddings(429, 'rate_limit_exceeded');
+
+    $this->actingAs(similarityAdmin())
+        ->put(route('platform.settings.openai.update'), ['api_key' => 'sk-busy-key-12345'])
+        ->assertSessionHasNoErrors();
+
+    expect(app(PlatformSettings::class)->openAiApiKey())->toBe('sk-busy-key-12345');
 });
 
 test('the similar endpoint returns the posting payload with similarity disabled on unsupported databases', function () {

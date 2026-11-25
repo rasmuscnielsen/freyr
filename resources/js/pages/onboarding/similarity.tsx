@@ -3,10 +3,9 @@ import { CircleCheckIcon } from 'lucide-react';
 import { useState } from 'react';
 import {
     OpenAiApiKeyField,
-    SimilarityIntro,
-    SimilaritySinceSelect,
+    SimilarityHighlights,
 } from '@/components/openai-similarity';
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import type { SimilarityCostEstimate } from '@/components/openai-similarity';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
@@ -20,155 +19,99 @@ type Props = {
         configured: boolean;
         source: 'database' | 'environment' | null;
     };
-    enabled: boolean;
-    since: string;
     autoCategorize: boolean;
+    cost: SimilarityCostEstimate;
 };
 
+/**
+ * Submitting turns the feature on (a key is required unless one is already
+ * configured); skipping finishes onboarding without touching it.
+ */
 export default function OnboardingSimilarity({
     openAi,
-    enabled: initiallyEnabled,
-    since: initialSince,
     autoCategorize: initialAutoCategorize,
+    cost,
 }: Props) {
-    const [enabled, setEnabled] = useState(
-        initiallyEnabled || openAi.configured,
-    );
-    const [since, setSince] = useState(initialSince);
     const [autoCategorize, setAutoCategorize] = useState(initialAutoCategorize);
-    const [showReplaceForm, setShowReplaceForm] = useState(false);
-    const keyFieldVisible = !openAi.configured || showReplaceForm;
+    const [replacingKey, setReplacingKey] = useState(false);
 
     return (
         <>
             <Head title="Similar postings" />
             <div className="flex flex-col gap-6">
-                <SimilarityIntro />
-
-                {openAi.configured && (
-                    <Alert>
-                        <CircleCheckIcon />
-                        <AlertTitle>OpenAI is already configured</AlertTitle>
-                        <AlertDescription>
-                            {openAi.source === 'environment'
-                                ? 'An API key is set via environment variables.'
-                                : 'An API key is stored.'}
-                        </AlertDescription>
-                    </Alert>
-                )}
+                <SimilarityHighlights cost={cost} />
 
                 <Form
                     {...store.form()}
                     className="flex flex-col gap-6"
                     transform={(data) => ({
                         ...data,
-                        enabled,
-                        since,
+                        enabled: true,
                         auto_categorize: autoCategorize,
                     })}
                 >
                     {({ processing, errors }) => (
                         <>
-                            {keyFieldVisible && (
+                            {openAi.configured && !replacingKey ? (
+                                <div className="flex items-center justify-between gap-4 rounded-md border px-3 py-2 text-sm">
+                                    <span className="flex items-center gap-2">
+                                        <CircleCheckIcon className="size-4 text-green-600 dark:text-green-500" />
+                                        {openAi.source === 'environment'
+                                            ? 'OpenAI key found in environment'
+                                            : 'OpenAI key saved'}
+                                    </span>
+                                    <Button
+                                        type="button"
+                                        variant="ghost"
+                                        size="sm"
+                                        onClick={() => setReplacingKey(true)}
+                                    >
+                                        Change
+                                    </Button>
+                                </div>
+                            ) : (
                                 <OpenAiApiKeyField
                                     errors={errors}
-                                    required={enabled}
+                                    required={!openAi.configured}
                                 />
                             )}
 
-                            {openAi.configured && !showReplaceForm && (
-                                <Button
-                                    type="button"
-                                    variant="ghost"
-                                    className="self-start px-0"
-                                    onClick={() => setShowReplaceForm(true)}
-                                >
-                                    Replace API key
-                                </Button>
-                            )}
-
-                            <div className="flex items-start space-x-3">
+                            <div className="flex items-start gap-3">
                                 <Checkbox
-                                    id="enabled"
-                                    checked={enabled}
+                                    id="auto_categorize"
+                                    checked={autoCategorize}
                                     onCheckedChange={(checked) =>
-                                        setEnabled(checked === true)
+                                        setAutoCategorize(checked === true)
                                     }
                                 />
                                 <div className="grid gap-1">
-                                    <Label htmlFor="enabled">
-                                        Enable similar postings
+                                    <Label htmlFor="auto_categorize">
+                                        Apply categories automatically
                                     </Label>
                                     <p className="text-sm text-muted-foreground">
-                                        You can turn this off later without
-                                        removing the API key.
+                                        Only when a near-identical posting is
+                                        already categorized.
                                     </p>
                                 </div>
                             </div>
 
-                            {enabled && (
-                                <div className="grid gap-2">
-                                    <Label htmlFor="since">
-                                        How far back should Freyr analyze
-                                        postings?
-                                    </Label>
-                                    <SimilaritySinceSelect
-                                        value={since}
-                                        onValueChange={setSince}
-                                    />
-                                    <p className="text-sm text-muted-foreground">
-                                        Older postings outside this window are
-                                        skipped — you can change it later.
-                                    </p>
-                                </div>
-                            )}
-
-                            {enabled && (
-                                <div className="flex items-start space-x-3">
-                                    <Checkbox
-                                        id="auto_categorize"
-                                        checked={autoCategorize}
-                                        onCheckedChange={(checked) =>
-                                            setAutoCategorize(checked === true)
-                                        }
-                                    />
-                                    <div className="grid gap-1">
-                                        <Label htmlFor="auto_categorize">
-                                            Automatically categorize
-                                        </Label>
-                                        <p className="text-sm text-muted-foreground">
-                                            When a nearly identical posting
-                                            already has a category, apply it
-                                            right away instead of only
-                                            suggesting it. Off by default —
-                                            suggestions alone are a good start.
-                                        </p>
-                                    </div>
-                                </div>
-                            )}
-
-                            <div className="flex items-center gap-3">
+                            <div className="flex flex-col gap-3">
                                 <Button
                                     type="submit"
-                                    className="flex-1"
                                     disabled={processing}
                                     data-test="finish-onboarding-button"
                                 >
                                     {processing && <Spinner />}
-                                    {enabled ? 'Save and finish' : 'Finish'}
+                                    Turn on and finish
                                 </Button>
-                                {enabled && (
-                                    <Button
-                                        type="button"
-                                        variant="ghost"
-                                        disabled={processing}
-                                        onClick={() =>
-                                            router.post(complete.url())
-                                        }
-                                    >
-                                        Skip
-                                    </Button>
-                                )}
+                                <Button
+                                    type="button"
+                                    variant="ghost"
+                                    disabled={processing}
+                                    onClick={() => router.post(complete.url())}
+                                >
+                                    Skip for now
+                                </Button>
                             </div>
                         </>
                     )}
@@ -181,7 +124,7 @@ export default function OnboardingSimilarity({
 OnboardingSimilarity.layout = (page: React.ReactNode) => (
     <OnboardingLayout
         title="Similar postings"
-        description="Optionally unlock smarter search and category suggestions with an OpenAI API key."
+        description="Optional. Let Freyr suggest categories using your own OpenAI key."
         step="similarity"
     >
         {page}

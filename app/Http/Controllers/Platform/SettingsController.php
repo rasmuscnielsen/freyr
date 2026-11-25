@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Platform;
 use App\Enums\PlatformSettingKey;
 use App\Http\Controllers\Controller;
 use App\Http\Controllers\SpiirImportController;
+use App\Services\Embeddings\EmbeddingGenerator;
 use App\Services\Spiir\Importer;
 use App\Support\PlatformSettings;
 use Illuminate\Http\Request;
@@ -13,7 +14,7 @@ use Inertia\Response;
 
 class SettingsController extends Controller
 {
-    public function edit(Request $request, PlatformSettings $settings, Importer $importer): Response
+    public function edit(Request $request, PlatformSettings $settings, Importer $importer, EmbeddingGenerator $embeddings): Response
     {
         return Inertia::render('platform/settings/index', [
             'registrationEnabled' => $settings->registrationEnabled(),
@@ -28,8 +29,8 @@ class SettingsController extends Controller
             ],
             'similarity' => [
                 'enabled' => $settings->similarityEnabled(),
-                'since' => $settings->similaritySince(),
                 'autoCategorize' => $settings->similarityAutoCategorize(),
+                'cost' => $embeddings->costEstimate(),
             ],
             'spiir' => [
                 'canImport' => $importer->canImport(),

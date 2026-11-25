@@ -19,10 +19,6 @@ class SimilaritySettingsController extends Controller
             $settings->set(PlatformSettingKey::SimilarityEnabled, (bool) $data['enabled']);
         }
 
-        if (array_key_exists('since', $data)) {
-            $settings->set(PlatformSettingKey::SimilaritySince, $data['since']);
-        }
-
         if (array_key_exists('auto_categorize', $data)) {
             $settings->set(PlatformSettingKey::SimilarityAutoCategorize, (bool) $data['auto_categorize']);
         }

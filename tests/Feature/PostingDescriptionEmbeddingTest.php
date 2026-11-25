@@ -76,24 +76,25 @@ test('the generator is a no-op until an api key exists and the feature is enable
         ->and(Posting::query()->sole()->description_embedding)->toBeNull();
 });
 
-test('the lookback window skips older postings', function () {
-    $settings = enableSimilarity();
-    $settings->set(PlatformSettingKey::SimilaritySince, '1y');
+test('the cost estimate covers postings still waiting for an embedding', function () {
+    config()->set('services.statement_embeddings.usd_per_million_tokens', 0.02);
+    enableSimilarity();
     fakeEmbeddings();
 
-    $old = Posting::factory()->create([
-        'description' => 'Ancient posting',
-        'date' => now()->subYears(2)->toDateString(),
-    ]);
-    $recent = Posting::factory()->create([
-        'description' => 'Recent posting',
-        'date' => now()->subMonth()->toDateString(),
-    ]);
+    // 30 characters ≈ 10 tokens each.
+    Posting::factory()->count(2)->create(['description' => str_repeat('a', 30)]);
+    Posting::factory()->create(['description' => '']);
+
+    $estimate = app(EmbeddingGenerator::class)->costEstimate();
+    expect($estimate['pendingPostings'])->toBe(2)
+        ->and($estimate['pendingUsd'])->toEqualWithDelta(20 * 0.02 / 1_000_000, 1e-12)
+        ->and($estimate['usdPer10k'])->toEqualWithDelta(10_000 * 20 * 0.02 / 1_000_000, 1e-12);
 
     app(EmbeddingGenerator::class)->generateMissing(limit: 10);
 
-    expect($old->refresh()->description_embedding)->toBeNull()
-        ->and($recent->refresh()->description_embedding)->toHaveCount(1536);
+    expect(app(EmbeddingGenerator::class)->costEstimate())
+        ->pendingPostings->toBe(0)
+        ->pendingUsd->toEqual(0.0);
 });
 
 test('the sweep job embeds missing postings when the feature is available', function () {

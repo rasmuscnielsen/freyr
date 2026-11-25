@@ -55,6 +55,9 @@ return [
         'model' => env('STATEMENT_EMBEDDINGS_MODEL', 'text-embedding-3-small'),
         'dimensions' => (int) env('STATEMENT_EMBEDDINGS_DIMENSIONS', 1536),
         'batch_size' => (int) env('STATEMENT_EMBEDDINGS_BATCH_SIZE', 50),
+        // List price of the model above, used only for the cost estimate
+        // shown in onboarding and platform settings.
+        'usd_per_million_tokens' => (float) env('STATEMENT_EMBEDDINGS_USD_PER_MILLION_TOKENS', 0.02),
     ],
 
 ];
