@@ -4,7 +4,6 @@ namespace App\Services\Embeddings;
 
 use App\Models\Posting;
 use App\Support\PlatformSettings;
-use Closure;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Client\RequestException;
 use Illuminate\Support\Collection;
@@ -75,22 +74,9 @@ final class EmbeddingGenerator
     }
 
     /**
-     * A validation rule that fails with openAiKeyProblem()'s message, for the
-     * forms that save a key.
-     */
-    public function workingOpenAiKeyRule(): Closure
-    {
-        return function (string $attribute, mixed $value, Closure $fail): void {
-            if (($problem = $this->openAiKeyProblem(trim((string) $value))) !== null) {
-                $fail($problem);
-            }
-        };
-    }
-
-    /**
      * Try an OpenAI key with a one-word embedding request before it is
-     * saved. Returns the error to show, or null when the key
-     * works or embeddings use another provider (the key is then unused).
+     * saved. Returns the error to show, or null when the key works or
+     * embeddings use another provider (the key is then unused).
      */
     public function openAiKeyProblem(string $apiKey): ?string
     {
