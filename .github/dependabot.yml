@@ -17,10 +17,15 @@ updates:
       interval: "weekly"
     cooldown:
       default-days: 5
+    # Minor and patch updates arrive as one weekly PR; each major update
+    # gets its own PR, since those usually need code changes.
     groups:
       composer:
         patterns:
           - "*"
+        update-types:
+          - "minor"
+          - "patch"
 
   - package-ecosystem: "npm"
     directory: "/"
@@ -28,7 +33,12 @@ updates:
       interval: "weekly"
     cooldown:
       default-days: 5
+    # Minor and patch updates arrive as one weekly PR; each major update
+    # gets its own PR, since those usually need code changes.
     groups:
       npm:
         patterns:
           - "*"
+        update-types:
+          - "minor"
+          - "patch"
