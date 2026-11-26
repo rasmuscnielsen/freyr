@@ -1,6 +1,7 @@
 <?php
 
 use App\Models\Category;
+use Laravel\Prompts\Prompt;
 
 test('app:install migrates and seeds the default categories', function () {
     $this->artisan('app:install')
@@ -23,6 +24,10 @@ test('app:install migrates and seeds the default categories', function () {
 
 test('app:install asks for confirmation in production', function () {
     $this->app['env'] = 'production';
+
+    // Outside the testing environment Laravel does not route prompts through
+    // the console fallback that expectsConfirmation() intercepts.
+    Prompt::fallbackWhen(true);
 
     $this->artisan('app:install')
         ->expectsConfirmation('Are you sure you want to run this command?')
