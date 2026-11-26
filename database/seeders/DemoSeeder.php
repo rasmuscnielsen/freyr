@@ -10,6 +10,7 @@ use App\Models\BankSyncRun;
 use App\Models\Posting;
 use App\Models\Subcategory;
 use App\Models\User;
+use App\Support\PlatformSettings;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Console\Seeds\WithoutModelEvents;
 use Illuminate\Database\Seeder;
@@ -27,10 +28,17 @@ class DemoSeeder extends Seeder
 
     public function run(): void
     {
-        $user = User::factory()->create([
+        // The demo user is the platform admin of a finished install, so every
+        // screen is reachable, and reports in the accounts' own currency.
+        $user = User::factory()->platformAdmin()->create([
             'name' => 'John Doe',
             'email' => 'john@example.com',
+            'country_code' => 'IE',
+            'timezone' => 'Europe/Dublin',
+            'reporting_currency' => 'EUR',
         ]);
+
+        app(PlatformSettings::class)->markOnboardingCompleted();
 
         $subcategories = $this->defaultSubcategoriesByKey();
         $accounts = $this->createAccounts($user);
@@ -246,10 +254,49 @@ class DemoSeeder extends Seeder
             }
 
             $this->post($accounts['everyday'], $subcategories['investments'], $month->day(28), 'Monthly index fund deposit', -250.00, $sequences);
+
+            if ($monthIndex % 2 === 0) {
+                $this->post($accounts['everyday'], $subcategories['entertainment'], $month->day(19), $this->monthlyMerchant(['Lighthouse Cinema', 'Vicar Street concert', 'Comedy Club'], $monthIndex), -$this->monthlyAmount([24.00, 58.00, 32.00], $monthIndex), $sequences);
+            }
+
+            if ($monthIndex % 3 === 1) {
+                $this->post($accounts['everyday'], $subcategories['taxi'], $month->day(23), 'Bolt ride', -$this->monthlyAmount([14.60, 22.30], $monthIndex), $sequences);
+            }
+
+            // Seasonal spikes, so the monthly flow reads like a real year.
+            if ($month->month === 12) {
+                $this->post($accounts['everyday'], $subcategories['other_income'], $month->day(15), 'Year-end bonus', 1200.00, $sequences);
+                $this->post($accounts['everyday'], $subcategories['gifts_given'], $month->day(12), 'Christmas gifts', -318.40, $sequences);
+                $this->post($accounts['everyday'], $subcategories['restaurants'], $month->day(20), 'Christmas dinner with friends', -96.00, $sequences);
+            }
+
+            if ($month->month === 7) {
+                $this->post($accounts['everyday'], $subcategories['travel'], $month->day(4), 'Aer Lingus — Barcelona', -246.00, $sequences);
+                $this->post($accounts['everyday'], $subcategories['travel'], $month->day(11), 'Airbnb Barcelona', -612.00, $sequences);
+                $this->post($accounts['everyday'], $subcategories['restaurants'], $month->day(13), 'Tapas bar El Born', -84.50, $sequences);
+            }
+
+            if ($month->month === 4) {
+                $this->post($accounts['everyday'], $subcategories['reimbursements'], $month->day(17), 'Tax refund', 640.00, $sequences);
+            }
+
+            if ($month->month === 9) {
+                $this->post($accounts['everyday'], $subcategories['education'], $month->day(6), 'Evening course: Spanish A2', -180.00, $sequences);
+            }
         }
 
         $this->post($accounts['everyday'], $subcategories['electronics'], $endMonth->day(17), 'Laptop repair', -389.90, $sequences, ['is_extraordinary' => true]);
-        $this->post($accounts['everyday'], null, $endMonth->day(29), 'PayPal payment 4312', -22.80, $sequences, ['categorized_by' => null]);
+
+        // Recent, still-uncategorized postings to triage in the app or via MCP.
+        foreach ([
+            [29, 'PAYPAL *STEAMGAMES', -19.99],
+            [27, 'SumUp *Bakehouse', -7.80],
+            [26, 'AMZN Mktp IE', -34.95],
+            [24, 'Revolut transfer from Anna', 45.00],
+            [23, 'PayPal payment 4312', -22.80],
+        ] as [$day, $description, $amount]) {
+            $this->post($accounts['everyday'], null, $endMonth->day($day), $description, $amount, $sequences);
+        }
 
         $this->post($accounts['travel'], $subcategories['travel'], $endMonth->subMonths(10)->day(12), 'Flight to Lisbon', -138.00, $sequences);
         $this->post($accounts['travel'], $subcategories['restaurants'], $endMonth->subMonths(10)->day(13), 'Lisbon dinner', -77.00, $sequences);

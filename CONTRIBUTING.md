@@ -1,12 +1,12 @@
 # Contributing to Freyr
 
-Thanks for your interest in contributing! Freyr is an early-stage MVP, so
-expect rough edges — and please open an issue to discuss bigger changes before
-building them.
+Thanks for your interest in contributing! Freyr is in beta, so expect rough
+edges, and please open an issue to discuss bigger changes before building
+them.
 
 ## Getting set up
 
-Follow the "Getting started" section in the [README](README.md). For local
+Follow the "Installation" section in the [README](README.md). For local
 development, `composer run dev` runs the PHP server, queue worker, log tailer,
 and Vite in one command.
 

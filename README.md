@@ -3,154 +3,108 @@
   <img src="art/banner-light.svg" alt="Freyr — self-hosted, bank-connected personal budgeting">
 </picture>
 
-# Freyr
+Freyr is a self-hosted budgeting app. It connects to your bank, imports your
+transactions every few hours, and shows you where your money goes. Your data
+stays on your own server.
 
-Freyr is a self-hosted personal budgeting application. It connects to your bank,
-imports your transactions automatically, and gives you a clear overview of where
-your money goes.
+It is built in the spirit of [Spiir](https://spiir.dk), the Danish budgeting
+app that has been discontinued, and it can import a Spiir data export.
 
-It is an open-source project built in the spirit of [Spiir](https://spiir.dk) —
-the popular Danish budgeting app that has been discontinued — for people who want
-to keep an automatic, bank-connected budgeting overview while owning their own
-data on their own server.
+> **Freyr is in beta.** It is used day to day, but expect rough edges and the
+> occasional breaking change. Feedback and contributions are very welcome.
 
-> **Status: MVP.** Freyr is functional but early. Expect rough edges, breaking
-> changes, and missing polish. Contributions and feedback are welcome.
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="art/screenshots/dashboard-dark.png">
+  <img src="art/screenshots/dashboard.png" alt="The Freyr dashboard with a year of income, expenses, and a monthly flow chart">
+</picture>
 
 ## Features
 
-- **Bank connections** via [Enable Banking](https://enablebanking.com) (PSD2 open
-  banking), so you can link real bank accounts through a licensed aggregator.
-- **Automatic transaction import** with deduplication, so re-syncing the same
-  period does not create duplicate postings.
-- **Sync audit trail** — every sync run is recorded (new / updated / duplicate
-  posting counts, time range, timing) so you can see exactly what each sync did.
-- **Manual categorization** with a full category tree (categories and
-  subcategories, income / expense / saving / transfer types).
-- **Dashboard** with an income and expense overview.
-- **Read-only REST API** protected by Laravel Passport personal access tokens.
-- **MCP server** (`/mcp`) that lets AI agents (Claude, ChatGPT, etc.) query and manage your budgeting data — e.g. categorizing transactions.
-- **Horizon queue dashboard** for monitoring background jobs.
-- **Dark mode** (follows your system preference, with a manual toggle).
+- **Bank connections** through [Enable Banking](https://enablebanking.com), a
+  licensed PSD2 open banking provider that is free for personal use.
+- **Automatic imports** every three hours, with deduplication and a log of
+  what each sync did.
+- **Dashboard** with your balance, monthly income and expenses, and a
+  breakdown by category for any month.
+- **Categories** you can shape yourself, starting from a sensible default
+  tree, with quick inline and bulk categorization.
+- **Similar postings** (optional, uses your OpenAI key) suggests categories
+  from postings you have already sorted, and can apply them automatically.
+- **Manual accounts** for cash, loans, or banks that are not connected.
+- **Multiple currencies**, converted to your reporting currency with European
+  Central Bank rates.
+- **AI assistants** can read and categorize your postings through the built-in
+  [MCP](https://modelcontextprotocol.io) server.
+- **Spiir import** brings over your accounts, categories, and history.
+- **REST API**, passkeys, two-factor authentication, and dark mode.
 
-## Requirements
+| Postings                                                    | Bank accounts                                                        |
+| ----------------------------------------------------------- | -------------------------------------------------------------------- |
+| ![Postings list with filters](art/screenshots/postings.png) | ![Bank connections and accounts](art/screenshots/bank-accounts.png)  |
+| **Categories**                                              | **Setup wizard**                                                     |
+| ![Category management](art/screenshots/categories.png)      | ![The bank step of the setup wizard](art/screenshots/onboarding.png) |
 
-- **PHP 8.5**
-- **PostgreSQL** (recommended). The app runs on other drivers, but the postings
-  table stores an optional AI description embedding using the `pgvector`
-  extension on PostgreSQL (it falls back to a plain JSON column on other
-  drivers), and uses a `jsonb` column for posting metadata. PostgreSQL is the
-  tested and recommended database.
-- **Node.js + [pnpm](https://pnpm.io)** for the frontend build.
-- **Redis** — required for [Laravel Horizon](https://laravel.com/docs/horizon),
-  which drives the background queue.
-- A [Composer](https://getcomposer.org) installation.
+## Installation
 
-## Getting started
+Freyr is a [Laravel](https://laravel.com) app. You need:
+
+- PHP 8.5 and [Composer](https://getcomposer.org)
+- Node.js and [pnpm](https://pnpm.io)
+- PostgreSQL with the [`pgvector`](https://github.com/pgvector/pgvector) extension
+- Redis, for the background queue
+
+Install the app:
 
 ```bash
-# 1. Install dependencies
+git clone https://github.com/rasmuscnielsen/freyr.git
+cd freyr
+
 composer install
-pnpm install
+pnpm install && pnpm run build
 
-# 2. Create your environment file
 cp .env.example .env
-
-# 3. Generate the application key
 php artisan key:generate
-
-# 4. Configure your database in .env (see .env.example), then install:
-#    runs migrations, seeds the default category tree, and creates
-#    the OAuth keys and personal access client used by API tokens
-#    and MCP OAuth logins.
-php artisan app:install
-
-# 5. Build the frontend assets
-pnpm run build
-
-# 6. Open the app in your browser and follow the setup wizard —
-#    it creates the first (administrator) account and walks you
-#    through registration, Enable Banking and Spiir import.
 ```
 
-In a local environment you can add `--demo` to reset the database and load a
-demo user with sample data (see "Demo data" below):
+Set your database connection (`DB_*`) and `APP_URL` in `.env`, then run:
+
+```bash
+php artisan app:install
+```
+
+This runs the migrations, seeds the default categories, and creates the keys
+used for API tokens and MCP logins.
+
+Now open Freyr in your browser. A setup wizard creates your administrator
+account, then asks for your country and reporting currency. After that it
+helps you connect Enable Banking, import from Spiir, and turn on similar
+postings. You can skip those three and set them up later under **Settings →
+Platform**.
+
+### Try it with demo data
+
+To look around without connecting a bank, load a demo account with a year of
+sample data:
 
 ```bash
 php artisan app:install --demo
 ```
 
-For local development you can run the full stack (PHP server, queue worker, log
-tailer, and Vite dev server) with a single command:
+Then log in as `john@example.com` with the password `password`.
 
-```bash
-composer run dev
-```
+> [!WARNING]
+> `--demo` wipes the database first. Never run it on an install with real data.
 
-## Enable Banking configuration
+### Running in production
 
-Freyr uses [Enable Banking](https://enablebanking.com) to connect to banks. You
-need an Enable Banking account and an application registered in their control
-panel.
+Freyr needs a queue worker and the scheduler next to the web server. Set
+`QUEUE_CONNECTION=redis` in `.env`, then:
 
-Enable Banking is **completely free for personal use**: you can register a
-production application and whitelist your own bank accounts for personal use,
-so a self-hosted Freyr costs you nothing in API fees.
+- keep `php artisan horizon` running, for example with Supervisor, and
+- add a cron entry that runs `php artisan schedule:run` every minute.
 
-1. Sign up at [enablebanking.com](https://enablebanking.com) and create an
-   application in their control panel.
-2. Note your **Application ID** and download the **private key** (`.pem`) that
-   Enable Banking issues for the application.
-3. Enter the credentials in the setup wizard or later under **Platform →
-   Settings** (stored encrypted in the database) — or configure the following
-   environment variables as a fallback (see `config/services.php` under
-   `enable_banking`):
-
-   | Variable                          | Description                                                                                   | Default                          |
-   | --------------------------------- | --------------------------------------------------------------------------------------------- | -------------------------------- |
-   | `ENABLE_BANKING_APP_ID`           | Your Enable Banking application ID.                                                           | —                                |
-   | `ENABLE_BANKING_PRIVATE_KEY`      | Path to the private key `.pem` file. Defaults to `storage/{APP_ID}.pem` if left unset.        | `storage_path("{APP_ID}.pem")`   |
-   | `ENABLE_BANKING_BASE_URL`         | Enable Banking API base URL.                                                                  | `https://api.enablebanking.com`  |
-   | `ENABLE_BANKING_ACCESS_DAYS`      | How many days a bank authorization stays valid before it must be renewed.                     | `90`                             |
-   | `ENABLE_BANKING_TRANSACTION_DAYS` | How far back (in days) to fetch transactions on a sync.                                        | `30`                             |
-   | `ENABLE_BANKING_ASPSP_COUNTRY`    | Default bank country code.                                                                    | `DK`                             |
-   | `ENABLE_BANKING_PSU_TYPE`         | Payment service user type.                                                                    | `personal`                       |
-   | `ENABLE_BANKING_LANGUAGE`         | Language for the bank authorization flow.                                                     | `en`                             |
-
-Once configured, connect a bank from the **Bank connections** page in the app.
-The account balances and transactions are then imported by Freyr.
-
-## Background workers
-
-Freyr uses a queue (via Horizon) and a scheduler.
-
-Run the queue worker with Horizon:
-
-```bash
-php artisan horizon
-```
-
-The Horizon dashboard is available at `/horizon`. Access is restricted to
-platform administrators (the first user, created by the setup wizard).
-
-Run the scheduler:
-
-```bash
-php artisan schedule:work
-```
-
-**Bank syncs run via the scheduler.** The `app:bank-connections:sync`
-command is scheduled to run daily (see `routes/console.php`), which is what keeps
-your linked accounts up to date. You can also trigger a sync manually from the
-app, and run the command directly:
-
-```bash
-php artisan app:bank-connections:sync
-```
-
-In production, make sure both a Horizon process and the scheduler are running
-(e.g. a `cron` entry running `php artisan schedule:run` every minute, plus a
-supervised `php artisan horizon` process).
+The scheduler syncs your banks every three hours. You can also sync from the
+app at any time.
 
 After each deploy, run:
 
@@ -158,79 +112,61 @@ After each deploy, run:
 php artisan app:deployed
 ```
 
-This runs pending migrations and, in production, rebuilds the framework caches
-(`optimize`) and gracefully restarts the Horizon workers so they pick up the
-new code.
+It runs new migrations, rebuilds the caches, and restarts Horizon.
 
-## Registration
+The Horizon dashboard is at `/horizon` and is only open to platform
+administrators.
 
-Registration is **disabled by default** — new installations are private. You
-can allow other people to sign up in the setup wizard, or later under
-**Platform → Settings**. When registration is disabled, the sign-up page
-returns 404.
+## Connecting your bank
 
-## Categories
+Enable Banking is free for personal use: you register an application and
+whitelist your own bank accounts.
 
-Installing (`php artisan app:install`) seeds a sensible default tree of
-categories and subcategories (income, housing, food, transport, savings, and
-so on). It is safe to run in any environment and idempotent — re-running never
-duplicates. A Spiir import replaces the defaults with your own tree. Editing
-categories currently requires the database or a Spiir import; a management UI
-is on the roadmap.
+1. Create an account at [enablebanking.com](https://enablebanking.com) and
+   register an application.
+2. Copy the **Application ID** and download the **private key** (`.pem`).
+3. Enter both in the setup wizard, or later under **Settings → Platform →
+   General**. They are stored encrypted.
 
-## Demo data
+Then go to **Bank accounts → Add bank**, pick your bank, and log in with it.
+Bank authorizations expire after 90 days; Freyr shows when to renew.
 
-In a **local** environment you can reset the database and load a demo user
-(`john@example.com`, password `password`) with sample accounts, a bank
-connection, roughly a year of postings, and sync-run history:
+## Moving from Spiir
+
+The setup wizard can import a Spiir data export. Upload `Categories.json`,
+`User.csv`, `Account.csv`, and `Posting.csv`. The import is also available
+later under **Settings → Platform → General** while Freyr has no postings yet.
+
+Your Spiir categories replace the default ones. When you then connect your
+bank and link it to an imported account, Freyr only fetches transactions newer
+than the imported history, so nothing is duplicated.
+
+## AI assistants (MCP)
+
+Freyr has a built-in [MCP](https://modelcontextprotocol.io) server, so an AI
+assistant such as Claude or ChatGPT can look at your postings and help you
+categorize them. Try asking it to "categorize my uncategorized postings from
+last month".
+
+Add `https://your-freyr-host/mcp` as a custom connector in your assistant.
+Clients that support OAuth register themselves and ask you to approve access
+in Freyr. Other clients can send a personal access token from **Settings →
+Security** as a bearer token.
+
+For an agent on the same machine, start the server over stdio instead:
 
 ```bash
-php artisan app:install --demo
+php artisan mcp:start freyr
 ```
 
-> **Warning:** `--demo` wipes the database first (`migrate:fresh`). In
-> production, `app:install` asks for confirmation unless `--force` is given.
+The assistant can list, search, and categorize postings, look up categories
+and accounts, find similar postings, and manage postings in manual accounts.
+Changes it makes are marked as coming from MCP.
 
-## Currencies
+## REST API
 
-Amounts are stored and displayed in each account's own currency, and number
-formatting follows your browser locale. The dashboard aggregates income and
-expenses across accounts and displays totals in your most common account
-currency — converting between currencies is not supported yet, so the dashboard
-works best when your accounts share one currency.
-
-## Migrating from Spiir
-
-Freyr is built in the spirit of Spiir, and migrating from a Spiir data export
-is a first-class flow. The recommended order:
-
-1. **Install Freyr** (`php artisan app:install`, see "Getting started").
-2. **Import your export.** On a fresh install, the setup wizard lets you
-   upload the four export files (`Categories.json`, `User.csv`, `Account.csv`,
-   `Posting.csv`) straight from your browser — it is also available later
-   under **Platform → Settings** while no postings exist.
-
-   The importer creates your user, accounts, categories, and postings from the
-   export. Your Spiir category tree **replaces** the seeded default categories
-   (the upload form warns before doing this).
-3. **Connect your bank** from the Bank connections page and link each remote
-   account to the matching imported account. When you link an account that
-   already has imported history, Freyr only syncs transactions **newer** than
-   your latest imported posting (via the account's `ignore_postings_before`
-   date), so the first sync does not duplicate postings that came from the
-   export.
-
-## API
-
-Freyr exposes a **read-only** REST API secured by Laravel Passport personal
-access tokens.
-
-**Create a token:** in the app, go to **Settings → Security** and create a
-personal access token. The token is shown once; copy it immediately. Tokens
-are granted `read`, `write`, and `mcp:use` scopes — the API endpoints only
-honor `read`.
-
-**Authenticate** by sending the token as a Bearer token:
+Freyr has a read-only JSON API. Create a personal access token under
+**Settings → Security** and send it as a bearer token:
 
 ```bash
 curl https://your-freyr-host/api/postings \
@@ -238,54 +174,47 @@ curl https://your-freyr-host/api/postings \
   -H "Accept: application/json"
 ```
 
-**Endpoints** (all require authentication):
+| Endpoint                               | Description                        |
+| -------------------------------------- | ---------------------------------- |
+| `GET /api/bank-accounts`               | Your bank accounts                 |
+| `GET /api/bank-accounts/{id}`          | One bank account                   |
+| `GET /api/bank-accounts/{id}/postings` | Postings in one account            |
+| `GET /api/postings`                    | Your postings                      |
+| `GET /api/postings/{id}`               | One posting                        |
+| `GET /api/categories`                  | Categories and their subcategories |
+| `GET /api/categories/{id}`             | One category                       |
+| `GET /api/reports/overview`            | Income and expenses for a period   |
+| `GET /api/reports/overview/categories` | The same, broken down by category  |
 
-| Method | Endpoint                  | Description                              |
-| ------ | ------------------------- | ---------------------------------------- |
-| `GET`  | `/api/bank-accounts`      | List your bank accounts.                 |
-| `GET`  | `/api/bank-accounts/{id}` | Show a single bank account.              |
-| `GET`  | `/api/postings`           | List your postings (transactions).       |
-| `GET`  | `/api/postings/{id}`      | Show a single posting.                   |
-| `GET`  | `/api/categories`         | List categories and their subcategories. |
-| `GET`  | `/api/categories/{id}`    | Show a single category.                  |
+## Configuration reference
 
-## MCP server
+Most settings live in the app. If you prefer to configure Freyr through the
+environment, for example in a container, these variables are used whenever
+the setting has not been saved in the app:
 
-Freyr ships an [MCP](https://modelcontextprotocol.io) server so AI agents can
-query and help manage your budgeting data — the flagship use case is letting
-an agent review and categorize your transactions.
+| Variable                       | Description                                                   | Default                         |
+| ------------------------------ | ------------------------------------------------------------- | ------------------------------- |
+| `ENABLE_BANKING_APP_ID`        | Enable Banking application ID                                 | —                               |
+| `ENABLE_BANKING_PRIVATE_KEY`   | Path to the application's private key                         | `storage/{APP_ID}.pem`          |
+| `ENABLE_BANKING_BASE_URL`      | Enable Banking API URL                                        | `https://api.enablebanking.com` |
+| `ENABLE_BANKING_ACCESS_DAYS`   | Days a bank authorization stays valid                         | `90`                            |
+| `ENABLE_BANKING_ASPSP_COUNTRY` | Bank country used when none is chosen                         | `DK`                            |
+| `ENABLE_BANKING_PSU_TYPE`      | Account holder type (`personal` or `business`)                | `personal`                      |
+| `ENABLE_BANKING_LANGUAGE`      | Language of the bank's login flow                             | `en`                            |
+| `OPENAI_API_KEY`               | OpenAI key for similar postings                               | —                               |
+| `TRUSTED_PROXIES`              | Comma-separated proxy IPs or CIDR ranges, when behind a proxy | —                               |
 
-**HTTP transport** lives at `POST /mcp` behind OAuth bearer tokens
-(`auth:api`). Two ways to authenticate:
+Freyr only sends email for password resets. Configure the standard Laravel
+`MAIL_*` variables if you want them; otherwise mail is written to the log.
 
-- **OAuth** — MCP clients that support OAuth discovery (e.g. Claude) can
-  register themselves via Dynamic Client Registration (`POST /oauth/register`)
-  and complete an authorization-code + PKCE consent flow in your browser.
-  Consent grants the `mcp:use` scope, which unlocks the full tool surface.
-- **Personal access token** — a token from Settings → Security works as a
-  bearer token too; its `read`/`write` scopes gate which tools register.
+## Contributing
 
-**Stdio transport** (same-machine agents, no auth — acts as your instance's
-sole user):
+`composer run dev` starts the web server, queue worker, log viewer, and Vite
+together. Run the tests with `php artisan test --compact`. See
+[CONTRIBUTING.md](CONTRIBUTING.md) for the rest.
 
-```bash
-php artisan mcp:start freyr
-```
-
-To limit context bloat, only `list-postings` is advertised in `tools/list`;
-the remaining tools (`get-posting`, `list-categories`, `list-bank-accounts`,
-`categorize-postings`, `edit-posting`) are discoverable via the built-in
-`search_tools` and invoked via `execute_tools`.
-
-**Categorization workflow for agents:** list uncategorized postings
-(`list-postings` with `uncategorized`), load the taxonomy (`list-categories`,
-including each subcategory's `hints`), then confirm categories in bulk with
-`categorize-postings`. Writes mark `categorized_by: 'mcp'` as provenance.
-
-## Tech stack
-
-Laravel 13 · Inertia.js v3 · React 19 · Tailwind CSS v4 · PostgreSQL · Redis ·
-Laravel Horizon · Laravel Passport · Laravel MCP · Laravel Fortify · Enable Banking.
+Freyr is built with Laravel 13, Inertia.js, React 19, Tailwind CSS 4,
+PostgreSQL, Redis, Horizon, Passport, Fortify, and Laravel MCP.
 
 ## License
 
