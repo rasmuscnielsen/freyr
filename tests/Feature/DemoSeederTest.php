@@ -17,9 +17,9 @@ test('it seeds a coherent demo environment', function () {
         ->and(BankConnection::query()->whereBelongsTo($user)->count())->toBe(1)
         ->and(Posting::query()->where('user_id', $user->id)->count())->toBeGreaterThan(200);
 
-    // Every posting except the deliberate triage example must be categorized —
+    // Every posting except the deliberate triage examples must be categorized —
     // this guards against demo data referencing missing subcategory keys.
-    expect(Posting::query()->whereNull('categorized_subcategory_id')->count())->toBe(1);
+    expect(Posting::query()->whereNull('categorized_subcategory_id')->count())->toBe(5);
 
     expect(BankAccount::query()->pluck('currency')->unique()->all())->toBe(['EUR']);
 
