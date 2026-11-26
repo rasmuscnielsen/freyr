@@ -59,8 +59,8 @@ Install the app:
 git clone https://github.com/rasmuscnielsen/freyr.git
 cd freyr
 
-composer install
-pnpm install && pnpm run build
+composer install --no-dev
+pnpm install --frozen-lockfile && pnpm run build
 
 cp .env.example .env
 php artisan key:generate
@@ -73,7 +73,14 @@ php artisan app:install
 ```
 
 This runs the migrations, seeds the default categories, and creates the keys
-used for API tokens and MCP logins.
+used for API tokens and MCP logins. It asks you to confirm, because Freyr
+runs in production mode; in a script, pass `--force` instead.
+
+> [!IMPORTANT]
+> Keep `APP_ENV=production` and `APP_DEBUG=false` from `.env.example` on any
+> server. Local mode opens the Horizon dashboard to everyone and enables a
+> passwordless login shortcut, and debug mode shows error details, including
+> database queries, to anyone.
 
 Now open Freyr in your browser. A setup wizard creates your administrator
 account, then asks for your country and reporting currency. After that it
@@ -83,8 +90,10 @@ Platform**.
 
 ### Try it with demo data
 
-To look around without connecting a bank, load a demo account with a year of
-sample data:
+To look around on your own machine without connecting a bank, load a demo
+account with a year of sample data. The demo needs the development packages
+and local mode: run `composer install` without `--no-dev`, set
+`APP_ENV=local` in `.env`, then run:
 
 ```bash
 php artisan app:install --demo
@@ -106,16 +115,24 @@ Freyr needs a queue worker and the scheduler next to the web server. Set
 The scheduler syncs your banks every three hours. You can also sync from the
 app at any time.
 
-After each deploy, run:
+To update Freyr, pull the latest code and run:
 
 ```bash
+git pull
+composer install --no-dev
+pnpm install --frozen-lockfile && pnpm run build
 php artisan app:deployed
 ```
 
-It runs new migrations, rebuilds the caches, and restarts Horizon.
+`app:deployed` runs new migrations, rebuilds the caches, and restarts Horizon.
 
 The Horizon dashboard is at `/horizon` and is only open to platform
 administrators.
+
+Back up your database, your `.env` file, and the `storage` directory, which
+holds the API token keys. The `APP_KEY` in `.env` encrypts the Enable Banking
+and OpenAI credentials stored in the database; without it, Freyr cannot read
+them.
 
 ## Connecting your bank
 
@@ -209,6 +226,8 @@ Freyr only sends email for password resets. Configure the standard Laravel
 
 ## Contributing
 
+For development, install with `composer install` (including the development
+packages) and set `APP_ENV=local` and `APP_DEBUG=true` in `.env`.
 `composer run dev` starts the web server, queue worker, log viewer, and Vite
 together. Run the tests with `php artisan test --compact`. See
 [CONTRIBUTING.md](CONTRIBUTING.md) for the rest.
