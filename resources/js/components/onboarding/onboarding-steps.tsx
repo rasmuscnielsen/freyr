@@ -2,11 +2,7 @@ import { CheckIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 export type OnboardingStep =
-    | 'account'
-    | 'region'
-    | 'bank'
-    | 'spiir'
-    | 'similarity';
+    'account' | 'region' | 'bank' | 'spiir' | 'similarity';
 
 const steps: { key: OnboardingStep; label: string }[] = [
     { key: 'account', label: 'Account' },
