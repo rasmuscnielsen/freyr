@@ -64,8 +64,11 @@ install_package_managers() {
 prepare_environment() {
     if [[ ! -f .env ]]; then
         cp -- .env.example .env
-        # Use SQLite in orbs, as in phpunit.xml. Never rewrite an existing env file.
-        sed -i -e 's/^DB_CONNECTION=.*/DB_CONNECTION=sqlite/' \
+        # Orbs are development machines: use local mode and SQLite, as in
+        # phpunit.xml. Never rewrite an existing env file.
+        sed -i -e 's/^APP_ENV=.*/APP_ENV=local/' \
+            -e 's/^APP_DEBUG=.*/APP_DEBUG=true/' \
+            -e 's/^DB_CONNECTION=.*/DB_CONNECTION=sqlite/' \
             -e 's|^DB_DATABASE=.*|DB_DATABASE=database/database.sqlite|' .env
     fi
     if ! grep -Eq '^APP_KEY=.+$' .env; then

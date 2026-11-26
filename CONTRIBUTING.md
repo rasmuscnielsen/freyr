@@ -6,9 +6,15 @@ them.
 
 ## Getting set up
 
-Follow the "Installation" section in the [README](README.md). For local
-development, `composer run dev` runs the PHP server, queue worker, log tailer,
-and Vite in one command.
+Follow the "Installation" section in the [README](README.md), with two
+changes for development:
+
+- Run `composer install` without `--no-dev`, so the test and development
+  tools are installed.
+- Set `APP_ENV=local` and `APP_DEBUG=true` in `.env`.
+
+`composer run dev` runs the PHP server, queue worker, log tailer, and Vite in
+one command.
 
 ## Guidelines
 

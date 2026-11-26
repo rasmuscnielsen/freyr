@@ -13,11 +13,18 @@ steps and the affected version or commit.
 
 ## Supported versions
 
-Freyr is pre-1.0; only the latest release receives security fixes.
+Freyr is in beta and has no versioned releases. Security fixes land on the
+`main` branch; update with the steps in the README.
 
 ## Notes for self-hosters
 
-- Set `ADMIN_EMAILS` so only you can access the Horizon dashboard.
-- Set `REGISTRATION_ENABLED=false` if your instance should be private.
-- Keep your Enable Banking private key (`storage/*.pem`) out of version
-  control and readable only by the application user.
+- Run with `APP_ENV=production` and `APP_DEBUG=false`, as in `.env.example`.
+  Local mode opens the Horizon dashboard to everyone and enables a
+  passwordless login shortcut; debug mode shows error details to anyone.
+- Install with `composer install --no-dev`, so development tools are not on
+  your server.
+- Registration is off by default. Turn it on under **Settings → Platform**
+  only if other people should create accounts.
+- Keep `.env` and the files in `storage/` (API token keys and any Enable
+  Banking private key) out of version control and readable only by the
+  application user.
